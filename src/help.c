@@ -15,7 +15,7 @@
 void show_usage(void)
 {
     printf("CSV Viewer & Editor - Terminal Tool\n");
-    printf("Version %d dated March 08, 2026 by Daniil Khanin & Grok\n\n", CSVVIEW_VERSION);
+    printf("Version %d dated March 12, 2026 by Daniil Khanin & Claude\n\n", CSVVIEW_VERSION);
 
     printf("Usage:\n");
     printf("  csvview <filename.csv>\n");
@@ -28,12 +28,13 @@ void show_help(int use_ncurses)
 {
     const char *help_text[] = {
         "CSV Viewer & Editor - Terminal Tool",
-        "Version 11 dated March 09, 2026 by Daniil Khanin & Grok",
+        "Version 11 dated March 12, 2026 by Daniil Khanin & Claude",
         "",
         "Usage:",
         "  csvview <filename.csv>",
         "  csvview --help (or -h, -?, /h) - show this help",
         "  csvview --cat [--column=NAME] [--output=FILE] file1.csv file2.csv ...",
+        "  csvview --split --by=<column> [--output-dir=<dir>] [--drop-col] file.csv",
         "",
         "Key Bindings (main view):",
         "  Arrows / hjkl        Move cursor",
@@ -69,6 +70,7 @@ void show_help(int use_ncurses)
         "  :cf num()            Fill with row numbers (0,1,2…)",
         "  :cf num(N)           Fill starting from N (N,N+1…)",
         "  :cf num(N,M)         Fill with step M (N,N+M,N+2M…)",
+        "  :cf <formula>        Compute column values by formula (see Computed columns)",
         "  :cd <column_name>    Delete column (only if cursor is on this exact column)",
         "",
         "Filter quick commands (: then command):",
@@ -101,11 +103,14 @@ void show_help(int use_ncurses)
         "             >= 2026-01 finds January 2026 and later",
         "",
         "Column settings (t):",
+        "  ↑↓ / j k             Move between columns",
         "  S / N / D            Set type: String / Number / Date",
-        "  truncate N           Truncate strings to N chars",
-        "  decimals N           Fixed decimal places (N >= 0)",
-        "  datefmt %Y-%m        Custom date format",
-        "  Esc/q                Applay & exit",
+        "  Enter                Edit format for current column",
+        "    String: truncate length (0 = show full)",
+        "    Number: decimal places (-1 = auto)",
+        "    Date:   format string (e.g. %Y-%m-%d)",
+        "  H                    Toggle use-headers ON/OFF (preview updates live)",
+        "  q / Esc              Save & return to table",
         "",
         "Column statistics (d):",
         "  Numbers: sum, mean, median, mode, min/max, top 10 values + histogram",
@@ -117,11 +122,23 @@ void show_help(int use_ncurses)
         "  Values               Select column to aggregate",
         "  Aggregation          SUM, AVG, COUNT, MIN, MAX, UNIQUE COUNT",
         "  Date grouping        Auto / Month / Quarter / Year / Century",
+        "  Row sort / Col sort  Key ↑↓ (alphabetical) or Val ↑↓ (by value)",
         "  Row / Column / Grand totals — Yes/No",
+        "  G                    Toggle split-screen graph (right half)",
         "  :e [file]            Export pivot to CSV (default pivot.csv)",
         "  :q                   Quit pivot mode",
         "  :o                   Reopen settings",
         "  Settings saved in <file>.pivot",
+        "",
+        "Pivot table graph (G in pivot mode):",
+        "  G                    Show / hide graph panel (right half of screen)",
+        "  Space                Pin / unpin current series (column or row)",
+        "                       Pinned series are always shown regardless of cursor",
+        "  a                    Toggle axis: rows→X (default) / cols→X",
+        "  s                    Toggle Y-scale: linear / log",
+        "  :gt bar|line|dot     Graph type (bar chart / line / dots)",
+        "  :gt log|lin          Y-scale (same command, different argument)",
+        "  Status bar shows:    [G: <type> <scale> <axis>]",
         "",
         "Graph mode (g):",
         "  ←→ / j k / h l       Move cursor",
@@ -135,6 +152,31 @@ void show_help(int use_ncurses)
         "  :gx off              Back to row numbers",
         "  :gp on|off           Show cursor on points",
         "",
+        "Computed columns (:cf <formula>):",
+        "  Syntax:  :cf <expression>",
+        "  Example: :cf price * qty",
+        "           :cf round((revenue - cost) / revenue * 100, 2)",
+        "           :cf if(qty > 0, revenue / qty, 0)",
+        "           :cf col_sum(amount) - col_sum_all(amount)",
+        "  Operators:   + - * /  ( )  unary -",
+        "  Comparisons: = != < <= > >=  (used inside if())",
+        "  Functions:   round(x,n)  abs(x)  floor(x)  ceil(x)",
+        "               mod(x,y)  pow(x,y)  if(cond,t,f)  empty(col)",
+        "  Aggregates (current filter):  col_sum  col_avg  col_min  col_max",
+        "               col_count  col_median  col_percentile(col,p)",
+        "               col_stddev  col_var  col_rank(col)  col_pct(col)",
+        "  Aggregates (whole file):      same names with _all suffix",
+        "               e.g. col_sum_all(revenue)  col_rank_all(score)",
+        "",
+        "Split mode (--split):",
+        "  csvview --split --by=<column> [--output-dir=<dir>] [--drop-col] file.csv",
+        "  - Splits one CSV into N files, one per unique value of <column>",
+        "  - Output filenames: <original>_<value>.csv",
+        "  - Headers are copied to every output file",
+        "  - --output-dir=<dir>   Write output files into <dir> (created if needed)",
+        "  - --drop-col           Remove the split column from all output files",
+        "  - Progress and summary printed to stdout",
+        "",
         "Concat mode (--cat):",
         "  csvview --cat [--column=NAME] [--output=FILE] file1.csv file2.csv ...",
         "  - Adds column with source filename (without .csv)",
@@ -144,8 +186,12 @@ void show_help(int use_ncurses)
         "  - Progress bar shown during merge",
         "",
         "On first launch (no .csvf file):",
-        "  H / h                Enable headers and exit",
-        "  Enter                Apply settings",
+        "  Column setup window opens automatically",
+        "  Status line shows: Headers: ON [H to toggle] / Headers: OFF [H to toggle]",
+        "  H                    Toggle headers ON/OFF (preview row updates live)",
+        "  S / N / D            Set column type for selected column",
+        "  Enter                Edit format for selected column",
+        "  q / Esc              Save settings and open the table",
         "",
         NULL
     };    
@@ -209,6 +255,9 @@ void show_help(int use_ncurses)
                     strstr(text, "Column settings (t):") ||
                     strstr(text, "Column statistics (d):") ||
                     strstr(text, "Pivot table (p / P):") ||
+                    strstr(text, "Pivot table graph (G in pivot mode):") ||
+                    strstr(text, "Computed columns (:cf <formula>):") ||
+                    strstr(text, "Split mode (--split):") ||
                     strstr(text, "Graph mode (g):") ||
                     strstr(text, "Concat mode (--cat):") ||
                     strstr(text, "On first launch (no .csvf file):"))
