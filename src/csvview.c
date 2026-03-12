@@ -192,13 +192,14 @@ static char *show_history_picker(void)
     cbreak();
     noecho();
     keypad(stdscr, TRUE);
+    curs_set(0);
     if (has_colors()) {
         start_color();
-        use_default_colors();
-        init_pair(1, COLOR_WHITE,   -1);
-        init_pair(3, COLOR_CYAN,    -1);
-        init_pair(5, COLOR_GREEN,   -1);
-        init_pair(6, COLOR_YELLOW,  -1);
+        init_pair(1, 250,            COLOR_BLACK);
+        init_pair(3, COLOR_YELLOW,   COLOR_BLACK);
+        init_pair(5, COLOR_CYAN,     COLOR_BLACK);
+        init_pair(6, 244,            COLOR_BLACK);
+        bkgd(COLOR_PAIR(1));
     }
 
     int sel = 0;
