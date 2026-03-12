@@ -44,7 +44,7 @@ void apply_filter(RowIndex *rows, FILE *f, int row_count)
     int new_syntax_ok = 0;
 
     // Пытаемся распарсить как новый расширенный фильтр
-    if (strpbrk(filter_query, "><=!") ||
+    if (strpbrk(filter_query, "><=!(") ||
         strstr(filter_query, "AND") ||
         strstr(filter_query, "OR") ||
         strstr(filter_query, "NOT") ||

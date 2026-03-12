@@ -1226,7 +1226,15 @@ int main(int argc, char *argv[]) {
 
             // Drill-down: пользователь нажал Enter на ячейке pivot
             if (pivot_drilldown_filter[0]) {
-                strncpy(filter_query, pivot_drilldown_filter, sizeof(filter_query) - 1);
+                if (filter_active && filter_query[0]) {
+                    // Комбинируем существующий фильтр с drill-down через AND
+                    char combined[512];
+                    snprintf(combined, sizeof(combined), "(%s) AND %s",
+                             filter_query, pivot_drilldown_filter);
+                    strncpy(filter_query, combined, sizeof(filter_query) - 1);
+                } else {
+                    strncpy(filter_query, pivot_drilldown_filter, sizeof(filter_query) - 1);
+                }
                 filter_query[sizeof(filter_query) - 1] = '\0';
                 pivot_drilldown_filter[0] = '\0';
 

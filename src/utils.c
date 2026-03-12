@@ -499,6 +499,14 @@ int parse_filter_expression(const char *query, FilterExpr *expr)
     // Убираем лишние пробелы в начале и конце
     char *p = trim(input);
 
+    // Поддержка скобок: заменяем ( и ) пробелами перед парсингом.
+    // При левостороннем вычислении (A OR B) AND C корректно раскрывается
+    // в A OR B AND C → результат тот же.
+    for (char *pp = p; *pp; pp++) {
+        if (*pp == '(' || *pp == ')') *pp = ' ';
+    }
+    p = trim(p);
+
     // Проверяем отрицание всего выражения
     expr->negated = 0;
     if (*p == '!') {
