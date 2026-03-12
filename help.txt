@@ -1,5 +1,5 @@
 CSV Viewer & Editor - Terminal Tool
-Version 11 dated March 12, 2026 by Daniil Khanin & Claude
+Version 12 dated March 12, 2026 by Daniil Khanin & Claude
 
 Usage:
   csvview <file>                  Open CSV file (comma-separated)
@@ -168,6 +168,14 @@ Concat mode (--cat):
   - All files must have same number of columns
   - If --output not set → merged_YYYYMMDD_HHMMSS.csv
   - Progress bar shown during merge
+
+File history (csvview with no arguments):
+  csvview without arguments opens a picker with recent files
+  ↑↓ / j k             Select file
+  Enter                Open selected file
+  Home / End           First / last entry
+  q / Esc              Quit
+  History stored in ~/.csvview_history (max 20 files, newest first)
 
 On first launch (no .csvf file):
   Column setup window opens automatically

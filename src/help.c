@@ -29,7 +29,7 @@ void show_help(int use_ncurses)
 {
     const char *help_text[] = {
         "CSV Viewer & Editor - Terminal Tool",
-        "Version 11 dated March 12, 2026 by Daniil Khanin & Claude",
+        "Version 12 dated March 12, 2026 by Daniil Khanin & Claude",
         "",
         "Usage:",
         "  csvview <file>                  Open file (auto-detects .tsv / .psv)",
@@ -196,6 +196,14 @@ void show_help(int use_ncurses)
         "  - If --output not set → merged_YYYYMMDD_HHMMSS.csv",
         "  - Progress bar shown during merge",
         "",
+        "File history (csvview with no arguments):",
+        "  csvview without arguments opens a picker with recent files",
+        "  ↑↓ / j k             Select file",
+        "  Enter                Open selected file",
+        "  Home / End           First / last entry",
+        "  q / Esc              Quit",
+        "  History stored in ~/.csvview_history (max 20 files, newest first)",
+        "",
         "On first launch (no .csvf file):",
         "  Column setup window opens automatically",
         "  Status line shows: Headers: ON [H to toggle] / Headers: OFF [H to toggle]",
@@ -271,6 +279,7 @@ void show_help(int use_ncurses)
                     strstr(text, "Split mode (--split):") ||
                     strstr(text, "Graph mode (g):") ||
                     strstr(text, "Concat mode (--cat):") ||
+                    strstr(text, "File history (csvview with no arguments):") ||
                     strstr(text, "On first launch (no .csvf file):"))
                 {
                     wattron(win, COLOR_PAIR(5) | A_BOLD);  // ярко-зелёный + жирный

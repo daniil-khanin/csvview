@@ -23,7 +23,7 @@
 // Константы проекта
 // ────────────────────────────────────────────────
 
-#define CSVVIEW_VERSION         11
+#define CSVVIEW_VERSION         12
 
 #define MAX_ROWS           		10000000
 #define MAX_COLS                702
