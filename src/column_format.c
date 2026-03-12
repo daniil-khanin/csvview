@@ -65,16 +65,8 @@ char *format_number(const char *raw_str, int decimals)
         return strdup("0");
     }
 
-    // Normalize decimal separator: replace comma with dot (e.g. "1234,56" → "1234.56")
-    char normalized[64];
-    strncpy(normalized, raw_str, sizeof(normalized) - 1);
-    normalized[sizeof(normalized) - 1] = '\0';
-    for (char *p = normalized; *p; p++) {
-        if (*p == ',') *p = '.';
-    }
-
     char *endptr;
-    double num = strtod(normalized, &endptr);
+    double num = parse_double(raw_str, &endptr);
     if (*endptr != '\0' && *endptr != '\n') {
         // Не чистое число — возвращаем как есть
         return strdup(raw_str);

@@ -1,6 +1,26 @@
 #include "utils.h"
 #include <time.h>
 
+// Parse a double, accepting both dot and comma as decimal separator.
+double parse_double(const char *s, char **endptr)
+{
+    if (!s) { if (endptr) *endptr = (char *)s; return 0.0; }
+
+    // Copy and replace comma→dot
+    char buf[64];
+    strncpy(buf, s, sizeof(buf) - 1);
+    buf[sizeof(buf) - 1] = '\0';
+    for (char *p = buf; *p; p++) {
+        if (*p == ',') *p = '.';
+    }
+
+    char *ep;
+    double result = strtod(buf, &ep);
+    // Map endptr back into the original string
+    if (endptr) *endptr = (char *)s + (ep - buf);
+    return result;
+}
+
 /**
  * @brief Преобразует номер столбца (0-based) в буквенное обозначение Excel-стиля
  *
@@ -600,7 +620,7 @@ int parse_filter_expression(const char *query, FilterExpr *expr)
 
         // Пытаемся распознать число
         char *endptr;
-        double num = strtod(val_buf, &endptr);
+        double num = parse_double(val_buf, &endptr);
         if (endptr != val_buf && *endptr == '\0') {
             temp_conds[cond_count].value_is_num = 1;
             temp_conds[cond_count].value_num    = num;
@@ -809,7 +829,7 @@ int evaluate_condition(const char *cell, const Condition *cond)
     {
         // Числовое сравнение
         char *endptr;
-        double cell_num = strtod(cell, &endptr);
+        double cell_num = parse_double(cell, &endptr);
 
         // Если не удалось полностью распарсить строку как число
         // (остались символы после числа или строка вообще не начиналась с числа)

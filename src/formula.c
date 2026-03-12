@@ -46,7 +46,7 @@ static Token lex_read(Lex *lx) {
     /* number */
     if (isdigit((unsigned char)s[i]) ||
         (s[i] == '.' && isdigit((unsigned char)s[i+1]))) {
-        char *end; t.num = strtod(s+i, &end);
+        char *end; t.num = parse_double(s+i, &end);
         t.type = T_NUM; lx->pos = (int)(end-s); return t;
     }
 
@@ -496,7 +496,7 @@ static void compute_one(AggCache *a, int *rrows, int n, FormulaProgressFn cb) {
         const char *ln = row_line(rrows[i]);
         field_at(ln, a->col_idx, fbuf, FBUF);
         if (!fbuf[0]) continue;
-        char *ep; double v = strtod(fbuf, &ep);
+        char *ep; double v = parse_double(fbuf, &ep);
         if (ep==fbuf) continue;
         sum += v;
         if (v<mn) mn=v;
@@ -575,7 +575,7 @@ static void compute_one(AggCache *a, int *rrows, int n, FormulaProgressFn cb) {
                 const char *ln = row_line(rrows[i]);
                 field_at(ln, a->col_idx, fbuf, FBUF);
                 if (!fbuf[0]) continue;
-                char *ep; double v=strtod(fbuf,&ep);
+                char *ep; double v=parse_double(fbuf,&ep);
                 if (ep!=fbuf) a->per_row[rrows[i]]=v/sum*100.0;
             }
         }
@@ -643,7 +643,7 @@ static int eval_node(const Formula *f, int ni,
             char buf[FBUF];
             field_at(line, nd->col_idx, buf, FBUF);
             if (!buf[0]) return 1;
-            char *ep; *out=strtod(buf,&ep);
+            char *ep; *out=parse_double(buf,&ep);
             return (ep==buf)?1:0;
         }
 

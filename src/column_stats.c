@@ -177,7 +177,7 @@ void show_column_stats(int col_idx)
         if (col_types[col_idx] == COL_NUM)
         {
             char *endptr;
-            double val = strtod(cell, &endptr);
+            double val = parse_double(cell, &endptr);
             if (endptr != cell && *endptr == '\0')
             {
                 sum_val += val;

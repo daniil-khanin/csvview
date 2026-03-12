@@ -588,7 +588,7 @@ void update_agg(Agg *agg, const char *val, ColType value_type) {
         if (!*clean) return;
 
         char *endptr;
-        double num = strtod(clean, &endptr);
+        double num = parse_double(clean, &endptr);
 
         // Если удалось распарсить почти всю строку
         if (endptr != clean && (*endptr == '\0' || isspace(*endptr))) {

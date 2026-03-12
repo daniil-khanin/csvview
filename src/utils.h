@@ -102,4 +102,10 @@ char *build_csv_line(char **fields, int count, char delimiter);
  */
 void free_csv_fields(char **fields, int count);
 
+/**
+ * Parse a double accepting both '.' and ',' as decimal separator.
+ * Drop-in replacement for strtod().
+ */
+double parse_double(const char *s, char **endptr);
+
 #endif

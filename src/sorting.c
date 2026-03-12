@@ -134,8 +134,8 @@ int compare_rows_by_column(const void *pa, const void *pb)
 
     // Пытаемся интерпретировать как числа
     char *end_a, *end_b;
-    double num_a = strtod(val_a, &end_a);
-    double num_b = strtod(val_b, &end_b);
+    double num_a = parse_double(val_a, &end_a);
+    double num_b = parse_double(val_b, &end_b);
 
     int is_num_a = (end_a != val_a && *end_a == '\0');
     int is_num_b = (end_b != val_b && *end_b == '\0');

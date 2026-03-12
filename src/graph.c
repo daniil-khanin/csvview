@@ -168,7 +168,7 @@ double *extract_plot_values(
                 strncpy(ym, date_str, 7); ym[7] = '\0';
             }
 
-            double val = atof(val_str ? val_str : "0");
+            double val = parse_double(val_str ? val_str : "0", NULL);
 
             free(date_str);
             free(val_str);
@@ -212,7 +212,7 @@ double *extract_plot_values(
             line[strcspn(line, "\n")] = '\0';
 
             char *cell = get_column_value(line, column_names[col] ? column_names[col] : "", use_headers);
-            values[collected++] = atof(cell ? cell : "0");
+            values[collected++] = parse_double(cell ? cell : "0", NULL);
             free(cell);
         }
         point_count = collected;
