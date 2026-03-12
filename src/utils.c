@@ -244,6 +244,8 @@ int save_file(const char *filename, FILE *orig_f, RowIndex *rows, int row_count)
 
     for (int r = 0; r < row_count; r++)
     {
+        /* buf объявлен здесь — действует весь цикл, line не станет visage-указателем */
+        char buf[MAX_LINE_LEN];
         const char *line = rows[r].line_cache ? rows[r].line_cache : "";
 
         // Если кэша нет — читаем строку из оригинального файла
@@ -251,17 +253,12 @@ int save_file(const char *filename, FILE *orig_f, RowIndex *rows, int row_count)
         {
             if (fseek(orig_f, rows[r].offset, SEEK_SET) == 0)
             {
-                char buf[MAX_LINE_LEN];
                 if (fgets(buf, sizeof(buf), orig_f))
                 {
-                    size_t len = strlen(buf);
-                    // Убираем \n, если он есть (fprintf ниже сам добавит)
-                    if (len > 0 && buf[len-1] == '\n') {
-                        buf[len-1] = '\0';
-                    }
+                    // Убираем \r\n (fprintf ниже сам добавит \n)
+                    buf[strcspn(buf, "\r\n")] = '\0';
                     line = buf;
                 }
-                // Если fgets не сработал — line остаётся "" (пустая строка)
             }
         }
 

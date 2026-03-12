@@ -5,15 +5,19 @@
  * Добавление/удаление столбцов, заполнение значениями, пересборка заголовка
  */
 
-#include "table_edit.h"       
+#include "table_edit.h"
 #include "csvview_defs.h"     // глобальные переменные и константы
 #include "utils.h"            // save_file, col_letter и т.д.
 #include "column_format.h"    // save_column_settings()
+#include "formula.h"          // formula_compile / eval
+#include "filtering.h"        // filtered_rows, filtered_count, filter_active
+#include "sorting.h"          // sorted_rows, sorted_count, sort_col
 
 #include <ncurses.h>          // ← это главное! mvprintw, refresh, getch, LINES, COLOR_PAIR и т.д.
 #include <stdio.h>            // fopen, fprintf, rename
 #include <stdlib.h>           // malloc, free, atoi
 #include <string.h>           // strcpy, strncpy, strlen
+#include <math.h>             // floor, fabs
 
 // ────────────────────────────────────────────────
 // Добавление нового столбца
@@ -63,12 +67,12 @@ void add_column_and_save(int insert_pos, const char *new_name, const char *csv_f
 
     for (int r = 0; r < row_count; r++)
     {
+        char buf[MAX_LINE_LEN];  /* объявлен здесь — действует весь цикл */
         const char *line = rows[r].line_cache ? rows[r].line_cache : "";
         if (!rows[r].line_cache)
         {
             if (fseek(f, rows[r].offset, SEEK_SET) == 0)
             {
-                char buf[MAX_LINE_LEN];
                 if (fgets(buf, sizeof(buf), f))
                 {
                     size_t len = strlen(buf);
@@ -78,7 +82,7 @@ void add_column_and_save(int insert_pos, const char *new_name, const char *csv_f
             }
         }
 
-        // Вставляем новый столбец (запятая + значение)
+        // Вставляем новый столбец
         char new_line[MAX_LINE_LEN * 2] = {0};
         int pos = 0;
         int col = 0;
@@ -89,11 +93,11 @@ void add_column_and_save(int insert_pos, const char *new_name, const char *csv_f
         {
             if (col == insert_pos)
             {
-                // Вставляем запятую и значение
-                new_line[pos++] = ',';
+                // Вставляем значение + хвостовую запятую (разделитель до следующего поля)
                 const char *val = (r == 0 && use_headers) ? new_name : "";
                 strcpy(new_line + pos, val);
                 pos += strlen(val);
+                new_line[pos++] = ',';
             }
 
             // Копируем текущее поле
@@ -177,6 +181,12 @@ void add_column_and_save(int insert_pos, const char *new_name, const char *csv_f
 // Заполнение столбца значениями
 // ────────────────────────────────────────────────
 
+static void fill_progress(const char *msg) {
+    mvprintw(LINES-1, 0, "%-*s", COLS-1, "");
+    mvprintw(LINES-1, 0, ":cf %s", msg);
+    refresh();
+}
+
 void fill_column(int col_idx, const char *arg, const char *csv_filename)
 {
     if (col_idx < 0 || col_idx >= col_count)
@@ -229,13 +239,155 @@ void fill_column(int col_idx, const char *arg, const char *csv_filename)
     }
     else
     {
-        mvprintw(LINES - 1, 0, "Invalid argument: \"string\" or num() / num(N) / num(N,M)");
+        /* ── Formula mode ────────────────────────────────────────────────── */
+        Formula *fml = formula_compile(arg);
+        if (formula_error(fml)) {
+            mvprintw(LINES-1, 0, "Formula error: %s", formula_error(fml));
+            refresh(); getch();
+            formula_free(fml); return;
+        }
+
+        /* Build display-index map (needed for rank/pct per-row aggregates) */
+        int  start_row = use_headers ? 1 : 0;
+        int  all_n     = row_count - start_row;
+        int *disp_rows;
+        int  disp_count;
+        int  disp_owns = 0;
+
+        if (filter_active && filtered_count > 0) {
+            disp_rows  = filtered_rows;
+            disp_count = filtered_count;
+        } else if (sort_col >= 0 && sorted_count > 0) {
+            disp_rows  = sorted_rows;
+            disp_count = sorted_count;
+        } else {
+            disp_rows  = malloc((size_t)all_n * sizeof(int));
+            disp_count = all_n;
+            disp_owns  = 1;
+            for (int i = 0; i < all_n; i++) disp_rows[i] = start_row + i;
+        }
+
+        /* row → display_idx map (-1 if not in view) */
+        int *row_to_disp = malloc((size_t)row_count * sizeof(int));
+        if (!row_to_disp) {
+            formula_free(fml);
+            if (disp_owns) free(disp_rows);
+            return;
+        }
+        for (int i = 0; i < row_count; i++) row_to_disp[i] = -1;
+        for (int i = 0; i < disp_count; i++) row_to_disp[disp_rows[i]] = i;
+
+        /* Precompute aggregates */
+        mvprintw(LINES-1, 0, ":cf Computing aggregates...");
         refresh();
-        getch();
-        return;
+        if (formula_precompute(fml, disp_rows, disp_count, fill_progress) != 0) {
+            mvprintw(LINES-1, 0, "Formula error: %s", formula_error(fml));
+            refresh(); getch();
+            formula_free(fml);
+            if (disp_owns) free(disp_rows);
+            free(row_to_disp); return;
+        }
+
+        /* Fill loop */
+        int row_start = start_row;
+        long done = 0, errors = 0;
+
+        for (int r = row_start; r < row_count; r++) {
+            /* lazy load — всегда нужен для save даже для строк вне вида */
+            if (!rows[r].line_cache) {
+                fseek(f, rows[r].offset, SEEK_SET);
+                char *ln = malloc(MAX_LINE_LEN);
+                if (fgets(ln, MAX_LINE_LEN, f)) {
+                    ln[strcspn(ln, "\r\n")] = '\0';  /* срезаем \r\n */
+                    rows[r].line_cache = ln;
+                } else {
+                    rows[r].line_cache = strdup(""); free(ln);
+                }
+            }
+
+            int di = row_to_disp[r];
+
+            /* строки вне текущего вида не трогаем — сохраняем исходное содержимое */
+            if (di < 0) {
+                done++;
+                continue;
+            }
+
+            char temp_val[64] = "";
+            {
+                double result;
+                if (formula_eval_row(fml, r, di, rows[r].line_cache, &result) == 0) {
+                    /* формат: целое если без дроби, иначе до 10 значащих цифр */
+                    if (result == floor(result) && fabs(result) < 1e15)
+                        snprintf(temp_val, sizeof(temp_val), "%.0f", result);
+                    else
+                        snprintf(temp_val, sizeof(temp_val), "%.10g", result);
+                } else {
+                    errors++;
+                }
+            }
+
+            /* реконструируем строку с temp_val в col_idx */
+            char new_line[MAX_LINE_LEN * 2] = {0};
+            int  pos = 0;
+            const char *p = rows[r].line_cache;
+            int current_col = 0;
+            int in_quotes   = 0;
+
+            while (*p) {
+                if (current_col == col_idx) {
+                    while (*p) {
+                        if (*p=='"' && !in_quotes) in_quotes=1;
+                        else if (*p=='"' && in_quotes) in_quotes=0;
+                        else if (*p==',' && !in_quotes) { p++; break; }
+                        p++;
+                    }
+                    size_t vl = strlen(temp_val);
+                    memcpy(new_line+pos, temp_val, vl); pos += (int)vl;
+                    if (current_col < col_count-1) new_line[pos++]=',';
+                } else {
+                    while (*p) {
+                        if (*p=='"' && !in_quotes) in_quotes=1;
+                        else if (*p=='"' && in_quotes) in_quotes=0;
+                        else if (*p==',' && !in_quotes) break;
+                        new_line[pos++]=*p++;
+                    }
+                    if (*p==',') new_line[pos++]=*p++;
+                }
+                current_col++;
+            }
+            if (current_col <= col_idx) {
+                while (current_col < col_idx) { new_line[pos++]=','; current_col++; }
+                size_t vl = strlen(temp_val);
+                memcpy(new_line+pos, temp_val, vl); pos += (int)vl;
+                if (col_idx < col_count-1) new_line[pos++]=',';
+            }
+            new_line[pos]='\0';
+
+            free(rows[r].line_cache);
+            rows[r].line_cache = strdup(new_line);
+
+            done++;
+            if (done % 500000 == 0) {
+                mvprintw(LINES-1, 0, ":cf Filling... %ld rows", done);
+                refresh();
+            }
+        }
+
+        formula_free(fml);
+        if (disp_owns) free(disp_rows);
+        free(row_to_disp);
+
+        if (errors > 0) {
+            mvprintw(LINES-1, 0, "Done. %ld rows filled, %ld errors (div/0 or empty)", done, errors);
+            refresh(); getch();
+        }
+
+        goto save_and_reindex;
     }
 
-    // Заполняем столбец
+    // Заполняем столбец (text / num modes)
+    {
     int row_start = use_headers ? 1 : 0;
     int num = start;
 
@@ -354,7 +506,9 @@ void fill_column(int col_idx, const char *arg, const char *csv_filename)
         free(rows[r].line_cache);
         rows[r].line_cache = strdup(new_line);
     }
+    } /* end text/num block */
 
+    save_and_reindex:
     // Сохраняем изменения в файл
     if (save_file(csv_filename, f, rows, row_count) != 0)
     {
@@ -450,12 +604,12 @@ void delete_column(int col_idx, const char *arg, const char *csv_filename)
 
     for (int r = 0; r < row_count; r++)
     {
+        char buf[MAX_LINE_LEN];  /* объявлен здесь — действует весь цикл */
         const char *line = rows[r].line_cache ? rows[r].line_cache : "";
         if (!rows[r].line_cache)
         {
             if (fseek(f, rows[r].offset, SEEK_SET) == 0)
             {
-                char buf[MAX_LINE_LEN];
                 if (fgets(buf, sizeof(buf), f))
                 {
                     size_t len = strlen(buf);
