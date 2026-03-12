@@ -716,8 +716,11 @@ void show_pivot_settings_window(PivotSettings *settings, const char *csv_filenam
     }
     int num_col_options = col_count + 1;
 
-    const char *agg_options[] = {"SUM", "AVG", "COUNT", "MIN", "MAX", "UNIQUE COUNT"};
-    int num_agg_options = 6;
+    const char *agg_options[] = {
+        "SUM", "AVG", "COUNT", "MIN", "MAX", "UNIQUE COUNT",
+        "SUM+COUNT", "SUM+AVG", "MIN+MAX", "SUM+COUNT+AVG", "COUNT+UNIQUE COUNT"
+    };
+    int num_agg_options = 11;
 
     const char *date_options[] = {"Auto", "Month", "Quarter", "Year", "Century"};
     int num_date_options = 5;
@@ -844,7 +847,7 @@ void show_pivot_settings_window(PivotSettings *settings, const char *csv_filenam
             else if (real_f == 3) {
                 int vnum = value_idx > 0 ? (use_headers ? col_name_to_num(col_options[value_idx]) : col_to_num(col_options[value_idx])) : -1;
                 ColType vt = (vnum >= 0) ? col_types[vnum] : COL_STR;
-                int max_a = (vt == COL_NUM) ? 6 : (vt == COL_DATE ? 5 : 2);
+                int max_a = (vt == COL_NUM) ? num_agg_options : (vt == COL_DATE ? 5 : 2);
                 agg_idx = (agg_idx + 1) % max_a;
             }
             else if (real_f == 4) {
@@ -867,7 +870,7 @@ void show_pivot_settings_window(PivotSettings *settings, const char *csv_filenam
             else if (real_f == 3) {
                 int vnum = value_idx > 0 ? (use_headers ? col_name_to_num(col_options[value_idx]) : col_to_num(col_options[value_idx])) : -1;
                 ColType vt = (vnum >= 0) ? col_types[vnum] : COL_STR;
-                int max_a = (vt == COL_NUM) ? 6 : (vt == COL_DATE ? 5 : 2);
+                int max_a = (vt == COL_NUM) ? num_agg_options : (vt == COL_DATE ? 5 : 2);
                 agg_idx = (agg_idx - 1 + max_a) % max_a;
             }
             else if (real_f == 4) {
@@ -940,6 +943,23 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
     ColType value_type = col_types[value_idx];
     ColType row_type = (row_group_idx >= 0) ? col_types[row_group_idx] : COL_STR;
     ColType col_type = (col_group_idx >= 0) ? col_types[col_group_idx] : COL_STR;
+
+    // Parse aggregation list: "SUM+COUNT" → agg_list[]={"SUM","COUNT"}, agg_count=2
+    char agg_list[6][32];
+    int agg_count = 0;
+    {
+        char agg_buf[64];
+        strncpy(agg_buf, settings->aggregation ? settings->aggregation : "SUM", sizeof(agg_buf) - 1);
+        agg_buf[sizeof(agg_buf) - 1] = '\0';
+        char *tok = strtok(agg_buf, "+");
+        while (tok && agg_count < 6) {
+            strncpy(agg_list[agg_count], tok, 31);
+            agg_list[agg_count][31] = '\0';
+            agg_count++;
+            tok = strtok(NULL, "+");
+        }
+        if (agg_count == 0) { strcpy(agg_list[0], "SUM"); agg_count = 1; }
+    }
 
     int display_count = filter_active ? filtered_count : (sort_col >= 0 ? sorted_count : row_count);
 
@@ -1027,7 +1047,8 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
     }
 
     int total_rows = unique_rows + (settings->show_col_totals ? 1 : 0);
-    int total_cols = unique_cols + (settings->show_row_totals ? 1 : 0);
+    int total_cols = (unique_cols + (settings->show_row_totals ? 1 : 0)) * agg_count;
+    int max_logical_cols = unique_cols + (settings->show_row_totals ? 1 : 0);
 
     // Вычисляем ширину левого столбца
     int max_row_key_len = strlen("Row \\ Col");
@@ -1214,7 +1235,7 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
         }
     } else if (strcmp(rsort, "VAL_ASC") == 0 || strcmp(rsort, "VAL_DESC") == 0) {
         g_sort_agg_arr = row_totals;
-        g_sort_agg_str = settings->aggregation ? settings->aggregation : "SUM";
+        g_sort_agg_str = agg_list[0];
         g_sort_vtype   = value_type;
         g_sort_dir     = strcmp(rsort, "VAL_ASC") == 0 ? 1 : -1;
         qsort(row_order, unique_rows, sizeof(int), compare_order_by_agg);
@@ -1228,7 +1249,7 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
         }
     } else if (strcmp(csort, "VAL_ASC") == 0 || strcmp(csort, "VAL_DESC") == 0) {
         g_sort_agg_arr = col_totals;
-        g_sort_agg_str = settings->aggregation ? settings->aggregation : "SUM";
+        g_sort_agg_str = agg_list[0];
         g_sort_vtype   = value_type;
         g_sort_dir     = strcmp(csort, "VAL_ASC") == 0 ? 1 : -1;
         qsort(col_order, unique_cols, sizeof(int), compare_order_by_agg);
@@ -1244,7 +1265,7 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
 
     // Now display loop
     int top_row = 0, cur_row_p = 0, left_col_p = 0, cur_col_p = 0;
-    int vis_rows = height - 7;
+    int vis_rows = height - 7 - (agg_count > 1 ? 1 : 0);
 
     // Graph state
     int graph_split  = 0;
@@ -1382,29 +1403,45 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
 
         refresh();
 
-        // Заголовок столбцов (верхняя строка)
+        // Заголовок столбцов
         attron(COLOR_PAIR(6) | A_BOLD);
         mvprintw(4, 2, "%-*s", pivot_row_index_width - 2, "Row \\ Col");
+        attroff(COLOR_PAIR(6) | A_BOLD);
+
+        // Row 1: col group keys (only at first sub-col of each key)
         for (int c = 0; c < vis_cols; c++) {
             int cid = left_col_p + c;
             if (cid >= total_cols) break;
-            char *key = (cid < unique_cols) ? col_keys[col_order[cid]] : "Total";
-            int is_current_col = (cid == cur_col_p);
-            if (is_current_col) {
-                attron(COLOR_PAIR(3)); // подсветка текущего столбца
-            } else {
-                attron(COLOR_PAIR(6));
+            int logical_col = cid / agg_count;
+            int agg_sub     = cid % agg_count;
+            if (agg_sub == 0) {
+                char *key = (logical_col < unique_cols) ? col_keys[col_order[logical_col]] : "Total";
+                int is_current_col = (logical_col == cur_col_p / agg_count);
+                char col_key_buf[CELL_WIDTH * 2 + 1];
+                snprintf(col_key_buf, CELL_WIDTH - 1, "%s", key);
+                attron(COLOR_PAIR(is_current_col ? 3 : 6) | A_BOLD);
+                mvprintw(4, pivot_row_index_width + c * CELL_WIDTH, "%-*s",
+                         CELL_WIDTH - 2, col_key_buf);
+                attroff(COLOR_PAIR(3) | COLOR_PAIR(6) | A_BOLD);
             }
-            char col_key_buf[CELL_WIDTH + 1];
-            snprintf(col_key_buf, CELL_WIDTH - 1, "%s", key);
-            mvprintw(4, pivot_row_index_width + c * CELL_WIDTH, "%*s",
-                     CELL_WIDTH - 2, col_key_buf);
-            if (is_current_col) attroff(COLOR_PAIR(3));
-            else attroff(COLOR_PAIR(6));
         }
-        attroff(COLOR_PAIR(6) | A_BOLD);
+
+        // Row 2 (only for multi-agg): agg sub-headers
+        if (agg_count > 1) {
+            for (int c = 0; c < vis_cols; c++) {
+                int cid = left_col_p + c;
+                if (cid >= total_cols) break;
+                int agg_sub = cid % agg_count;
+                int is_cur  = (cid == cur_col_p);
+                attron(COLOR_PAIR(is_cur ? 3 : 6));
+                mvprintw(5, pivot_row_index_width + c * CELL_WIDTH, "%*s",
+                         CELL_WIDTH - 2, agg_list[agg_sub]);
+                attroff(COLOR_PAIR(3) | COLOR_PAIR(6));
+            }
+        }
 
         // Тело таблицы
+        int data_row_y = 5 + (agg_count > 1 ? 1 : 0);
         for (int i = 0; i < vis_rows; i++) {
             int rid = top_row + i;
             if (rid >= total_rows) break;
@@ -1418,7 +1455,7 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
             }
             char rkey_buf[41]; // MAX_PIVOT_ROW_WIDTH=40 + null
             snprintf(rkey_buf, pivot_row_index_width - 1, "%s", rkey);
-            mvprintw(5 + i, 2, "%-*s", pivot_row_index_width - 2, rkey_buf);
+            mvprintw(data_row_y + i, 2, "%-*s", pivot_row_index_width - 2, rkey_buf);
             if (is_current_row) attroff(COLOR_PAIR(3));
             else attroff(COLOR_PAIR(6));
 
@@ -1426,17 +1463,19 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
             for (int c = 0; c < vis_cols; c++) {
                 int cid = left_col_p + c;
                 if (cid >= total_cols) break;
+                int logical_col = cid / agg_count;
+                int agg_sub     = cid % agg_count;
                 const Agg *agg;
                 int arid = (rid < unique_rows) ? row_order[rid] : unique_rows;
-                int acid = (cid < unique_cols) ? col_order[cid] : unique_cols;
-                if (rid < unique_rows && cid < unique_cols) agg = &matrix[arid][acid];
-                else if (rid < unique_rows && cid == unique_cols) agg = &row_totals[arid];
-                else if (rid == unique_rows && cid < unique_cols) agg = &col_totals[acid];
+                int acid = (logical_col < unique_cols) ? col_order[logical_col] : unique_cols;
+                if (rid < unique_rows && logical_col < unique_cols) agg = &matrix[arid][acid];
+                else if (rid < unique_rows && logical_col == unique_cols) agg = &row_totals[arid];
+                else if (rid == unique_rows && logical_col < unique_cols) agg = &col_totals[acid];
                 else agg = &grand;
-                char *disp = get_agg_display(agg, settings->aggregation, value_type);
+                char *disp = get_agg_display(agg, agg_list[agg_sub], value_type);
                 int is_current_cell = (rid == cur_row_p && cid == cur_col_p);
                 int is_current_row_cell = (rid == cur_row_p);
-                int is_current_col_cell = (cid == cur_col_p);
+                int is_current_col_cell = (logical_col == cur_col_p / agg_count);
                 if (is_current_cell) {
                     attron(COLOR_PAIR(2)); // яркая текущая ячейка
                 } else if (is_current_row_cell || is_current_col_cell) {
@@ -1444,7 +1483,7 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
                 } else {
                     attron(COLOR_PAIR(8)); // обычный цвет
                 }
-                mvprintw(5 + i, pivot_row_index_width + c * CELL_WIDTH,
+                mvprintw(data_row_y + i, pivot_row_index_width + c * CELL_WIDTH,
                          "%*s", CELL_WIDTH - 2, disp);
                 attroff(COLOR_PAIR(2) | COLOR_PAIR(1) | COLOR_PAIR(8));
             }
@@ -1491,11 +1530,11 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
                 col_keys, unique_cols,
                 row_order, col_order,
                 series_pinned,
-                cur_row_p, cur_col_p,
+                cur_row_p, cur_col_p / agg_count,
                 graph_axis,
                 pivot_gtype, pivot_gscale,
-                settings->aggregation ? settings->aggregation : "SUM",
-                total_rows, total_cols
+                agg_list[0],
+                total_rows, max_logical_cols
             );
         }
         refresh();
@@ -1530,8 +1569,13 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
                     // Header
                     fprintf(out, "Row");
                     for (int c = 0; c < total_cols; c++) {
-                        char *key = (c < unique_cols) ? col_keys[col_order[c]] : "Total";
-                        fprintf(out, ",%s", key);
+                        int lc = c / agg_count;
+                        int as = c % agg_count;
+                        char *key = (lc < unique_cols) ? col_keys[col_order[lc]] : "Total";
+                        if (agg_count > 1)
+                            fprintf(out, ",%s_%s", key, agg_list[as]);
+                        else
+                            fprintf(out, ",%s", key);
                     }
                     fprintf(out, "\n");
 
@@ -1541,13 +1585,15 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
                         char *rkey = (r < unique_rows) ? row_keys[ar] : "Total";
                         fprintf(out, "%s", rkey);
                         for (int c = 0; c < total_cols; c++) {
-                            int ac = (c < unique_cols) ? col_order[c] : unique_cols;
+                            int lc = c / agg_count;
+                            int as = c % agg_count;
+                            int ac = (lc < unique_cols) ? col_order[lc] : unique_cols;
                             const Agg *agg;
-                            if (r < unique_rows && c < unique_cols) agg = &matrix[ar][ac];
-                            else if (r < unique_rows && c == unique_cols) agg = &row_totals[ar];
-                            else if (r == unique_rows && c < unique_cols) agg = &col_totals[ac];
+                            if (r < unique_rows && lc < unique_cols) agg = &matrix[ar][ac];
+                            else if (r < unique_rows && lc == unique_cols) agg = &row_totals[ar];
+                            else if (r == unique_rows && lc < unique_cols) agg = &col_totals[ac];
                             else agg = &grand;
-                            char *disp = get_agg_display(agg, settings->aggregation, value_type);
+                            char *disp = get_agg_display(agg, agg_list[as], value_type);
                             fprintf(out, ",%s", disp);
                         }
                         fprintf(out, "\n");
@@ -1640,8 +1686,8 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
         // Space — pin/unpin current series
         else if (ch == ' ') {
             if (graph_split) {
-                int sidx = (graph_axis == 0) ? cur_col_p : cur_row_p;
-                int max_sidx = (graph_axis == 0) ? total_cols : total_rows;
+                int sidx = (graph_axis == 0) ? (cur_col_p / agg_count) : cur_row_p;
+                int max_sidx = (graph_axis == 0) ? max_logical_cols : total_rows;
                 if (sidx >= 0 && sidx < max_sidx && sidx < 512)
                     series_pinned[sidx] = !series_pinned[sidx];
             }
@@ -1669,8 +1715,9 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
             }
 
             // Фильтр по столбцу (col group)
-            if (settings->col_group_col && *settings->col_group_col && cur_col_p < unique_cols) {
-                char *ckey = col_keys[col_order[cur_col_p]];
+            int logical_cur_col = cur_col_p / agg_count;
+            if (settings->col_group_col && *settings->col_group_col && logical_cur_col < unique_cols) {
+                char *ckey = col_keys[col_order[logical_cur_col]];
                 if (flt[0]) {
                     char tmp[512];
                     snprintf(tmp, sizeof(tmp), "%s AND %s = \"%s\"",
