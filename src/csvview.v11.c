@@ -23,6 +23,7 @@
 #include "graph.h"
 #include "help.h"
 #include "concat_files.h"
+#include "split_file.h"
 
 // ────────────────────────────────────────────────
 // Глобальные переменные — определения (инициализация)
@@ -114,14 +115,26 @@ int main(int argc, char *argv[]) {
     }
 
     int concat_mode = 0;
+    int split_mode  = 0;
+    int split_drop  = 0;
     char *concat_column = NULL;
-    char *user_output = NULL;
-    char **input_files = malloc(argc * sizeof(char*));
+    char *split_by      = NULL;
+    char *output_dir    = NULL;
+    char *user_output   = NULL;
+    char **input_files  = malloc(argc * sizeof(char*));
     int input_count = 0;
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--cat") == 0) {
             concat_mode = 1;
+        } else if (strcmp(argv[i], "--split") == 0) {
+            split_mode = 1;
+        } else if (strcmp(argv[i], "--drop-col") == 0) {
+            split_drop = 1;
+        } else if (strncmp(argv[i], "--by=", 5) == 0) {
+            split_by = argv[i] + 5;
+        } else if (strncmp(argv[i], "--output-dir=", 13) == 0) {
+            output_dir = argv[i] + 13;
         } else if (strncmp(argv[i], "--column=", 9) == 0) {
             concat_column = argv[i] + 9;
         } else if (strncmp(argv[i], "--output=", 9) == 0) {
@@ -132,6 +145,24 @@ int main(int argc, char *argv[]) {
     }
 
     char *file_to_open = NULL;
+
+    if (split_mode) {
+        if (input_count == 0) {
+            fprintf(stderr, "Error: --split requires an input file\n");
+            fprintf(stderr, "Usage: csvview --split --by=<column> [--output-dir=<dir>] file.csv\n");
+            free(input_files);
+            return 1;
+        }
+        if (!split_by) {
+            fprintf(stderr, "Error: --split requires --by=<column>\n");
+            fprintf(stderr, "Usage: csvview --split --by=<column> [--output-dir=<dir>] file.csv\n");
+            free(input_files);
+            return 1;
+        }
+        int ret = split_file(input_files[0], split_by, output_dir, split_drop);
+        free(input_files);
+        return ret;
+    }
 
     if (concat_mode) {
         if (input_count == 0) {
