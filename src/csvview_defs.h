@@ -233,4 +233,8 @@ extern char csv_delimiter;
 // Заморозка столбцов: первые N столбцов всегда видны (не прокручиваются)
 extern int freeze_cols;
 
+// Drill-down из pivot: после Enter на ячейке здесь хранится фильтр для основной таблицы
+// Пустая строка = нет drill-down, заполненная = надо применить фильтр
+extern char pivot_drilldown_filter[512];
+
 #endif

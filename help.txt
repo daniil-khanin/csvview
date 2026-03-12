@@ -107,6 +107,7 @@ Pivot table (p / P):
   Row sort / Col sort  Key ↑↓ (alphabetical) or Val ↑↓ (by value)
   Row / Column / Grand totals — Yes/No
   G                    Toggle split-screen graph (right half)
+  Enter                Drill-down: open main table filtered by current cell
   :e [file]            Export pivot to CSV (default pivot.csv)
   :q                   Quit pivot mode
   :o                   Reopen settings

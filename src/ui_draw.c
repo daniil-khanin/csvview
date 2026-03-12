@@ -26,7 +26,7 @@ void draw_menu(int y, int x, int w, int menu_type)
     if (menu_type == 1) {
         mvprintw(y, x, " q: Quit | s: Save | t: Columns | d: Stats | p: Pivot | g: Graph");
     } else {
-        mvprintw(y, x, " :q Back | :e Export | :o Settings");
+        mvprintw(y, x, " :q Back | :e Export | :o Settings | Enter: drill-down");
     }
 
     mvprintw(y, w - 15, "?: Help |");

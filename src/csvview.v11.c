@@ -112,6 +112,9 @@ char csv_delimiter = ',';
 // 11. Заморозка столбцов (первые N всегда видны)
 int freeze_cols = 0;
 
+// 12. Drill-down из pivot: фильтр для возврата в основную таблицу
+char pivot_drilldown_filter[512] = "";
+
 // ────────────────────────────────────────────────
 // main
 // ────────────────────────────────────────────────
@@ -1203,6 +1206,8 @@ int main(int argc, char *argv[]) {
             attroff(COLOR_PAIR(3));
             refresh();
 
+            pivot_drilldown_filter[0] = '\0';
+
             PivotSettings settings = {0};
             if (ch == 'p') {
                 if (load_pivot_settings(file_to_open, &settings)) {
@@ -1212,12 +1217,37 @@ int main(int argc, char *argv[]) {
                 }
             } else {
                 show_pivot_settings_window(&settings, file_to_open, height, width);
-            }         
+            }
             free(settings.row_group_col);
             free(settings.col_group_col);
             free(settings.value_col);
             free(settings.aggregation);
             free(settings.date_grouping);
+
+            // Drill-down: пользователь нажал Enter на ячейке pivot
+            if (pivot_drilldown_filter[0]) {
+                strncpy(filter_query, pivot_drilldown_filter, sizeof(filter_query) - 1);
+                filter_query[sizeof(filter_query) - 1] = '\0';
+                pivot_drilldown_filter[0] = '\0';
+
+                in_filter_mode = 1;
+                cur_col = 0;
+                left_col = freeze_cols;
+                cur_display_row = 0;
+                top_display_row = 0;
+
+                draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
+                attron(COLOR_PAIR(3));
+                printw(" | Drill-down: %s", filter_query);
+                attroff(COLOR_PAIR(3));
+                refresh();
+
+                apply_filter(rows, f, row_count);
+                if (sort_col >= 0 && sort_order != 0) build_sorted_index();
+                if (filtered_count > 0) {
+                    cur_real_row = filtered_rows[0];
+                }
+            }
         }        
 
         // Навигация по видимым строкам

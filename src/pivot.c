@@ -1658,6 +1658,37 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
             if (graph_split)
                 pivot_gscale = (pivot_gscale == SCALE_LINEAR) ? SCALE_LOG : SCALE_LINEAR;
         }
+        // Enter — drill-down: возврат в основную таблицу с фильтром по текущей ячейке
+        else if (ch == '\n' || ch == KEY_ENTER) {
+            char flt[512] = "";
+
+            // Фильтр по строке (row group)
+            if (settings->row_group_col && *settings->row_group_col && cur_row_p < unique_rows) {
+                char *rkey = row_keys[row_order[cur_row_p]];
+                snprintf(flt, sizeof(flt), "%s = \"%s\"", settings->row_group_col, rkey);
+            }
+
+            // Фильтр по столбцу (col group)
+            if (settings->col_group_col && *settings->col_group_col && cur_col_p < unique_cols) {
+                char *ckey = col_keys[col_order[cur_col_p]];
+                if (flt[0]) {
+                    char tmp[512];
+                    snprintf(tmp, sizeof(tmp), "%s AND %s = \"%s\"",
+                             flt, settings->col_group_col, ckey);
+                    strncpy(flt, tmp, sizeof(flt) - 1);
+                } else {
+                    snprintf(flt, sizeof(flt), "%s = \"%s\"",
+                             settings->col_group_col, ckey);
+                }
+            }
+
+            if (flt[0]) {
+                strncpy(pivot_drilldown_filter, flt, sizeof(pivot_drilldown_filter) - 1);
+                pivot_drilldown_filter[sizeof(pivot_drilldown_filter) - 1] = '\0';
+                break;
+            }
+            // Enter на Total-строке/столбце — игнорируем
+        }
         else if (ch == 'q' || ch == 27) {
             break;
         }
