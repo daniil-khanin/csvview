@@ -427,7 +427,9 @@ int main(int argc, char *argv[]) {
         init_pair(GRAPH_COLOR_BASE + 3, COLOR_YELLOW,  COLOR_BLACK);
         init_pair(GRAPH_COLOR_BASE + 4, COLOR_CYAN,    COLOR_BLACK);
         init_pair(GRAPH_COLOR_BASE + 5, COLOR_MAGENTA, COLOR_BLACK);
-        init_pair(GRAPH_COLOR_BASE + 6, COLOR_WHITE,   COLOR_BLACK); // default        
+        init_pair(GRAPH_COLOR_BASE + 6, COLOR_WHITE,   COLOR_BLACK); // default
+
+        bkgd(COLOR_PAIR(1));   // заполнить stdscr чёрным фоном
     }
 
     if (col_count == 0) {  // защита от повторного парсинга
