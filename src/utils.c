@@ -691,93 +691,38 @@ int parse_filter_expression(const char *query, FilterExpr *expr)
  */
 char *get_column_value(const char *line, const char *col_name, int use_headers)
 {
-    // Быстрые проверки на некорректный вход
-    if (!line || !*line || !col_name || !*col_name) {
+    if (!line || !*line || !col_name || !*col_name)
         return strdup("");
-    }
 
-    // Делаем копию строки, чтобы безопасно её модифицировать во время парсинга
-    char *line_copy = strdup(line);
-    if (!line_copy) {
+    int count;
+    char **fields = parse_csv_line(line, &count);
+    if (!fields)
         return strdup("");
-    }
 
     char *result = NULL;
-    int col_idx = 0;
+    char letter[16];
 
-    char *token = line_copy;
-    char *next_comma;
-
-    while (token)
+    for (int i = 0; i < count; i++)
     {
-        // Определяем границы текущего поля с учётом кавычек
-        int in_quotes = 0;
-        if (*token == '"')
+        const char *current_name;
+        if (use_headers && i < MAX_COLS && column_names[i])
         {
-            in_quotes = 1;
-            token++;                    // пропускаем открывающую кавычку
-        }
-
-        next_comma = token;
-        while (*next_comma)
-        {
-            if (in_quotes)
-            {
-                // Конец экранированного поля — одиночная кавычка
-                if (*next_comma == '"' && *(next_comma + 1) != '"')
-                {
-                    *next_comma = '\0';
-                    next_comma += 2;        // пропускаем ", или конец строки
-                    break;
-                }
-                // Экранированная кавычка внутри поля ("")
-                if (*next_comma == '"' && *(next_comma + 1) == '"')
-                {
-                    next_comma += 2;
-                    continue;
-                }
-            }
-            else
-            {
-                // Обычная запятая — конец поля
-                if (*next_comma == ',')
-                {
-                    *next_comma = '\0';
-                    next_comma++;
-                    break;
-                }
-            }
-            next_comma++;
-        }
-
-        // Определяем имя текущего столбца
-        const char *current_name = NULL;
-        if (use_headers && col_idx < MAX_COLS && column_names[col_idx])
-        {
-            current_name = column_names[col_idx];
+            current_name = column_names[i];
         }
         else
         {
-            static char letter[16];
-            col_letter(col_idx, letter);
+            col_letter(i, letter);
             current_name = letter;
         }
 
-        // Сравниваем имена регистронезависимо
         if (strcasecmp(current_name, col_name) == 0)
         {
-            result = strdup(token);
-            break;  // нашли — можно выходить
+            result = strdup(fields[i]);
+            break;
         }
-
-        // Переходим к следующему полю
-        token = (*next_comma == '\0') ? NULL : next_comma;
-        col_idx++;
     }
 
-    free(line_copy);
-
-    // Если ничего не нашли или ошибка — возвращаем пустую строку
+    free_csv_fields(fields, count);
     return result ? result : strdup("");
 }
 
@@ -1308,8 +1253,8 @@ char **parse_csv_line(const char *line, int *out_count)
         in_quotes = 0;
         field_buf[0] = '\0';
 
-        // Пропускаем начальные пробелы (опционально, если нужно строго — убери)
-        while (*p == ' ' || *p == '\t') p++;
+        // Пропускаем начальные пробелы (но не сам разделитель — важно для TSV)
+        while ((*p == ' ' || *p == '\t') && *p != csv_delimiter) p++;
 
         while (*p)
         {
@@ -1343,9 +1288,9 @@ char **parse_csv_line(const char *line, int *out_count)
                 }
             }
 
-            if (*p == ',' && !in_quotes)
+            if (*p == csv_delimiter && !in_quotes)
             {
-                p++; // переходим за запятую
+                p++; // переходим за разделитель
                 break;
             }
 
@@ -1387,8 +1332,8 @@ char **parse_csv_line(const char *line, int *out_count)
 
         field_count++;
 
-        // Пропускаем пробелы после запятой
-        while (*p == ' ' || *p == '\t') p++;
+        // Пропускаем пробелы после разделителя (но не сам разделитель)
+        while ((*p == ' ' || *p == '\t') && *p != csv_delimiter) p++;
     }
 
     // Последнее поле (если строка не закончилась запятой)
@@ -1396,7 +1341,7 @@ char **parse_csv_line(const char *line, int *out_count)
     {
         // Если мы уже добавили — ок
         // Если нет — добавляем пустое, если была запятая в конце
-        if (*(p - 1) == ',' && buf_pos == 0)
+        if (*(p - 1) == csv_delimiter && buf_pos == 0)
         {
             fields[field_count] = strdup("");
             field_count++;
@@ -1405,4 +1350,65 @@ char **parse_csv_line(const char *line, int *out_count)
 
     *out_count = field_count;
     return fields;
+}
+
+/**
+ * Освобождает массив полей, возвращённый parse_csv_line().
+ */
+void free_csv_fields(char **fields, int count)
+{
+    if (!fields) return;
+    for (int i = 0; i < count; i++) free(fields[i]);
+    free(fields);
+}
+
+/**
+ * Собирает CSV/TSV/PSV строку из массива полей (RFC 4180).
+ * Поля, содержащие разделитель, кавычку или перевод строки, оборачиваются в "...".
+ * NULL-поля трактуются как пустая строка.
+ * Возвращает malloc-строку БЕЗ trailing \n. Нужно free().
+ */
+char *build_csv_line(char **fields, int count, char delimiter)
+{
+    if (!fields || count <= 0) return strdup("");
+
+    // Считаем максимальный размер (worst case: каждый символ — кавычка)
+    size_t total = (size_t)count + 2; // разделители + \0
+    for (int i = 0; i < count; i++) {
+        if (fields[i]) total += strlen(fields[i]) * 2 + 2;
+    }
+
+    char *result = malloc(total);
+    if (!result) return NULL;
+
+    char *p = result;
+    for (int i = 0; i < count; i++) {
+        if (i > 0) *p++ = delimiter;
+
+        const char *f = fields[i] ? fields[i] : "";
+
+        // Нужны ли кавычки?
+        int needs_quotes = 0;
+        for (const char *s = f; *s; s++) {
+            if (*s == delimiter || *s == '"' || *s == '\n' || *s == '\r') {
+                needs_quotes = 1;
+                break;
+            }
+        }
+
+        if (needs_quotes) {
+            *p++ = '"';
+            for (const char *s = f; *s; s++) {
+                if (*s == '"') *p++ = '"'; // экранирование: "" → ""
+                *p++ = *s;
+            }
+            *p++ = '"';
+        } else {
+            size_t len = strlen(f);
+            memcpy(p, f, len);
+            p += len;
+        }
+    }
+    *p = '\0';
+    return result;
 }

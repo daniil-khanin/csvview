@@ -227,4 +227,7 @@ extern int *save_sorted_rows;
 extern int save_filtered_count;
 extern int *save_filtered_rows;
 
-#endif 
+// Разделитель полей: ',' — CSV (default), '\t' — TSV, '|' — PSV и т.д.
+extern char csv_delimiter;
+
+#endif

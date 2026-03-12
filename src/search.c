@@ -47,27 +47,21 @@ void perform_search(RowIndex *rows, FILE *f, int row_count)
             }
         }
 
-        // Делаем копию строки для безопасного strtok
-        char line_copy[MAX_LINE_LEN];
-        strcpy(line_copy, rows[r].line_cache);
+        int field_count = 0;
+        char **fields = parse_csv_line(rows[r].line_cache, &field_count);
+        if (!fields) continue;
 
-        char *token = strtok(line_copy, ",");
-        int c = 0;
-
-        // Проходим по всем ячейкам строки
-        while (token && c < col_count)
+        for (int c = 0; c < field_count && c < col_count && search_count < MAX_SEARCH_RESULTS; c++)
         {
-            // Регистронезависимый поиск подстроки
-            if (strcasestr_custom(token, search_query))
+            if (strcasestr_custom(fields[c], search_query))
             {
                 search_results[search_count].row = r;
                 search_results[search_count].col = c;
                 search_count++;
             }
-
-            token = strtok(NULL, ",");
-            c++;
         }
+
+        free_csv_fields(fields, field_count);
     }
 }
 

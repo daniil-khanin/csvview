@@ -90,4 +90,16 @@ char *clean_column_name(const char *raw);
  */
 char **parse_csv_line(const char *line, int *out_count);
 
+/**
+ * Собирает строку из массива полей с заданным разделителем (RFC 4180).
+ * Поля, содержащие разделитель, кавычку или перевод строки, оборачиваются в "...".
+ * Возвращает malloc-строку БЕЗ trailing \n. Нужно free().
+ */
+char *build_csv_line(char **fields, int count, char delimiter);
+
+/**
+ * Освобождает массив полей, возвращённый parse_csv_line().
+ */
+void free_csv_fields(char **fields, int count);
+
 #endif

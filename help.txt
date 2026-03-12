@@ -1,0 +1,176 @@
+CSV Viewer & Editor - Terminal Tool
+Version 11 dated March 12, 2026 by Daniil Khanin & Claude
+
+Usage:
+  csvview <file>                  Open CSV file (comma-separated)
+  csvview --sep=<char> <file>     Open with custom delimiter
+                                  Examples: --sep=\t (TSV), --sep=; --sep=|
+  csvview --help (or -h, -?, /h)  Show this help
+  csvview --cat [--column=NAME] [--output=FILE] file1 file2 ...
+  csvview --split --by=<column> [--output-dir=<dir>] [--drop-col] file
+
+File format auto-detection:
+  .csv  → comma (,)
+  .tsv  → tab (\t)
+  .psv  → pipe (|)
+  Other → use --sep=<char> to specify
+
+Key Bindings (main view):
+  Arrows / hjkl        Move cursor
+  PageUp / PageDown    Scroll one page
+  Home / End           First / last visible row
+  /                    Start simple search
+  n / N                Next / previous search result
+  f                    Quick filter (old syntax)
+  Shift+F              Advanced filter (new syntax)
+  Enter                Edit current cell
+  s                    Save file
+  t                    Open/edit column settings
+  w / W                Increase / decrease column width
+  A                    Auto-fit current column width
+  [ / ]                Sort ascending / descending by current column
+  r / R                Reset sorting
+  d / D                Show column statistics
+  p                    Pivot table (apply saved or open settings)
+  P                    Pivot table — always open settings window
+  g / G                Graph for current column
+  q / Esc              Quit
+  ?                    This help
+
+Command mode (press : then command):
+  :e [filename]        Export current view (filtered/sorted) to CSV
+                       (default: filtered.csv / sorted.csv / table.csv)
+  :dr <row_number>     Delete row by visible number (1-based)
+  :cr <new_name>       Rename current column
+  :cs [filename]       Save current column to CSV (default: column name)
+  :cal [name]          Add new column LEFT of current (default 'untitled')
+  :car [name]          Add new column RIGHT of current (default 'untitled')
+  :cf "text"           Fill column with fixed text
+  :cf num()            Fill with row numbers (0,1,2…)
+  :cf num(N)           Fill starting from N (N,N+1…)
+  :cf num(N,M)         Fill with step M (N,N+M,N+2M…)
+  :cf <formula>        Compute column values by formula (see Computed columns)
+  :cd <column_name>    Delete column (only if cursor is on this exact column)
+
+Filter quick commands (: then command):
+  :fs                  Save current filter
+  :fl                  Open list of saved filters
+  :fq                  Quick filter: column = "current cell value" (AND)
+  :fqn                 column != "current cell value" (AND)
+  :fqo                 column = "current cell value" (OR)
+  :fqno                column != "current cell value" (OR)
+  :fqu                 column = "current cell value" (reset previous filter)
+
+Saved filters window:
+  ↑↓ / j k             Select filter
+  Enter                Insert filter text
+  Shift+Enter          Insert and apply immediately
+  D / d                Delete selected filter
+  q / Esc              Close window
+
+Saved filters are stored in <yourfile.csv>.csvf
+(lines like "filter: <query>")
+
+Advanced filter syntax (Shift+F):
+  Examples:
+    total > 500
+    total >= 100 AND status = paid
+    date >= 2026-01
+    ! cohort = 2016-04
+  Supported: = != > >= < <= AND OR ! (spaces optional)
+  For dates: = 2026-01 finds all rows in January 2026
+             >= 2026-01 finds January 2026 and later
+
+Column settings (t):
+  ↑↓ / j k             Move between columns
+  S / N / D            Set type: String / Number / Date
+  Enter                Edit format for current column
+    String: truncate length (0 = show full)
+    Number: decimal places (-1 = auto)
+    Date:   format string (e.g. %Y-%m-%d)
+  H                    Toggle use-headers ON/OFF (preview updates live)
+  q / Esc              Save & return to table
+
+Column statistics (d):
+  Numbers: sum, mean, median, mode, min/max, top 10 values + histogram
+  Dates: distribution by month/quarter/year/century + histogram
+  Large files may take 20–60 seconds
+
+Pivot table (p / P):
+  Rows / Columns       Select grouping columns
+  Values               Select column to aggregate
+  Aggregation          SUM, AVG, COUNT, MIN, MAX, UNIQUE COUNT
+  Date grouping        Auto / Month / Quarter / Year / Century
+  Row sort / Col sort  Key ↑↓ (alphabetical) or Val ↑↓ (by value)
+  Row / Column / Grand totals — Yes/No
+  G                    Toggle split-screen graph (right half)
+  :e [file]            Export pivot to CSV (default pivot.csv)
+  :q                   Quit pivot mode
+  :o                   Reopen settings
+  Settings saved in <file>.pivot
+
+Pivot table graph (G in pivot mode):
+  G                    Show / hide graph panel (right half of screen)
+  Space                Pin / unpin current series (column or row)
+                       Pinned series are always shown regardless of cursor
+  a                    Toggle axis: rows→X (default) / cols→X
+  s                    Toggle Y-scale: linear / log
+  :gt bar|line|dot     Graph type (bar chart / line / dots)
+  :gt log|lin          Y-scale (same command, different argument)
+  Status bar shows:    [G: <type> <scale> <axis>]
+
+Graph mode (g):
+  ←→ / j k / h l       Move cursor
+  m / M                Jump to min/max value
+  q / Esc              Exit
+  :gt bar|line|dot     Graph type
+  :gc red|green|...    Color (red, green, blue, yellow, cyan, magenta, white)
+  :gy log|linear       Y-scale
+  :ga on|off           Anomaly highlighting (>3σ)
+  :gx <column>         Use date column as X-axis
+  :gx off              Back to row numbers
+  :gp on|off           Show cursor on points
+
+Computed columns (:cf <formula>):
+  Syntax:  :cf <expression>
+  Example: :cf price * qty
+           :cf round((revenue - cost) / revenue * 100, 2)
+           :cf if(qty > 0, revenue / qty, 0)
+           :cf col_sum(amount) - col_sum_all(amount)
+  Operators:   + - * /  ( )  unary -
+  Comparisons: = != < <= > >=  (used inside if())
+  Functions:   round(x,n)  abs(x)  floor(x)  ceil(x)
+               mod(x,y)  pow(x,y)  if(cond,t,f)  empty(col)
+  Aggregates (current filter):  col_sum  col_avg  col_min  col_max
+               col_count  col_median  col_percentile(col,p)
+               col_stddev  col_var  col_rank(col)  col_pct(col)
+  Aggregates (whole file):      same names with _all suffix
+               e.g. col_sum_all(revenue)  col_rank_all(score)
+
+Split mode (--split):
+  csvview --split --by=<column> [--output-dir=<dir>] [--drop-col] file.csv
+  - Splits one CSV into N files, one per unique value of <column>
+  - Output filenames: <original>_<value>.csv
+  - Headers are copied to every output file
+  - --output-dir=<dir>   Write output files into <dir> (created if needed)
+  - --drop-col           Remove the split column from all output files
+  - Progress and summary printed to stdout
+
+Concat mode (--cat):
+  csvview --cat [--column=NAME] [--output=FILE] file1.csv file2.csv ...
+  - Adds column with source filename (without .csv)
+  - Headers taken from first file only
+  - All files must have same number of columns
+  - If --output not set → merged_YYYYMMDD_HHMMSS.csv
+  - Progress bar shown during merge
+
+On first launch (no .csvf file):
+  Column setup window opens automatically
+  Status line shows: Headers: ON [H to toggle] / Headers: OFF [H to toggle]
+  H                    Toggle headers ON/OFF (preview row updates live)
+  S / N / D            Set column type for selected column
+  Enter                Edit format for selected column
+  q / Esc              Save settings and open the table
+
+
+Press Enter to exit...

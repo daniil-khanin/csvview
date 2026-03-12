@@ -99,11 +99,15 @@ int       min_max_show            = 0;
 
 // 9. Сохранение состояния (для undo/временного хранения)
 int   save_sort_col       = -1;
+
 int   save_sort_order     = 0;
 int   save_sorted_count   = 0;
 int  *save_sorted_rows    = NULL;
 int   save_filtered_count = 0;
 int  *save_filtered_rows  = NULL;
+
+// 10. Разделитель полей (по умолчанию ',' — CSV)
+char csv_delimiter = ',';
 
 // ────────────────────────────────────────────────
 // main
@@ -139,7 +143,15 @@ int main(int argc, char *argv[]) {
             concat_column = argv[i] + 9;
         } else if (strncmp(argv[i], "--output=", 9) == 0) {
             user_output = argv[i] + 9;
-        } else if (strstr(argv[i], ".csv") || strstr(argv[i], ".CSV")) {
+        } else if (strncmp(argv[i], "--sep=", 6) == 0) {
+            const char *sep = argv[i] + 6;
+            if (strcmp(sep, "\\t") == 0 || strcmp(sep, "tab") == 0)
+                csv_delimiter = '\t';
+            else if (strcmp(sep, "pipe") == 0)
+                csv_delimiter = '|';
+            else if (*sep)
+                csv_delimiter = *sep;
+        } else if (argv[i][0] != '-') {
             input_files[input_count++] = argv[i];
         }
     }
@@ -197,6 +209,15 @@ int main(int argc, char *argv[]) {
         }
         file_to_open = strdup(argv[1]);
         free(input_files);
+    }
+
+    // Автодетект разделителя по расширению файла (если не задан --sep)
+    if (csv_delimiter == ',') {
+        const char *ext = strrchr(file_to_open, '.');
+        if (ext) {
+            if (strcasecmp(ext, ".tsv") == 0)      csv_delimiter = '\t';
+            else if (strcasecmp(ext, ".psv") == 0) csv_delimiter = '|';
+        }
     }
 
     f = fopen(file_to_open, "r");
@@ -289,34 +310,28 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        char line_copy[MAX_LINE_LEN];
-        strncpy(line_copy, rows[0].line_cache, sizeof(line_copy) - 1);
-        line_copy[sizeof(line_copy) - 1] = '\0';
-
-        char *token = strtok(line_copy, ",");
         col_count = 0;
+        int hdr_count = 0;
+        char **hdr_fields = parse_csv_line(rows[0].line_cache, &hdr_count);
 
-        while (token && col_count < MAX_COLS) {
-            // Убираем ведущие и trailing пробелы/табы/неразрывные пробелы с каждого поля
-            while (*token == ' ' || *token == '\t' || (unsigned char)*token == 0xA0) {
-                token++;
-            }
-            char *end = token + strlen(token) - 1;
-            while (end >= token && 
-                   (*end == ' ' || *end == '\t' || (unsigned char)*end == 0xA0)) {
-                *end-- = '\0';
-            }
+        if (hdr_fields) {
+            while (col_count < hdr_count && col_count < MAX_COLS) {
+                char *t = hdr_fields[col_count];
+                // Убираем ведущие пробелы/табы/неразрывные пробелы
+                while (*t == ' ' || *t == '\t' || (unsigned char)*t == 0xA0) t++;
+                // Убираем trailing пробелы/табы/неразрывные пробелы
+                char *end = t + strlen(t) - 1;
+                while (end >= t &&
+                       (*end == ' ' || *end == '\t' || (unsigned char)*end == 0xA0))
+                    *end-- = '\0';
 
-            // Теперь токен чистый → сохраняем
-            column_names[col_count] = strdup(token);
-            if (!column_names[col_count]) {
-                // обработка ошибки
-                column_names[col_count] = strdup("(ошибка памяти)");
+                column_names[col_count] = strdup(t);
+                if (!column_names[col_count])
+                    column_names[col_count] = strdup("(ошибка памяти)");
+                col_types[col_count] = COL_STR;
+                col_count++;
             }
-            col_types[col_count] = COL_STR;  // дефолт
-            col_count++;
-            
-            token = strtok(NULL, ",");
+            free_csv_fields(hdr_fields, hdr_count);
         }
 
         // Инициализируем форматы после определения col_count
@@ -1036,40 +1051,23 @@ int main(int argc, char *argv[]) {
             refresh();
 
             if (!canceled && strcmp(edit_buffer, current_cell_content) != 0) {
-                char rebuilt[MAX_LINE_LEN] = {0};
-                char temp[MAX_LINE_LEN] = {0};
+                int field_count = 0;
+                char **fields = parse_csv_line(
+                    rows[cur_real_row].line_cache ? rows[cur_real_row].line_cache : "",
+                    &field_count);
 
-                if (rows[cur_real_row].line_cache) {
-                    strncpy(temp, rows[cur_real_row].line_cache, sizeof(temp) - 1);
-                }
-
-                char *tokens[MAX_COLS + 1] = {0};
-                int token_count = 0;
-                char *tok = strtok(temp, ",");
-                while (tok && token_count < col_count) {
-                    tokens[token_count++] = tok;
-                    tok = strtok(NULL, ",");
-                }
-
-                for (int c = 0; c <= cur_col || c < token_count; c++) {
-                    if (c > 0) {
-                        strncat(rebuilt, ",", sizeof(rebuilt) - strlen(rebuilt) - 1);
+                if (fields && cur_col < field_count) {
+                    free(fields[cur_col]);
+                    fields[cur_col] = strdup(edit_buffer);
+                    char *new_line = build_csv_line(fields, field_count, csv_delimiter);
+                    free_csv_fields(fields, field_count);
+                    if (new_line) {
+                        free(rows[cur_real_row].line_cache);
+                        rows[cur_real_row].line_cache = new_line;
                     }
-                    if (c == cur_col) {
-                        strncat(rebuilt, edit_buffer, sizeof(rebuilt) - strlen(rebuilt) - 1);
-                    } else if (c < token_count) {
-                        strncat(rebuilt, tokens[c], sizeof(rebuilt) - strlen(rebuilt) - 1);
-                    }
+                } else if (fields) {
+                    free_csv_fields(fields, field_count);
                 }
-
-                // Убираем trailing запятую
-                size_t len = strlen(rebuilt);
-                if (len > 0 && rebuilt[len-1] == ',') {
-                    rebuilt[len-1] = '\0';
-                }
-
-                free(rows[cur_real_row].line_cache);
-                rows[cur_real_row].line_cache = strdup(rebuilt);
             }
         }
 

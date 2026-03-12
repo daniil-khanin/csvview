@@ -18,8 +18,9 @@ void show_usage(void)
     printf("Version %d dated March 12, 2026 by Daniil Khanin & Claude\n\n", CSVVIEW_VERSION);
 
     printf("Usage:\n");
-    printf("  csvview <filename.csv>\n");
-    printf("  csvview --help (or -h, -?, /h) - show this help\n\n");
+    printf("  csvview <file>                  Open file (auto-detects .tsv/.psv)\n");
+    printf("  csvview --sep=<char> <file>      Custom delimiter (e.g. --sep=\\t --sep=;)\n");
+    printf("  csvview --help (or -h, -?, /h)  Show this help\n\n");
 
     printf("Press any key to continue...\n");
 }
@@ -31,10 +32,14 @@ void show_help(int use_ncurses)
         "Version 11 dated March 12, 2026 by Daniil Khanin & Claude",
         "",
         "Usage:",
-        "  csvview <filename.csv>",
-        "  csvview --help (or -h, -?, /h) - show this help",
-        "  csvview --cat [--column=NAME] [--output=FILE] file1.csv file2.csv ...",
-        "  csvview --split --by=<column> [--output-dir=<dir>] [--drop-col] file.csv",
+        "  csvview <file>                  Open file (auto-detects .tsv / .psv)",
+        "  csvview --sep=<char> <file>      Custom delimiter (--sep=\\t  --sep=;  --sep=|)",
+        "  csvview --help (or -h, -?, /h)  Show this help",
+        "  csvview --cat [--column=NAME] [--output=FILE] file1 file2 ...",
+        "  csvview --split --by=<column> [--output-dir=<dir>] [--drop-col] file",
+        "",
+        "File format auto-detection:",
+        "  .csv -> comma   .tsv -> tab   .psv -> pipe   other -> use --sep",
         "",
         "Key Bindings (main view):",
         "  Arrows / hjkl        Move cursor",

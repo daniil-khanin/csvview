@@ -717,36 +717,9 @@ void rebuild_header_row(void)
         return;
     }
 
-    char new_header[MAX_LINE_LEN * 2] = {0};
-    int pos = 0;
-
-    for (int c = 0; c < col_count; c++)
-    {
-        if (c > 0) new_header[pos++] = ',';
-
-        const char *name = column_names[c] ? column_names[c] : "";
-
-        if (strchr(name, ',') || strchr(name, '"'))
-        {
-            // Экранирование кавычек
-            new_header[pos++] = '"';
-            for (const char *p = name; *p; p++)
-            {
-                if (*p == '"') new_header[pos++] = '"';
-                new_header[pos++] = *p;
-            }
-            new_header[pos++] = '"';
-        }
-        else
-        {
-            strcpy(new_header + pos, name);
-            pos += strlen(name);
-        }
+    char *new_header = build_csv_line(column_names, col_count, csv_delimiter);
+    if (new_header) {
+        free(rows[0].line_cache);
+        rows[0].line_cache = new_header;
     }
-
-    new_header[pos] = '\0';
-
-    // Заменяем кэш первой строки
-    free(rows[0].line_cache);
-    rows[0].line_cache = strdup(new_header);
 }

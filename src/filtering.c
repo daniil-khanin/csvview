@@ -147,66 +147,41 @@ void apply_filter(RowIndex *rows, FILE *f, int row_count)
                 }
             }
 
-            // Парсим строку по старой логике
-            char line_copy[MAX_LINE_LEN];
-            strncpy(line_copy, line, sizeof(line_copy) - 1);
-            line_copy[sizeof(line_copy) - 1] = '\0';
-
-            char *token = strtok(line_copy, ",");
-            int c = 0;
-            while (token && c < col_count)
+            int field_count = 0;
+            char **fields = parse_csv_line(line, &field_count);
+            if (fields)
             {
-                // Убираем кавычки вокруг значения
-                if (token[0] == '"' && strlen(token) > 1 && token[strlen(token)-1] == '"')
+                for (int c = 0; c < field_count && c < col_count && !match; c++)
                 {
-                    token[strlen(token)-1] = '\0';
-                    token++;
-                }
+                    const char *token = fields[c];
 
-                if (is_column_filter)
-                {
-                    if (c == target_col_num)
+                    if (is_column_filter)
+                    {
+                        if (c == target_col_num)
+                        {
+                            if (is_exact)
+                            {
+                                if (strcmp(token, search_str) == 0) match = 1;
+                            }
+                            else
+                            {
+                                if (strcasestr_custom(token, search_str)) match = 1;
+                            }
+                        }
+                    }
+                    else // R: — поиск по любой ячейке
                     {
                         if (is_exact)
                         {
-                            if (strcmp(token, search_str) == 0)
-                            {
-                                match = 1;
-                                break;
-                            }
+                            if (strcmp(token, search_str) == 0) match = 1;
                         }
                         else
                         {
-                            if (strcasestr_custom(token, search_str))
-                            {
-                                match = 1;
-                                break;
-                            }
+                            if (strcasestr_custom(token, search_str)) match = 1;
                         }
                     }
                 }
-                else // R: — поиск по любой ячейке
-                {
-                    if (is_exact)
-                    {
-                        if (strcmp(token, search_str) == 0)
-                        {
-                            match = 1;
-                            break;
-                        }
-                    }
-                    else
-                    {
-                        if (strcasestr_custom(token, search_str))
-                        {
-                            match = 1;
-                            break;
-                        }
-                    }
-                }
-
-                token = strtok(NULL, ",");
-                c++;
+                free_csv_fields(fields, field_count);
             }
         }
 
