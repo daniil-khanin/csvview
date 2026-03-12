@@ -342,7 +342,7 @@ int main(int argc, char *argv[]) {
         file_to_open = generated;
         printf("Merged file: %s\n", file_to_open);
     } else {
-        if (argc < 2) {
+        if (input_count == 0) {
             char *hist_pick = show_history_picker();
             if (!hist_pick) {
                 free(input_files);
@@ -351,7 +351,7 @@ int main(int argc, char *argv[]) {
             }
             file_to_open = hist_pick;
         } else {
-            file_to_open = strdup(argv[1]);
+            file_to_open = strdup(input_files[0]);
         }
         free(input_files);
     }
