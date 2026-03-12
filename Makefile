@@ -1,33 +1,45 @@
-# Makefile для csvview — все .c файлы в папке src/
+# Makefile for csvview
 
 CC       = clang
 CFLAGS   = -Wall -Wextra -g -O2
 LDFLAGS  = -lncurses
 
 TARGET   = csvview
+MAN      = csvview.1
 
-# Все исходники теперь в src/
-SOURCES  = $(wildcard src/*.c)
-OBJECTS  = $(SOURCES:.c=.o)
+PREFIX   ?= /usr/local
+BINDIR   = $(PREFIX)/bin
+MANDIR   = $(PREFIX)/share/man/man1
 
-# Папка для объектных файлов (опционально, можно и в src/)
 OBJDIR   = obj
+SOURCES  = $(wildcard src/*.c)
 OBJECTS  = $(patsubst src/%.c,$(OBJDIR)/%.o,$(SOURCES))
 
+# ── build ──────────────────────────────────────────────
 all: $(TARGET)
 
 $(TARGET): $(OBJECTS)
 	$(CC) $(OBJECTS) -o $@ $(LDFLAGS)
 
-# Компиляция каждого .c → .o в папке obj/
 $(OBJDIR)/%.o: src/%.c | $(OBJDIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-# Создаём папку obj/, если её нет
 $(OBJDIR):
 	mkdir -p $(OBJDIR)
 
+# ── install / uninstall ────────────────────────────────
+install: all
+	install -d $(BINDIR)
+	install -m 755 $(TARGET) $(BINDIR)/$(TARGET)
+	install -d $(MANDIR)
+	install -m 644 $(MAN) $(MANDIR)/$(MAN)
+
+uninstall:
+	rm -f $(BINDIR)/$(TARGET)
+	rm -f $(MANDIR)/$(MAN)
+
+# ── clean ──────────────────────────────────────────────
 clean:
 	rm -rf $(OBJDIR) $(TARGET)
 
-.PHONY: all clean
+.PHONY: all install uninstall clean

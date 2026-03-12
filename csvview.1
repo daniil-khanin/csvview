@@ -1,0 +1,209 @@
+.TH CSVVIEW 1 "2026-03-12" "csvview 12" "User Commands"
+.SH NAME
+csvview \- fast terminal CSV viewer and editor
+.SH SYNOPSIS
+.B csvview
+[\fIOPTIONS\fR] \fIfile\fR
+.br
+.B csvview
+.BR \-\-cat
+[\fB\-\-column=\fINAME\fR] [\fB\-\-output=\fIFILE\fR] \fIfile1\fR \fIfile2\fR ...
+.br
+.B csvview
+.BR \-\-split
+.B \-\-by=\fICOLUMN\fR
+[\fB\-\-output\-dir=\fIDIR\fR] [\fB\-\-drop\-col\fR] \fIfile\fR
+.br
+.B csvview
+(no arguments \(em opens recent file picker)
+.SH DESCRIPTION
+.B csvview
+is a terminal-based CSV viewer and editor built with ncurses.
+It supports filtering, sorting, pivot tables, graphs, computed columns,
+column statistics, and more \(em with no external dependencies beyond ncurses.
+.SH OPTIONS
+.TP
+.BI \-\-sep= CHAR
+Use \fICHAR\fR as the field delimiter. Examples: \fB\-\-sep=\\t\fR (TSV),
+\fB\-\-sep=;\fR, \fB\-\-sep=|\fR.
+File extension is auto-detected: \fI.csv\fR\(->comma, \fI.tsv\fR\(->tab, \fI.psv\fR\(->pipe.
+.TP
+.B \-\-cat
+Concatenate multiple CSV files into one, adding a column with the source filename.
+.TP
+.BI \-\-column= NAME
+Column name for the source filename in \fB\-\-cat\fR mode (default: \fIsource_file\fR).
+.TP
+.BI \-\-output= FILE
+Output filename for \fB\-\-cat\fR mode (default: \fImerged_YYYYMMDD_HHMMSS.csv\fR).
+.TP
+.B \-\-split
+Split a CSV file into multiple files, one per unique value of a column.
+.TP
+.BI \-\-by= COLUMN
+Column to split by (required with \fB\-\-split\fR).
+.TP
+.BI \-\-output\-dir= DIR
+Directory for split output files (created if needed).
+.TP
+.B \-\-drop\-col
+Remove the split column from all output files.
+.TP
+.BR \-h ", " \-? ", " \-\-help ", " /h
+Show help and exit.
+.SH KEY BINDINGS
+.SS Main view
+.TP
+.B Arrows / hjkl
+Move cursor
+.TP
+.B PageUp / PageDown
+Scroll one page
+.TP
+.B Home / End
+First / last visible row
+.TP
+.B /
+Start simple search
+.TP
+.B n / N
+Next / previous search result
+.TP
+.B f
+Quick filter
+.TP
+.B Shift+F
+Advanced filter
+.TP
+.B Enter
+Edit current cell
+.TP
+.B s
+Save file
+.TP
+.B t
+Column settings
+.TP
+.B w / W
+Increase / decrease column width
+.TP
+.B A
+Auto-fit current column width
+.TP
+.B [ / ]
+Sort ascending / descending
+.TP
+.B r / R
+Reset sorting
+.TP
+.B Ctrl+R
+Reload file (keeps filters and sort)
+.TP
+.B z
+Freeze / unfreeze columns up to current
+.TP
+.B d / D
+Column statistics
+.TP
+.B p / P
+Pivot table
+.TP
+.B g / G
+Graph for current column
+.TP
+.B q / Esc
+Quit
+.TP
+.B ?
+Show help
+.SS Command mode (press \fB:\fR)
+.TP
+.BI :e " [file]"
+Export current view to CSV
+.TP
+.BI :dr " N"
+Delete row N (1-based)
+.TP
+.BI :cr " name"
+Rename current column
+.TP
+.BI :cal " [name]"
+Add column to the left
+.TP
+.BI :car " [name]"
+Add column to the right
+.TP
+.BI :cf " formula"
+Fill / compute column by formula
+.TP
+.BI :cd " name"
+Delete column
+.TP
+.BI :fz " N"
+Freeze first N columns
+.TP
+.B :fs
+Save current filter
+.TP
+.B :fl
+Open saved filters list
+.SH FILTER SYNTAX
+Filters support: \fB= != > >= < <=\fR, \fBAND\fR, \fBOR\fR, \fB!\fR (NOT).
+.PP
+Examples:
+.RS
+total > 500
+.br
+total >= 100 AND status = paid
+.br
+date >= 2026-01
+.RE
+.PP
+For dates: \fB= 2026-01\fR matches all rows in January 2026.
+.SH COMPUTED COLUMNS
+Activated with \fB:cf <expression>\fR on the current column.
+.PP
+Operators: \fB+ \- * / ( )\fR
+.br
+Functions: \fBround\fR, \fBabs\fR, \fBfloor\fR, \fBceil\fR, \fBmod\fR, \fBpow\fR, \fBif\fR, \fBempty\fR
+.br
+Aggregates (filtered rows): \fBcol_sum\fR, \fBcol_avg\fR, \fBcol_min\fR, \fBcol_max\fR,
+\fBcol_count\fR, \fBcol_median\fR, \fBcol_percentile\fR, \fBcol_stddev\fR, \fBcol_var\fR,
+\fBcol_rank\fR, \fBcol_pct\fR
+.br
+Aggregates (whole file): same names with \fB_all\fR suffix
+.SH FILES
+.TP
+.I ~/.csvview_history
+Recent files list (max 20 entries). Opened automatically when csvview is run with no arguments.
+.TP
+.I file.csvf
+Per-file settings: column types, formats, widths, hidden columns, freeze count, saved filters.
+.TP
+.I file.pivot
+Saved pivot table settings for the file.
+.SH EXAMPLES
+.TP
+Open a CSV file:
+.B csvview data.csv
+.TP
+Open a TSV file:
+.B csvview data.tsv
+.TP
+Open with semicolon delimiter:
+.B csvview \-\-sep=; data.csv
+.TP
+Merge files with source column:
+.B csvview \-\-cat \-\-column=source \-\-output=merged.csv jan.csv feb.csv mar.csv
+.TP
+Split by region column:
+.B csvview \-\-split \-\-by=region \-\-output-dir=splits data.csv
+.SH AUTHORS
+Daniil Khanin
+.SH LICENSE
+MIT License. See \fILICENSE\fR in the source distribution.
+.SH SEE ALSO
+.BR less (1),
+.BR cut (1),
+.BR sort (1),
+.BR awk (1)
