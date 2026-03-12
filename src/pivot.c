@@ -1395,8 +1395,10 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
             } else {
                 attron(COLOR_PAIR(6));
             }
+            char col_key_buf[CELL_WIDTH + 1];
+            snprintf(col_key_buf, CELL_WIDTH - 1, "%s", key);
             mvprintw(4, pivot_row_index_width + c * CELL_WIDTH, "%*s",
-                     CELL_WIDTH - 2, key);
+                     CELL_WIDTH - 2, col_key_buf);
             if (is_current_col) attroff(COLOR_PAIR(3));
             else attroff(COLOR_PAIR(6));
         }
@@ -1414,7 +1416,9 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
             } else {
                 attron(COLOR_PAIR(6));
             }
-            mvprintw(5 + i, 2, "%-*s", pivot_row_index_width - 2, rkey);
+            char rkey_buf[41]; // MAX_PIVOT_ROW_WIDTH=40 + null
+            snprintf(rkey_buf, pivot_row_index_width - 1, "%s", rkey);
+            mvprintw(5 + i, 2, "%-*s", pivot_row_index_width - 2, rkey_buf);
             if (is_current_row) attroff(COLOR_PAIR(3));
             else attroff(COLOR_PAIR(6));
 
