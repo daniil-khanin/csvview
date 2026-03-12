@@ -56,6 +56,7 @@ void show_help(int use_ncurses)
         "  A                    Auto-fit current column width",
         "  [ / ]                Sort ascending / descending by current column",
         "  r / R                Reset sorting",
+        "  Ctrl+R               Reload file (re-read from disk, keep filters/sort)",
         "  d / D                Show column statistics",
         "  p                    Pivot table (apply saved or open settings)",
         "  P                    Pivot table — always open settings window",

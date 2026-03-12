@@ -1361,7 +1361,76 @@ int main(int argc, char *argv[]) {
             sorted_count = 0;
             cur_display_row = 0;
             top_display_row = 0;
-        } 
+        }
+        else if (ch == ('R' & 0x1f)) {  // Ctrl+R — перечитать файл
+            // 1. Освобождаем все кэши строк
+            for (int i = 0; i < row_count; i++) {
+                free(rows[i].line_cache);
+                rows[i].line_cache = NULL;
+            }
+
+            // 2. Переоткрываем файл
+            fclose(f);
+            f = fopen(file_to_open, "r");
+            if (!f) {
+                mvprintw(height - 1, 0, "Reload failed: cannot open %s", file_to_open);
+                refresh();
+                continue;
+            }
+
+            // 3. Обновляем размер файла
+            struct stat reload_st;
+            if (fstat(fileno(f), &reload_st) == 0) {
+                long long size = reload_st.st_size;
+                if (size < 1024LL * 1024)
+                    snprintf(file_size_str, sizeof(file_size_str), "%.0f KB", size / 1024.0);
+                else if (size < 1024LL * 1024 * 1024)
+                    snprintf(file_size_str, sizeof(file_size_str), "%.1f MB", size / (1024.0 * 1024.0));
+                else
+                    snprintf(file_size_str, sizeof(file_size_str), "%.1f GB", size / (1024.0 * 1024.0 * 1024.0));
+            }
+
+            // 4. Переиндексируем строки
+            rows[0].offset = 0;
+            rows[0].line_cache = NULL;
+            long rpos = 0;
+            row_count = 1;
+            char rbuf[1024];
+            while (fgets(rbuf, sizeof(rbuf), f)) {
+                rpos += strlen(rbuf);
+                if (row_count < MAX_ROWS) {
+                    rows[row_count].offset = rpos;
+                    rows[row_count].line_cache = NULL;
+                    row_count++;
+                }
+            }
+            row_count--;
+            rewind(f);
+
+            // 5. Переприменяем фильтр если был активен
+            if (strlen(filter_query) > 0) {
+                apply_filter(rows, f, row_count);
+            }
+
+            // 6. Переприменяем сортировку если была активна
+            if (sort_col >= 0) {
+                if (filter_active) {
+                    qsort(filtered_rows, filtered_count, sizeof(int), compare_rows_by_column);
+                } else {
+                    build_sorted_index();
+                    sorted_count = row_count - (use_headers ? 1 : 0);
+                }
+            }
+
+            // 7. Корректируем позицию курсора (файл мог стать короче)
+            int new_display_count = filter_active
+                ? filtered_count
+                : (row_count - (use_headers ? 1 : 0));
+            if (cur_display_row >= new_display_count)
+                cur_display_row = new_display_count > 0 ? new_display_count - 1 : 0;
+            if (top_display_row > cur_display_row)
+                top_display_row = cur_display_row;
+        }
         else if (ch == 'D' || ch == 'd') {  
             // статистика столбца
             show_column_stats(cur_col);
