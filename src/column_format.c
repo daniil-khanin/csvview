@@ -554,10 +554,10 @@ int show_column_setup(const char *csv_filename)
                     buf[sizeof(buf) - 1] = '\0';
                 }
 
-                mvprintw(win_top + 3 + (cur_item - top_item), 70, "%s", prompt);
+                mvprintw(win_top + 4 + (cur_item - top_item), 70, "%s", prompt);
                 clrtoeol();
-                mvprintw(win_top + 3 + (cur_item - top_item), 70 + strlen(prompt), "%s", buf);
-                move(win_top + 3 + (cur_item - top_item), 70 + strlen(prompt) + strlen(buf));
+                mvprintw(win_top + 4 + (cur_item - top_item), 70 + strlen(prompt), "%s", buf);
+                move(win_top + 4 + (cur_item - top_item), 70 + strlen(prompt) + strlen(buf));
                 int pos = strlen(buf);
                 int done = 0;
 
@@ -591,10 +591,10 @@ int show_column_setup(const char *csv_filename)
                         buf[pos] = '\0';
                     }
 
-                    mvprintw(win_top + 3 + (cur_item - top_item), 70, "%s", prompt);
+                    mvprintw(win_top + 4 + (cur_item - top_item), 70, "%s", prompt);
                     clrtoeol();
                     printw("%s", buf);
-                    move(win_top + 3 + (cur_item - top_item), 70 + strlen(prompt) + pos);
+                    move(win_top + 4 + (cur_item - top_item), 70 + strlen(prompt) + pos);
                     refresh();
                 }
                 noecho();
@@ -698,12 +698,17 @@ int show_column_setup(const char *csv_filename)
         mvaddch(win_top + win_height - 2, win_width, ACS_LRCORNER);
         attroff(COLOR_PAIR(6));
 
-        // Заголовки
+        // Статус заголовков
+        attron(COLOR_PAIR(use_headers ? 3 : 2) | A_BOLD);
+        mvprintw(win_top + 1, 3, "Headers: %s", use_headers ? "ON  [H to toggle]" : "OFF [H to toggle]");
+        attroff(COLOR_PAIR(use_headers ? 3 : 2) | A_BOLD);
+
+        // Заголовки столбцов
         attron(COLOR_PAIR(5) | A_BOLD);
-        mvprintw(win_top + 1, 3,   "Column");
-        mvprintw(win_top + 1, 65,  "Type");
-        mvprintw(win_top + 1, 82,  "Format");
-        mvprintw(win_top + 1, 107, "Preview (first data row)");
+        mvprintw(win_top + 2, 3,   "Column");
+        mvprintw(win_top + 2, 65,  "Type");
+        mvprintw(win_top + 2, 82,  "Format");
+        mvprintw(win_top + 2, 107, "Preview (first data row)");
         attroff(COLOR_PAIR(5) | A_BOLD);
 
         // Список столбцов
@@ -747,10 +752,10 @@ int show_column_setup(const char *csv_filename)
 
             if (idx == cur_item) attron(A_REVERSE);
 
-            mvprintw(win_top + 3 + i, 3,   "%-60s", name);
-            mvprintw(win_top + 3 + i, 65,  "%-15s", type_str);
-            mvprintw(win_top + 3 + i, 82,  "%-25s", fmt_str);
-            mvprintw(win_top + 3 + i, 107, "%-50s", preview);
+            mvprintw(win_top + 4 + i, 3,   "%-60s", name);
+            mvprintw(win_top + 4 + i, 65,  "%-15s", type_str);
+            mvprintw(win_top + 4 + i, 82,  "%-25s", fmt_str);
+            mvprintw(win_top + 4 + i, 107, "%-50s", preview);
 
             attroff(A_REVERSE);
         }
@@ -820,10 +825,10 @@ int show_column_setup(const char *csv_filename)
                 prompt = "Wrong type";
             }
 
-            mvprintw(win_top + 3 + (cur_item - top_item), 82, "%s", prompt);
+            mvprintw(win_top + 4 + (cur_item - top_item), 82, "%s", prompt);
             clrtoeol();
-            mvprintw(win_top + 3 + (cur_item - top_item), 82 + strlen(prompt), "%s", buf);
-            move(win_top + 3 + (cur_item - top_item), 82 + strlen(prompt) + strlen(buf));
+            mvprintw(win_top + 4 + (cur_item - top_item), 82 + strlen(prompt), "%s", buf);
+            move(win_top + 4 + (cur_item - top_item), 82 + strlen(prompt) + strlen(buf));
             int pos = strlen(buf);
             int done = 0;
 
@@ -861,10 +866,10 @@ int show_column_setup(const char *csv_filename)
                 }
 
                 // Перерисовка поля ввода
-                mvprintw(win_top + 3 + (cur_item - top_item), 82, "%s", prompt);
+                mvprintw(win_top + 4 + (cur_item - top_item), 82, "%s", prompt);
                 clrtoeol();
                 printw("%s", buf);
-                move(win_top + 3 + (cur_item - top_item), 82 + strlen(prompt) + pos);
+                move(win_top + 4 + (cur_item - top_item), 82 + strlen(prompt) + pos);
                 refresh();
             }
 
@@ -873,13 +878,49 @@ int show_column_setup(const char *csv_filename)
         }
         else if (ch == 'h' || ch == 'H')
         {
-            use_headers = !use_headers;  // переключаем
+            use_headers = !use_headers;
             save_column_settings(csv_filename);
-            // Можно перезагрузить превью, если нужно, но для простоты оставляем как есть
+
+            // Перезагружаем превью для новой строки
+            memset(preview_values, 0, sizeof(preview_values));
+            preview_valid = 0;
+            if (row_count > (use_headers ? 1 : 0))
+            {
+                int preview_row = use_headers ? 1 : 0;
+                if (!rows[preview_row].line_cache)
+                {
+                    fseek(f, rows[preview_row].offset, SEEK_SET);
+                    char *pline = malloc(MAX_LINE_LEN);
+                    if (fgets(pline, MAX_LINE_LEN, f))
+                    {
+                        pline[strcspn(pline, "\r\n")] = '\0';
+                        rows[preview_row].line_cache = pline;
+                    }
+                    else
+                    {
+                        rows[preview_row].line_cache = strdup("");
+                        free(pline);
+                    }
+                }
+                int field_count = 0;
+                char **fields = parse_csv_line(rows[preview_row].line_cache, &field_count);
+                if (fields)
+                {
+                    for (int c = 0; c < field_count && c < col_count; c++)
+                    {
+                        strncpy(preview_values[c], fields[c], sizeof(preview_values[c]) - 1);
+                        preview_values[c][sizeof(preview_values[c]) - 1] = '\0';
+                    }
+                    preview_valid = 1;
+                    for (int k = 0; k < field_count; k++) free(fields[k]);
+                    free(fields);
+                }
+            }
         }
         else if (ch == 27 || ch == 'q' || ch == 'Q')
         {
-            return 1; // отмена
+            save_column_settings(csv_filename);
+            return 0;
         }
     }
 
