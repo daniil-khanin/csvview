@@ -565,3 +565,26 @@ char *get_cell_content(const char *line, int target_col)
     free(result);
     return strdup("");
 }
+
+// ────────────────────────────────────────────────
+// Спиннер прогресса (правый угол статус-бара)
+// ────────────────────────────────────────────────
+
+static int spinner_state = 0;
+static const char spinner_chars[] = "|/-\\";
+
+void spinner_tick(void)
+{
+    attron(COLOR_PAIR(6));
+    mvprintw(LINES - 2, COLS - 7, "[ %c ]", spinner_chars[spinner_state & 3]);
+    attroff(COLOR_PAIR(6));
+    refresh();
+    spinner_state++;
+}
+
+void spinner_clear(void)
+{
+    mvprintw(LINES - 2, COLS - 7, "     ");
+    refresh();
+    spinner_state = 0;
+}

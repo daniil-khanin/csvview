@@ -6,6 +6,7 @@
 
 #include "sorting.h"
 #include "utils.h"          // get_column_value, col_name_to_num и т.д.
+#include "ui_draw.h"        // spinner_tick / spinner_clear
 
 #include <stdlib.h>         // qsort
 #include <string.h>         // strcasecmp, strlen
@@ -243,7 +244,9 @@ void build_sorted_index(void)
     // Если строк больше одной — выполняем сортировку
     if (sorted_count > 1)
     {
+        spinner_tick();
         qsort(sorted_rows, sorted_count, sizeof(int), compare_rows_by_column);
+        spinner_clear();
     }
 }
 

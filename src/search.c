@@ -6,6 +6,7 @@
 
 #include "search.h"
 #include "utils.h"          // strcasestr_custom, get_column_value и т.д.
+#include "ui_draw.h"        // spinner_tick / spinner_clear
 
 #include <stdio.h>          // fseek, fgets
 #include <stdlib.h>         // malloc, strdup
@@ -31,6 +32,8 @@ void perform_search(RowIndex *rows, FILE *f, int row_count)
 
     for (int r = start_row; r < row_count && search_count < MAX_SEARCH_RESULTS; r++)
     {
+        if ((r - start_row) % 5000 == 0 && r > start_row) spinner_tick();
+
         // Ленивая загрузка строки в кэш
         if (!rows[r].line_cache)
         {
@@ -63,6 +66,8 @@ void perform_search(RowIndex *rows, FILE *f, int row_count)
 
         free_csv_fields(fields, field_count);
     }
+
+    spinner_clear();
 }
 
 // ────────────────────────────────────────────────

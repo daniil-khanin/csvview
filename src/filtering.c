@@ -11,6 +11,7 @@
 #include "csvview_defs.h"       // все константы, типы, extern глобальные
 #include "utils.h"              // parse_filter_expression, free_filter_expr и т.д.
 #include "filtering.h"
+#include "ui_draw.h"            // spinner_tick / spinner_clear
 
 #include <ncurses.h>
 #include <stdio.h>
@@ -60,6 +61,8 @@ void apply_filter(RowIndex *rows, FILE *f, int row_count)
 
     for (int r = start_row; r < row_count && filtered_count < MAX_ROWS; r++)
     {
+        if ((r - start_row) % 5000 == 0 && r > start_row) spinner_tick();
+
         // Загружаем строку, если кэш пустой
         if (!rows[r].line_cache)
         {
@@ -190,6 +193,8 @@ void apply_filter(RowIndex *rows, FILE *f, int row_count)
             filtered_rows[filtered_count++] = r;
         }
     }
+
+    spinner_clear();
 
     // Освобождаем память, если использовали новый парсер
     if (new_syntax_ok)
