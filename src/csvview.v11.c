@@ -111,6 +111,7 @@ char csv_delimiter = ',';
 
 // 11. Заморозка столбцов (первые N всегда видны)
 int freeze_cols = 0;
+int col_hidden[MAX_COLS] = {0};
 
 // 12. Drill-down из pivot: фильтр для возврата в основную таблицу
 char pivot_drilldown_filter[512] = "";
@@ -364,7 +365,11 @@ int main(int argc, char *argv[]) {
     int top_display_row = 0;
     int cur_real_row = use_headers ? 1 : 0;
     int cur_col = 0;
-    int left_col = 0;
+    int left_col = freeze_cols;
+
+    // Сдвигаем курсор на первый видимый столбец
+    while (cur_col < col_count - 1 && col_hidden[cur_col]) cur_col++;
+    while (left_col < col_count && col_hidden[left_col]) left_col++;
 
     char current_cell_content[256] = "(пусто)";
     char col_name[32];
@@ -376,10 +381,10 @@ int main(int argc, char *argv[]) {
         int table_height = height - table_top - 1;
         int table_width = width - 4;
         int visible_rows = table_height - 3;
-        // Вычисляем ширину замороженных столбцов
+        // Вычисляем ширину замороженных столбцов (скрытые не учитываем)
         int frozen_px = 0;
         for (int fc = 0; fc < freeze_cols && fc < col_count; fc++)
-            frozen_px += col_widths[fc] + 2;
+            if (!col_hidden[fc]) frozen_px += col_widths[fc] + 2;
         if (freeze_cols > 0 && freeze_cols < col_count) frozen_px += 1; // сепаратор
 
         // visible_cols = число скроллируемых (не замороженных) столбцов
@@ -1272,9 +1277,10 @@ int main(int argc, char *argv[]) {
             }
         }
         else if (ch == KEY_LEFT || ch == 'h') {
-            if (cur_col > 0) {
-                cur_col--;
-                // Прокрутка нужна только для скроллируемой области
+            int nc = cur_col - 1;
+            while (nc > 0 && col_hidden[nc]) nc--;
+            if (nc >= 0 && !col_hidden[nc]) {
+                cur_col = nc;
                 if (cur_col >= freeze_cols && cur_col < left_col) {
                     left_col = cur_col;
                     if (left_col < freeze_cols) left_col = freeze_cols;
@@ -1282,9 +1288,10 @@ int main(int argc, char *argv[]) {
             }
         }
         else if (ch == KEY_RIGHT || ch == 'l') {
-            if (cur_col < col_count - 1) {
-                cur_col++;
-                // Прокрутка нужна только для скроллируемой области
+            int nc = cur_col + 1;
+            while (nc < col_count && col_hidden[nc]) nc++;
+            if (nc < col_count) {
+                cur_col = nc;
                 if (cur_col >= freeze_cols && cur_col >= left_col + visible_cols) {
                     left_col = cur_col - visible_cols + 1;
                     if (left_col < freeze_cols) left_col = freeze_cols;
@@ -1318,11 +1325,13 @@ int main(int argc, char *argv[]) {
         }
         else if (ch == 'H') {
             cur_col = 0;
+            while (cur_col < col_count - 1 && col_hidden[cur_col]) cur_col++;
             left_col = freeze_cols;
             if (left_col >= col_count) left_col = col_count > 0 ? col_count - 1 : 0;
         }
         else if (ch == 'L') {
             cur_col = col_count - 1;
+            while (cur_col > 0 && col_hidden[cur_col]) cur_col--;
             left_col = cur_col - visible_cols + 1;
             if (left_col < freeze_cols) left_col = freeze_cols;
             if (left_col < 0) left_col = 0;

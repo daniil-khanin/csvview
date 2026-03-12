@@ -148,6 +148,7 @@ void draw_table_headers(int top, int offset __attribute__((unused)), int visible
 
     // === Замороженные столбцы (0..freeze_cols-1) ===
     for (int fc = 0; fc < freeze_cols && fc < col_count; fc++) {
+        if (col_hidden[fc]) continue;
         draw_one_header(top, current_x, fc, cur_col);
         current_x += col_widths[fc] + 2;
     }
@@ -159,12 +160,16 @@ void draw_table_headers(int top, int offset __attribute__((unused)), int visible
         attroff(COLOR_PAIR(6) | A_BOLD);
     }
 
-    // === Скроллируемые столбцы (left_col..left_col+visible_cols-1) ===
-    for (int c = 0; c < visible_cols; c++) {
-        int col_idx = left_col + c;
-        if (col_idx >= col_count) break;
+    // === Скроллируемые столбцы, начиная с left_col ===
+    int col_idx = left_col;
+    int drawn_sc = 0;
+    while (col_idx < col_count) {
+        if (col_hidden[col_idx]) { col_idx++; continue; }
+        if (drawn_sc >= visible_cols) break;
         draw_one_header(top, current_x, col_idx, cur_col);
         current_x += col_widths[col_idx] + 2;
+        col_idx++;
+        drawn_sc++;
     }
 
     attroff(COLOR_PAIR(6) | A_BOLD);
@@ -223,6 +228,8 @@ void draw_table_body(int top, int offset __attribute__((unused)), int visible_ro
 
         // === Замороженные столбцы (0..freeze_cols-1) ===
         for (int fc = 0; fc < freeze_cols && fc < col_count; fc++) {
+            if (col_hidden[fc]) continue;
+
             const char *raw = (fc < field_count) ? fields[fc] : "";
 
             char display_cell[MAX_LINE_LEN];
@@ -256,35 +263,39 @@ void draw_table_body(int top, int offset __attribute__((unused)), int visible_ro
             attroff(COLOR_PAIR(6));
         }
 
-        // === Скроллируемые столбцы (left_col..left_col+visible_cols-1) ===
-        for (int sc = 0; sc < visible_cols; sc++) {
-            int col_idx = left_col + sc;
-            if (col_idx >= col_count) break;
+        // === Скроллируемые столбцы, начиная с left_col ===
+        int sc_col = left_col;
+        int drawn_sc = 0;
+        while (sc_col < col_count) {
+            if (col_hidden[sc_col]) { sc_col++; continue; }
+            if (drawn_sc >= visible_cols) break;
 
-            const char *raw = (col_idx < field_count) ? fields[col_idx] : "";
+            const char *raw = (sc_col < field_count) ? fields[sc_col] : "";
 
             char display_cell[MAX_LINE_LEN];
             strncpy(display_cell, raw, sizeof(display_cell) - 1);
             display_cell[sizeof(display_cell) - 1] = '\0';
             if (strlen(display_cell) > 200) strcpy(display_cell, "(очень длинный текст)");
 
-            char *display_val = format_cell_value(display_cell, col_idx);
+            char *display_val = format_cell_value(display_cell, sc_col);
 
-            int is_current_cell = (display_pos == cur_display_row && col_idx == cur_col);
+            int is_current_cell = (display_pos == cur_display_row && sc_col == cur_col);
             int is_current_row  = (display_pos == cur_display_row);
-            int is_current_col  = (col_idx == cur_col);
+            int is_current_col  = (sc_col == cur_col);
 
             if (is_current_cell)          attron(COLOR_PAIR(2));
             else if (is_current_row || is_current_col) attron(COLOR_PAIR(1));
             else                          attron(COLOR_PAIR(8));
 
-            const char *fmt = (col_types[col_idx] == COL_NUM) ? "%*s" : "%-*s";
-            char *disp = truncate_for_display(display_val, col_widths[col_idx] - 2);
-            mvprintw(row_y, current_x, fmt, col_widths[col_idx] - 2, disp);
+            const char *fmt = (col_types[sc_col] == COL_NUM) ? "%*s" : "%-*s";
+            char *disp = truncate_for_display(display_val, col_widths[sc_col] - 2);
+            mvprintw(row_y, current_x, fmt, col_widths[sc_col] - 2, disp);
 
-            current_x += col_widths[col_idx] + 2;
+            current_x += col_widths[sc_col] + 2;
             attroff(COLOR_PAIR(2) | COLOR_PAIR(8) | COLOR_PAIR(1));
             free(display_val);
+            sc_col++;
+            drawn_sc++;
         }
 
         // Освобождаем память после парсинга

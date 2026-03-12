@@ -236,6 +236,22 @@ void save_column_settings(const char *csv_filename)
                 col_formats[i].date_format);
     }
 
+    // Скрытые столбцы
+    int has_hidden = 0;
+    for (int i = 0; i < col_count; i++) if (col_hidden[i]) { has_hidden = 1; break; }
+    if (has_hidden) {
+        fprintf(fp, "hidden:");
+        int first = 1;
+        for (int i = 0; i < col_count; i++) {
+            if (col_hidden[i]) {
+                if (!first) fprintf(fp, ",");
+                fprintf(fp, "%d", i);
+                first = 0;
+            }
+        }
+        fprintf(fp, "\n");
+    }
+
     // Ширины столбцов
     fprintf(fp, "widths:");
     for (int i = 0; i < col_count; i++)
@@ -269,6 +285,9 @@ int load_column_settings(const char *csv_filename)
     if (!fp) {
         return 0; // файла нет — оставляем дефолт
     }
+
+    // Сбрасываем скрытые столбцы перед загрузкой
+    memset(col_hidden, 0, sizeof(col_hidden));
 
     char line[256];
     int loaded_count = 0;
@@ -310,6 +329,16 @@ int load_column_settings(const char *csv_filename)
         {
             int n = atoi(line + 7);
             if (n >= 0) freeze_cols = n;
+        }
+        else if (strncmp(line, "hidden:", 7) == 0)
+        {
+            char *p = line + 7;
+            char *tok = strtok(p, ",");
+            while (tok) {
+                int idx = atoi(tok);
+                if (idx >= 0 && idx < MAX_COLS) col_hidden[idx] = 1;
+                tok = strtok(NULL, ",");
+            }
         }
         else if (strncmp(line, "col_count:", 10) == 0)
         {
@@ -758,7 +787,14 @@ int show_column_setup(const char *csv_filename)
 
             if (idx == cur_item) attron(A_REVERSE);
 
-            mvprintw(win_top + 4 + i, 3,   "%-60s", name);
+            // Имя столбца с маркером скрытия
+            if (col_hidden[idx]) {
+                attron(COLOR_PAIR(2));
+                mvprintw(win_top + 4 + i, 3, "[H] %-56s", name);
+                attroff(COLOR_PAIR(2));
+            } else {
+                mvprintw(win_top + 4 + i, 3, "    %-56s", name);
+            }
             mvprintw(win_top + 4 + i, 65,  "%-15s", type_str);
             mvprintw(win_top + 4 + i, 82,  "%-25s", fmt_str);
             mvprintw(win_top + 4 + i, 107, "%-50s", preview);
@@ -769,7 +805,7 @@ int show_column_setup(const char *csv_filename)
         // Подсказки (обновлённые)
         char hint[128];
         snprintf(hint, sizeof(hint),
-                 "[ ↑↓/jk move • S/N/D type • Enter edit • H headers • q/Esc save&exit ]");
+                 "[ ↑↓/jk move • S/N/D type • X hide/show • Enter edit • H headers • q/Esc save&exit ]");
 
         int hint_len = strlen(hint);
         int hint_x = (win_width - hint_len) / 2;
@@ -881,6 +917,11 @@ int show_column_setup(const char *csv_filename)
 
             noecho();
             curs_set(0);
+        }
+        else if (ch == 'x' || ch == 'X')
+        {
+            col_hidden[cur_item] = !col_hidden[cur_item];
+            save_column_settings(csv_filename);
         }
         else if (ch == 'h' || ch == 'H')
         {

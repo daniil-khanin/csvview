@@ -117,6 +117,7 @@ void show_help(int use_ncurses)
         "    String: truncate length (0 = show full)",
         "    Number: decimal places (-1 = auto)",
         "    Date:   format string (e.g. %Y-%m-%d)",
+        "  X                    Hide / show current column (saved in .csvf)",
         "  H                    Toggle use-headers ON/OFF (preview updates live)",
         "  q / Esc              Save & return to table",
         "",
