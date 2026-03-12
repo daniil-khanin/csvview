@@ -370,8 +370,9 @@ int main(int argc, char *argv[]) {
         int table_height = height - table_top - 1;
         int table_width = width - 4;
         int visible_rows = table_height - 3;
-        int visible_cols = table_width / CELL_WIDTH - 2;
-        if (visible_cols > col_count) visible_cols = col_count - 2;
+        int visible_cols = (table_width - ROW_NUMBER_WIDTH - 2) / CELL_WIDTH;
+        if (visible_cols < 1) visible_cols = 1;
+        if (visible_cols > col_count) visible_cols = col_count;
 
         int display_count = filter_active ? filtered_count : (row_count - (use_headers ? 1 : 0));
 
