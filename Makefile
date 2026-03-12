@@ -4,7 +4,7 @@ CC       = clang
 CFLAGS   = -Wall -Wextra -g -O2
 LDFLAGS  = -lncurses
 
-TARGET   = csvview.v11
+TARGET   = csvview
 
 # Все исходники теперь в src/
 SOURCES  = $(wildcard src/*.c)
