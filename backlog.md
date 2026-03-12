@@ -1,4 +1,4 @@
-# Product Backlog (last updated: 2026-03-12)
+# Product Backlog (last updated: 2026-03-13)
 
 ## Strategy
 Niche: **fast CSV editor with analytics for the terminal, zero dependencies**.
@@ -50,9 +50,8 @@ Goal: close basic gaps → strengthen unique features → scale to large files.
 
 ## P3 — distribution and public release
 - [x] License: MIT, LICENSE file added to the repository.
-- [ ] Man page: write csvview.1 based on help.c, install to /usr/local/share/man/man1/.
-- [ ] System install: `make install` — copies binary to /usr/local/bin, man page to the right place.
-      `make uninstall` — removes. PREFIX variable for custom path.
+- [x] Man page: csvview.1 written, installs to /usr/local/share/man/man1/.
+- [x] System install: `make install` / `make uninstall`, PREFIX variable for custom path.
 - [ ] Homebrew formula: create Formula/csvview.rb, publish via tap (daniil-khanin/homebrew-csvview).
       Requires: public repository, tagged release with archive, sha256.
 - [ ] Landing page: single-page site with description, install command, terminal screenshots.
@@ -81,3 +80,7 @@ Goal: close basic gaps → strengthen unique features → scale to large files.
 - [x] Pivot: long values in first column overflowed into numeric columns.
       Cause: %-*s doesn't truncate strings longer than the given width.
       Fixed: snprintf into buffer before mvprintw for row labels and column headers.
+- [x] --sep= flag ignored: file taken from argv[1] instead of parsed input_files[0].
+- [x] European decimal separator: numbers like "1234,56" not parsed as numbers.
+      Fixed: parse_double() in utils normalizes comma→dot, used everywhere
+      (display, pivot aggregates, column stats, sorting, filtering, graphs, formulas).
