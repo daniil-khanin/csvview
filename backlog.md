@@ -1,85 +1,83 @@
-# Product Backlog  (последнее обновление: 2026-03-12)
+# Product Backlog (last updated: 2026-03-12)
 
-## Стратегия
-Ниша: **быстрый CSV-редактор с аналитикой для терминала, без зависимостей**.
-Язык C + ncurses — главное конкурентное преимущество перед VisiData (Python).
-Не добавлять: Parquet/Arrow/Excel, Python/Lua скриптинг, plugin system.
-Цель: закрыть базовые пробелы → усилить уникальные фичи → масштаб по размеру файлов.
+## Strategy
+Niche: **fast CSV editor with analytics for the terminal, zero dependencies**.
+C + ncurses — main competitive advantage over VisiData (Python).
+Do not add: Parquet/Arrow/Excel, Python/Lua scripting, plugin system.
+Goal: close basic gaps → strengthen unique features → scale to large files.
 
 ---
 
-## P0 — критично, без этого не релиз
-- [х] Не работает фильтрация по датам, причем user_cohort=2026-01 не работает, а user_cohort>=2026-01 работает
+## P0 — critical, no release without this
+- [x] Date filtering broken: user_cohort=2026-01 didn't work, user_cohort>=2026-01 did
 
-## P1 — закрыть базовые пробелы (ожидает пользователь с VisiData)
-- [х] В Pivot table добавить полную обработку клавишь PageUp, PageDown, Home, End, Home/End in Line
-- [х] Создание из нескольких файлов одного, с дополнительным столбцов значение которого заполняются по имени файла из которого берутся строки
-- [х] Есть бага, если существует фильтр, и после применяется сортировка, то сортировка не работает.
-- [х] Сплит файла на несколько файлов по значению столбца (`--split --by=<col>`)
-- [—] Итоговая строка в основной таблице. Решено не делать — для этого есть d (статистика столбца).
-- [х] Reload (Ctrl+R): перечитать файл без перезапуска. Сохраняет фильтр и сортировку, корректирует курсор.
-- [х] Freeze columns: зафиксировать N левых столбцов при горизонтальной прокрутке.
-      z — заморозить/разморозить текущий столбец. :fz N — точное число. Сохраняется в .csvf.
-- [х] Drill-down из сводной таблицы: Enter на ячейке pivot → открывает основную таблицу
-      с автоматическим фильтром по значениям строки и столбца этой ячейки.
-- [ ] Go-to row: прыжок на строку по номеру (`:N` или Ctrl+G).
+## P1 — close basic gaps (expected by users coming from VisiData)
+- [x] Pivot table: full PageUp, PageDown, Home, End, Home/End in line support
+- [x] Merge multiple files into one, with an extra column filled from the source filename
+- [x] Bug: active filter + sort — sort had no effect
+- [x] Split file into multiple files by column value (`--split --by=<col>`)
+- [—] Summary row in main table — decided not to do; use d (column stats) instead
+- [x] Reload (Ctrl+R): re-read file without restarting; keeps filter and sort, adjusts cursor
+- [x] Freeze columns: pin N left columns during horizontal scroll
+      z — freeze/unfreeze current column. :fz N — exact count. Saved in .csvf.
+- [x] Drill-down from pivot: Enter on a pivot cell → opens main table
+      with auto-filter by row and column values of that cell
+- [ ] Go-to row: jump to row by number (`:N` or Ctrl+G)
 
-## P2 — усилить уникальные преимущества
-- [х] Оформить интерфейс, перенести имя файла вверх под строку действия в ячейке и оформить в -[ имя файла ]- Аналогично убрать число строк и размер файла в нижнюю часть окна в виде
-      -[ 100 000 ]--[ 168 Mb]-
-- [х] Адаптивный по длине 1 столбец в Сводных Таблицах
-- [х] В режиме графика сделать прыжок на минимум, максимум курсора. чтобы не искать его
-- [х] График для сводной таблицы: экран делим пополам, слева оставляем сводную таблицу, а справа показываем график
-- [х] Сортировка в сводной таблице (статическая, через настройки)
-- [х] Вычисляемые столбцы: `:cf <формула>` — заполняет реальный столбец по формуле.
-      Операторы +,-,*,/,(). Функции: round, abs, floor, ceil, mod, pow, if, empty.
-      Агрегаты по фильтру: col_sum/avg/min/max/count/median/percentile/stddev/var/rank/pct.
-      Агрегаты по всему файлу: те же с суффиксом _all.
-- [х] Поддержка TSV/PSV и других разделителей: --sep=<char>, автодетект по расширению (.tsv→tab, .psv→pipe).
-      Единый парсер parse_csv_line() и serializer build_csv_line() везде в коде.
-- [ ] Перемещение столбцов: сдвинуть текущий столбец влево/вправо.
-      Ctrl+Left / Ctrl+Right — сдвиг на одну позицию. Меняет порядок в данных и заголовке, сохраняет файл.
-- [х] Скрытие столбцов: X в настройках столбцов (t) — скрыть/показать столбец.
-      Скрытые столбцы не отображаются и не мешают прокрутке. Сохраняется в .csvf.
-- [ ] Виртуальные столбцы: вычисляемые столбцы только в сессии, не меняют файл.
-      Полезно для быстрого анализа без загрязнения данных.
-- [х] Pivot → множественные агрегаты: SUM+COUNT, SUM+AVG, MIN+MAX и др. в одной таблице.
-      Выбираются в настройках через ←→ на поле Aggregation. Показываются как подстолбцы.
-- [ ] Экспорт pivot в Markdown: `:em` — для отчётов в GitHub/Notion.
-- [ ] Копирование ячейки в буфер обмена (y — yank).
-- [ ] История файлов: csvview без аргументов → список последних N файлов.
+## P2 — strengthen unique advantages
+- [x] UI polish: move filename to top under action line as -[ filename ]-, move row count and file size to bottom as -[ 100 000 ]--[ 168 Mb ]-
+- [x] Adaptive first-column width in pivot tables
+- [x] Graph: jump to min/max with a keypress instead of searching manually
+- [x] Pivot graph: split screen — pivot table on the left, graph on the right
+- [x] Pivot table sorting (static, via settings)
+- [x] Computed columns: `:cf <formula>` — fills a real column by formula.
+      Operators: +,-,*,/,(). Functions: round, abs, floor, ceil, mod, pow, if, empty.
+      Filter aggregates: col_sum/avg/min/max/count/median/percentile/stddev/var/rank/pct.
+      Whole-file aggregates: same with _all suffix.
+- [x] TSV/PSV and other delimiters: --sep=<char>, auto-detect by extension (.tsv→tab, .psv→pipe).
+      Unified parser parse_csv_line() and serializer build_csv_line() everywhere.
+- [ ] Column reordering: move current column left/right.
+      Ctrl+Left / Ctrl+Right — shift by one position. Changes order in data and header, saves file.
+- [x] Column hiding: X in column settings (t) — hide/show column.
+      Hidden columns are not displayed and don't interfere with scrolling. Saved in .csvf.
+- [ ] Virtual columns: computed columns for the session only, don't modify the file.
+      Useful for quick analysis without polluting the data.
+- [x] Pivot → multiple aggregates: SUM+COUNT, SUM+AVG, MIN+MAX, etc. in one table.
+      Selected in settings via ←→ on the Aggregation field. Shown as sub-columns.
+- [ ] Export pivot to Markdown: `:em` — for reports in GitHub/Notion.
+- [ ] Copy cell to clipboard (y — yank).
+- [x] File history: csvview with no arguments → picker with recent files (~/.csvview_history).
 
-## P3 — дистрибуция и публичный релиз
-- [х] Лицензия: MIT, LICENSE файл добавлен в репозиторий.
-- [ ] Man-страница: написать csvview.1 на основе help.c, установить в /usr/local/share/man/man1/.
-- [ ] Установка в систему: `make install` — копирует бинарник в /usr/local/bin, man в нужное место.
-      `make uninstall` — удаляет. PREFIX переменная для кастомного пути.
-- [ ] Homebrew formula: создать Formula/csvview.rb, опубликовать через tap (daniil-khanin/homebrew-csvview).
-      Требует: публичный репозиторий, тегированный релиз с архивом, sha256.
-- [ ] Лендинг: одностраничный сайт с описанием, install-командой, скриншотами терминала.
+## P3 — distribution and public release
+- [x] License: MIT, LICENSE file added to the repository.
+- [ ] Man page: write csvview.1 based on help.c, install to /usr/local/share/man/man1/.
+- [ ] System install: `make install` — copies binary to /usr/local/bin, man page to the right place.
+      `make uninstall` — removes. PREFIX variable for custom path.
+- [ ] Homebrew formula: create Formula/csvview.rb, publish via tap (daniil-khanin/homebrew-csvview).
+      Requires: public repository, tagged release with archive, sha256.
+- [ ] Landing page: single-page site with description, install command, terminal screenshots.
 
 ## Icebox / Ideas / Later
-- [ ] Поддержка 100M+ строк: блочное индексирование вместо статического массива offsets.
-      Хранить каждый N-й offset, seek внутри блока. Архитектурное изменение.
-      Откроет сегмент файлов которые VisiData не может открыть вообще.
-- [ ] Прогрессивная статистика: count/min/max мгновенно, медиана/гистограмма по мере готовности.
-      Сейчас d на большом файле = 20-60 сек без обратной связи.
-- [ ] Сравнение двух файлов: --diff file1.csv file2.csv, построчное сравнение,
-      подсветка расхождений. Для верификации actual_output.csv vs expected.csv.
-- [ ] Интерактивная сортировка в сводной таблице (горячие клавиши прямо в таблице)
-- [ ] Дедупликация: :dedup — удалить дублирующиеся строки по текущему столбцу или всей строке.
-- [ ] Выборка: :sample N — случайная выборка N строк для быстрого осмотра больших файлов.
-- [ ] Scatter plot: две числовые колонки → точечный график (x/y)
-- [ ] Экспорт в JSON: :ej
+- [ ] 100M+ rows: block indexing instead of static offsets array.
+      Store every N-th offset, seek within a block. Architectural change.
+      Opens a segment of files VisiData cannot open at all.
+- [ ] Progressive statistics: count/min/max instantly, median/histogram as ready.
+      Currently d on a large file = 20–60 sec with no feedback.
+- [ ] File diff: --diff file1.csv file2.csv, line-by-line comparison,
+      highlight discrepancies. For verifying actual_output.csv vs expected.csv.
+- [ ] Interactive pivot sorting (hotkeys directly in the table)
+- [ ] Deduplication: :dedup — remove duplicate rows by current column or full row.
+- [ ] Sampling: :sample N — random sample of N rows for quick inspection of large files.
+- [ ] Scatter plot: two numeric columns → dot chart (x/y)
+- [ ] JSON export: :ej
 
 ## Bugs
-- [х] Не работает :gx off команда, которая должна возвращать ось Х просто к порядковому числу строки
-- [х] Проблема была в парсинге CSV, но решена она только пока в одном месте.
-      Исправлено: единый parse_csv_line() везде, strtok убран.
-- [х] Если в таблице много столбцов, то последний почему то не показывается при прокрутке
-- [х] Баг `:car`/`:cal`: двойная запятая в заголовке и слипание имён столбцов при добавлении.
-- [х] Баг сохранения: строки вне экрана (без line_cache) записывались пустыми.
-- [х] Баг `:cf`: пустые строки после заголовка и через строку у невидимых строк.
-- [х] В сводных таблицах длинные значения в 1-м столбце выезжали в числовые колонки.
-      Причина: %-*s не обрезает строки длиннее заданной ширины.
-      Исправлено: snprintf в буфер перед mvprintw для меток строк и заголовков колонок.
+- [x] :gx off command didn't work (should reset X axis to row numbers)
+- [x] CSV parsing bug — fixed by unified parse_csv_line() everywhere, strtok removed
+- [x] Last column not shown when table has many columns and scrolling
+- [x] :car/:cal bug: double comma in header and column names merging on add
+- [x] Save bug: rows outside screen (no line_cache) were written as empty
+- [x] :cf bug: empty lines after header and every other line for hidden rows
+- [x] Pivot: long values in first column overflowed into numeric columns.
+      Cause: %-*s doesn't truncate strings longer than the given width.
+      Fixed: snprintf into buffer before mvprintw for row labels and column headers.
