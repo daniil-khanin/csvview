@@ -100,61 +100,70 @@ void draw_table_border(int top, int height, int width)
 // ────────────────────────────────────────────────
 // Заголовки таблицы
 // ────────────────────────────────────────────────
+// Вспомогательная отрисовка одного заголовка столбца
+static void draw_one_header(int top, int current_x, int col_idx, int cur_col)
+{
+    char name[64] = {0};
+    if (use_headers && column_names[col_idx]) {
+        strncpy(name, column_names[col_idx], sizeof(name) - 6);
+        name[sizeof(name) - 6] = '\0';
+    } else {
+        col_letter(col_idx, name);
+    }
+
+    const char *arrow = "";
+    int arrow_pair = 0;
+    if (sort_col == col_idx && sort_order != 0) {
+        arrow = (sort_order > 0) ? " ↑" : " ↓";
+        arrow_pair = 3;
+    }
+
+    const char *fmt = (col_types[col_idx] == COL_NUM) ? "%*s" : "%-*s";
+    char *disp = truncate_for_display(name, col_widths[col_idx] - 2);
+
+    if (col_idx == cur_col)
+        attron(COLOR_PAIR(3) | A_BOLD);
+    else
+        attron(COLOR_PAIR(6) | A_BOLD);
+
+    mvprintw(top + 1, current_x, fmt, col_widths[col_idx] - 2, disp);
+
+    if (*arrow) {
+        int arrow_x = current_x + col_widths[col_idx] - 4;
+        if (arrow_pair) attron(COLOR_PAIR(arrow_pair) | A_BOLD);
+        mvprintw(top + 1, arrow_x, "%s", arrow);
+        if (arrow_pair) attroff(COLOR_PAIR(arrow_pair) | A_BOLD);
+    }
+
+    attroff(COLOR_PAIR(3) | COLOR_PAIR(6) | A_BOLD);
+}
+
 void draw_table_headers(int top, int offset __attribute__((unused)), int visible_cols, int left_col, int cur_col)
 {
     attron(COLOR_PAIR(6) | A_BOLD);
-
     mvprintw(top + 1, 1, "%*s", ROW_NUMBER_WIDTH, " ");
+    attroff(COLOR_PAIR(6) | A_BOLD);
 
     int current_x = ROW_NUMBER_WIDTH + 2;
 
-    for (int c = 0; c < visible_cols; c++)
-    {
+    // === Замороженные столбцы (0..freeze_cols-1) ===
+    for (int fc = 0; fc < freeze_cols && fc < col_count; fc++) {
+        draw_one_header(top, current_x, fc, cur_col);
+        current_x += col_widths[fc] + 2;
+    }
+
+    // === Сепаратор заморозки ===
+    if (freeze_cols > 0 && freeze_cols < col_count) {
+        attron(COLOR_PAIR(6) | A_BOLD);
+        mvaddch(top + 1, current_x - 1, ACS_VLINE);
+        attroff(COLOR_PAIR(6) | A_BOLD);
+    }
+
+    // === Скроллируемые столбцы (left_col..left_col+visible_cols-1) ===
+    for (int c = 0; c < visible_cols; c++) {
         int col_idx = left_col + c;
         if (col_idx >= col_count) break;
-
-        char name[64] = {0};
-        if (use_headers && column_names[col_idx]) {
-            strncpy(name, column_names[col_idx], sizeof(name) - 6);
-            name[sizeof(name) - 6] = '\0';
-        } else {
-            col_letter(col_idx, name);
-        }
-
-        const char *arrow = "";
-        int arrow_pair = 0;
-        if (sort_col == col_idx && sort_order != 0) {
-            if (sort_order > 0) {
-                arrow = " ↑";
-                arrow_pair = 3;
-            } else {
-                arrow = " ↓";
-                arrow_pair = 3;
-            }
-        }
-
-        const char *fmt = (col_types[col_idx] == COL_NUM) ? "%*s" : "%-*s";
-
-        char *disp = truncate_for_display(name, col_widths[col_idx] - 2);
-
-        // Подсветка текущего столбца
-        if (col_idx == cur_col) {
-            attron(COLOR_PAIR(3) | A_BOLD);
-        } else {
-            attron(COLOR_PAIR(6) | A_BOLD);
-        }
-
-        mvprintw(top + 1, current_x, fmt, col_widths[col_idx] - 2, disp);
-
-        // Стрелка сортировки
-        if (*arrow) {
-            int arrow_x = current_x + col_widths[col_idx] - 4;
-            if (arrow_pair) attron(COLOR_PAIR(arrow_pair) | A_BOLD);
-            mvprintw(top + 1, arrow_x, "%s", arrow);
-            if (arrow_pair) attroff(COLOR_PAIR(arrow_pair) | A_BOLD);
-        }
-
-        attroff(COLOR_PAIR(3) | COLOR_PAIR(6) | A_BOLD);
+        draw_one_header(top, current_x, col_idx, cur_col);
         current_x += col_widths[col_idx] + 2;
     }
 
@@ -210,77 +219,72 @@ void draw_table_body(int top, int offset __attribute__((unused)), int visible_ro
         }
 
         int current_x = ROW_NUMBER_WIDTH + 2;
-        int col = 0;
+        int row_y = top + 2 + i;
 
-        // Отрисовываем видимые столбцы
-        while (col < left_col + visible_cols && col < field_count)
-        {
-            if (col < left_col) {
-                col++;
-                continue;
-            }
+        // === Замороженные столбцы (0..freeze_cols-1) ===
+        for (int fc = 0; fc < freeze_cols && fc < col_count; fc++) {
+            const char *raw = (fc < field_count) ? fields[fc] : "";
 
-            char *cell = fields[col];
-
-            // Обрезаем слишком длинные значения
             char display_cell[MAX_LINE_LEN];
-            strncpy(display_cell, cell, sizeof(display_cell) - 1);
+            strncpy(display_cell, raw, sizeof(display_cell) - 1);
             display_cell[sizeof(display_cell) - 1] = '\0';
-            if (strlen(display_cell) > 200) {
-                strcpy(display_cell, "(очень длинный текст)");
-            }
+            if (strlen(display_cell) > 200) strcpy(display_cell, "(очень длинный текст)");
 
-            // Форматируем значение
-            char *display_val = format_cell_value(display_cell, col);
+            char *display_val = format_cell_value(display_cell, fc);
 
-            // Подсветка ячейки
-            int is_current_cell = (display_pos == cur_display_row && col == cur_col);
+            int is_current_cell = (display_pos == cur_display_row && fc == cur_col);
             int is_current_row  = (display_pos == cur_display_row);
-            int is_current_col  = (col == cur_col);
+            int is_current_col  = (fc == cur_col);
 
-            if (is_current_cell) {
-                attron(COLOR_PAIR(2)); // яркая текущая ячейка
-            } else if (is_current_row || is_current_col) {
-                attron(COLOR_PAIR(1)); // текущая строка/столбец
-            } else {
-                attron(COLOR_PAIR(8)); // обычные ячейки
-            }
+            if (is_current_cell)          attron(COLOR_PAIR(2));
+            else if (is_current_row || is_current_col) attron(COLOR_PAIR(1));
+            else                          attron(COLOR_PAIR(8));
 
-            const char *fmt = (col_types[col] == COL_NUM) ? "%*s" : "%-*s";
-            char *disp = truncate_for_display(display_val, col_widths[col] - 2);
+            const char *fmt = (col_types[fc] == COL_NUM) ? "%*s" : "%-*s";
+            char *disp = truncate_for_display(display_val, col_widths[fc] - 2);
+            mvprintw(row_y, current_x, fmt, col_widths[fc] - 2, disp);
 
-            mvprintw(top + 2 + i, current_x, fmt, col_widths[col] - 2, disp);
-
-            current_x += col_widths[col] + 2;
+            current_x += col_widths[fc] + 2;
             attroff(COLOR_PAIR(2) | COLOR_PAIR(8) | COLOR_PAIR(1));
-
             free(display_val);
-            col++;
         }
 
-        // Дорисовываем пустые ячейки справа, если в строке меньше полей
-        while (col < left_col + visible_cols && col < col_count)
-        {
-            char *display_val = format_cell_value("", col);
+        // === Сепаратор заморозки ===
+        if (freeze_cols > 0 && freeze_cols < col_count) {
+            attron(COLOR_PAIR(6));
+            mvaddch(row_y, current_x - 1, ACS_VLINE);
+            attroff(COLOR_PAIR(6));
+        }
 
-            int is_current_cell = (display_pos == cur_display_row && col == cur_col);
+        // === Скроллируемые столбцы (left_col..left_col+visible_cols-1) ===
+        for (int sc = 0; sc < visible_cols; sc++) {
+            int col_idx = left_col + sc;
+            if (col_idx >= col_count) break;
+
+            const char *raw = (col_idx < field_count) ? fields[col_idx] : "";
+
+            char display_cell[MAX_LINE_LEN];
+            strncpy(display_cell, raw, sizeof(display_cell) - 1);
+            display_cell[sizeof(display_cell) - 1] = '\0';
+            if (strlen(display_cell) > 200) strcpy(display_cell, "(очень длинный текст)");
+
+            char *display_val = format_cell_value(display_cell, col_idx);
+
+            int is_current_cell = (display_pos == cur_display_row && col_idx == cur_col);
             int is_current_row  = (display_pos == cur_display_row);
-            int is_current_col  = (col == cur_col);
+            int is_current_col  = (col_idx == cur_col);
 
-            if (is_current_cell) attron(COLOR_PAIR(2));
+            if (is_current_cell)          attron(COLOR_PAIR(2));
             else if (is_current_row || is_current_col) attron(COLOR_PAIR(1));
-            else attron(COLOR_PAIR(8));
+            else                          attron(COLOR_PAIR(8));
 
-            const char *fmt = (col_types[col] == COL_NUM) ? "%*s" : "%-*s";
-            char *disp = truncate_for_display(display_val, col_widths[col] - 2);
+            const char *fmt = (col_types[col_idx] == COL_NUM) ? "%*s" : "%-*s";
+            char *disp = truncate_for_display(display_val, col_widths[col_idx] - 2);
+            mvprintw(row_y, current_x, fmt, col_widths[col_idx] - 2, disp);
 
-            mvprintw(top + 2 + i, current_x, fmt, col_widths[col] - 2, disp);
-
-            current_x += col_widths[col] + 2;
+            current_x += col_widths[col_idx] + 2;
             attroff(COLOR_PAIR(2) | COLOR_PAIR(8) | COLOR_PAIR(1));
-
             free(display_val);
-            col++;
         }
 
         // Освобождаем память после парсинга

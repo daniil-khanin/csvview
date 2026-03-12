@@ -31,6 +31,7 @@ Key Bindings (main view):
   [ / ]                Sort ascending / descending by current column
   r / R                Reset sorting
   Ctrl+R               Reload file (re-read from disk, keep filters/sort)
+  z                    Freeze / unfreeze columns up to current column
   d / D                Show column statistics
   p                    Pivot table (apply saved or open settings)
   P                    Pivot table — always open settings window
@@ -52,6 +53,7 @@ Command mode (press : then command):
   :cf num(N,M)         Fill with step M (N,N+M,N+2M…)
   :cf <formula>        Compute column values by formula (see Computed columns)
   :cd <column_name>    Delete column (only if cursor is on this exact column)
+  :fz N                Freeze first N columns (:fz 0 = unfreeze all)
 
 Filter quick commands (: then command):
   :fs                  Save current filter

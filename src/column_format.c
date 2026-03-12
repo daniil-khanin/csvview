@@ -219,6 +219,7 @@ void save_column_settings(const char *csv_filename)
     // Основные настройки
     fprintf(fp, "use_headers:%d\n", use_headers);
     fprintf(fp, "col_count:%d\n", col_count);
+    fprintf(fp, "freeze:%d\n", freeze_cols);
 
     // Настройки каждого столбца
     for (int i = 0; i < col_count; i++)
@@ -304,6 +305,11 @@ int load_column_settings(const char *csv_filename)
         if (strncmp(line, "use_headers:", 12) == 0)
         {
             temp_use_headers = atoi(line + 12);
+        }
+        else if (strncmp(line, "freeze:", 7) == 0)
+        {
+            int n = atoi(line + 7);
+            if (n >= 0) freeze_cols = n;
         }
         else if (strncmp(line, "col_count:", 10) == 0)
         {

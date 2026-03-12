@@ -230,4 +230,7 @@ extern int *save_filtered_rows;
 // Разделитель полей: ',' — CSV (default), '\t' — TSV, '|' — PSV и т.д.
 extern char csv_delimiter;
 
+// Заморозка столбцов: первые N столбцов всегда видны (не прокручиваются)
+extern int freeze_cols;
+
 #endif

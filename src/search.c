@@ -129,12 +129,14 @@ void goto_search_result(int index,
         *top_display_row = display_count - visible_rows;
     }
 
-    // Горизонтальная прокрутка — центрируем столбец
-    *left_col = *cur_col - (visible_cols / 2);
-    if (*left_col < 0) {
-        *left_col = 0;
-    }
-    if (*left_col > col_count - visible_cols) {
-        *left_col = col_count - visible_cols;
+    // Горизонтальная прокрутка — центрируем столбец (только в скроллируемой области)
+    if (*cur_col < freeze_cols) {
+        // столбец в замороженной области — left_col не меняем, но не ниже freeze_cols
+        if (*left_col < freeze_cols) *left_col = freeze_cols;
+    } else {
+        *left_col = *cur_col - (visible_cols / 2);
+        if (*left_col < freeze_cols) *left_col = freeze_cols;
+        if (*left_col > col_count - visible_cols) *left_col = col_count - visible_cols;
+        if (*left_col < 0) *left_col = 0;
     }
 }

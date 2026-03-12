@@ -109,6 +109,9 @@ int  *save_filtered_rows  = NULL;
 // 10. Разделитель полей (по умолчанию ',' — CSV)
 char csv_delimiter = ',';
 
+// 11. Заморозка столбцов (первые N всегда видны)
+int freeze_cols = 0;
+
 // ────────────────────────────────────────────────
 // main
 // ────────────────────────────────────────────────
@@ -370,9 +373,19 @@ int main(int argc, char *argv[]) {
         int table_height = height - table_top - 1;
         int table_width = width - 4;
         int visible_rows = table_height - 3;
-        int visible_cols = (table_width - ROW_NUMBER_WIDTH - 2) / CELL_WIDTH;
-        if (visible_cols < 1) visible_cols = 1;
-        if (visible_cols > col_count) visible_cols = col_count;
+        // Вычисляем ширину замороженных столбцов
+        int frozen_px = 0;
+        for (int fc = 0; fc < freeze_cols && fc < col_count; fc++)
+            frozen_px += col_widths[fc] + 2;
+        if (freeze_cols > 0 && freeze_cols < col_count) frozen_px += 1; // сепаратор
+
+        // visible_cols = число скроллируемых (не замороженных) столбцов
+        int scrollable_area = table_width - ROW_NUMBER_WIDTH - 2 - frozen_px;
+        int visible_cols = (scrollable_area > 0) ? (scrollable_area / CELL_WIDTH) : 0;
+        int max_sc = col_count - freeze_cols;
+        if (max_sc < 0) max_sc = 0;
+        if (visible_cols > max_sc) visible_cols = max_sc;
+        if (visible_cols < 0) visible_cols = 0;
 
         int display_count = filter_active ? filtered_count : (row_count - (use_headers ? 1 : 0));
 
@@ -1165,7 +1178,7 @@ int main(int argc, char *argv[]) {
 
             if (in_filter_mode && strlen(filter_query) > 0) {
                 cur_col = 0;
-                left_col = 0;
+                left_col = freeze_cols;
                 cur_display_row = 0;
                 top_display_row = 0;
 
@@ -1223,24 +1236,20 @@ int main(int argc, char *argv[]) {
         else if (ch == KEY_LEFT || ch == 'h') {
             if (cur_col > 0) {
                 cur_col--;
-
-                // Прокрутка влево только если таблица НЕ помещается целиком
-                if (visible_cols < col_count) {
-                    if (cur_col < left_col) {
-                        left_col = cur_col;  // сдвигаем влево ровно до курсора
-                    }
+                // Прокрутка нужна только для скроллируемой области
+                if (cur_col >= freeze_cols && cur_col < left_col) {
+                    left_col = cur_col;
+                    if (left_col < freeze_cols) left_col = freeze_cols;
                 }
             }
         }
         else if (ch == KEY_RIGHT || ch == 'l') {
             if (cur_col < col_count - 1) {
                 cur_col++;
-
-                // Прокрутка вправо только если таблица НЕ помещается целиком
-                if (visible_cols < col_count) {
-                    if (cur_col >= left_col + visible_cols) {
-                        left_col = cur_col - visible_cols + 1;  // сдвигаем так, чтобы курсор был виден
-                    }
+                // Прокрутка нужна только для скроллируемой области
+                if (cur_col >= freeze_cols && cur_col >= left_col + visible_cols) {
+                    left_col = cur_col - visible_cols + 1;
+                    if (left_col < freeze_cols) left_col = freeze_cols;
                 }
             }
         }       
@@ -1271,13 +1280,25 @@ int main(int argc, char *argv[]) {
         }
         else if (ch == 'H') {
             cur_col = 0;
-            left_col = 0;
-        } 
+            left_col = freeze_cols;
+            if (left_col >= col_count) left_col = col_count > 0 ? col_count - 1 : 0;
+        }
         else if (ch == 'L') {
             cur_col = col_count - 1;
-            // прокручиваем вправо, чтобы последняя ячейка была видна
             left_col = cur_col - visible_cols + 1;
-            if (left_col < 0) left_col = 0;            
+            if (left_col < freeze_cols) left_col = freeze_cols;
+            if (left_col < 0) left_col = 0;
+        }
+        else if (ch == 'z' || ch == 'Z') {
+            // z — заморозить/разморозить на текущем столбце
+            if (freeze_cols == cur_col + 1) {
+                freeze_cols = 0;  // снять заморозку
+            } else {
+                freeze_cols = cur_col + 1;
+            }
+            if (freeze_cols > col_count) freeze_cols = col_count;
+            if (left_col < freeze_cols) left_col = freeze_cols;
+            save_column_settings(file_to_open);
         }
         else if (ch == 't' || ch == 'T') {           // F2
             clear();
@@ -1489,7 +1510,24 @@ int main(int argc, char *argv[]) {
             } else if (strcmp(cmd, "cd") == 0 && arg && *arg) {
                 delete_column(cur_col, arg, file_to_open);
                 cur_col = 0;
-                left_col = 0;
+                left_col = freeze_cols;
+            } else if (strcmp(cmd, "fz") == 0) {
+                // :fz N — заморозить первые N столбцов (:fz 0 — снять заморозку)
+                int n = arg ? atoi(arg) : 0;
+                if (n < 0) n = 0;
+                if (n > col_count) n = col_count;
+                freeze_cols = n;
+                if (left_col < freeze_cols) left_col = freeze_cols;
+                save_column_settings(file_to_open);
+
+                draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
+                attron(COLOR_PAIR(3));
+                if (freeze_cols > 0)
+                    printw(" | Frozen: %d column%s", freeze_cols, freeze_cols > 1 ? "s" : "");
+                else
+                    printw(" | Columns unfrozen");
+                attroff(COLOR_PAIR(3));
+                refresh();
             } else if (strcmp(cmd, "fqu") == 0) {
                 // :fqu — быстрый фильтр ТОЛЬКО по текущей ячейке (сбрасывает старый фильтр)
 
@@ -1540,7 +1578,7 @@ int main(int argc, char *argv[]) {
                 refresh();
 
                 cur_col = 0;
-                left_col = 0;
+                left_col = freeze_cols;
                 cur_display_row = 0;
                 top_display_row = 0;
 
@@ -1612,7 +1650,7 @@ int main(int argc, char *argv[]) {
                 refresh();
 
                 cur_col = 0;
-                left_col = 0;            
+                left_col = freeze_cols;
                 cur_display_row = 0;
                 top_display_row = 0;
 
