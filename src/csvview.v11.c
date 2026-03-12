@@ -117,6 +117,138 @@ int col_hidden[MAX_COLS] = {0};
 char pivot_drilldown_filter[512] = "";
 
 // ────────────────────────────────────────────────
+// File history (~/.csvview_history)
+// ────────────────────────────────────────────────
+#define HISTORY_FILE  "/.csvview_history"
+#define HISTORY_MAX   20
+
+static void history_add(const char *path)
+{
+    char hist_path[512];
+    const char *home = getenv("HOME");
+    if (!home) return;
+    snprintf(hist_path, sizeof(hist_path), "%s%s", home, HISTORY_FILE);
+
+    char real[4096];
+    if (!realpath(path, real)) return;
+
+    // Read existing entries
+    char *entries[HISTORY_MAX];
+    int  count = 0;
+    FILE *fh = fopen(hist_path, "r");
+    if (fh) {
+        char line[4096];
+        while (count < HISTORY_MAX && fgets(line, sizeof(line), fh)) {
+            int len = strlen(line);
+            while (len > 0 && (line[len-1] == '\n' || line[len-1] == '\r')) line[--len] = '\0';
+            if (len == 0) continue;
+            if (strcmp(line, real) == 0) continue;   // deduplicate
+            entries[count++] = strdup(line);
+        }
+        fclose(fh);
+    }
+
+    // Write: new entry first, then old entries (max HISTORY_MAX total)
+    fh = fopen(hist_path, "w");
+    if (!fh) {
+        for (int i = 0; i < count; i++) free(entries[i]);
+        return;
+    }
+    fprintf(fh, "%s\n", real);
+    int written = 1;
+    for (int i = 0; i < count && written < HISTORY_MAX; i++, written++)
+        fprintf(fh, "%s\n", entries[i]);
+    fclose(fh);
+    for (int i = 0; i < count; i++) free(entries[i]);
+}
+
+// Returns malloc'd path selected by user, or NULL if cancelled.
+// Runs its own ncurses session (caller hasn't called initscr yet).
+static char *show_history_picker(void)
+{
+    char hist_path[512];
+    const char *home = getenv("HOME");
+    if (!home) return NULL;
+    snprintf(hist_path, sizeof(hist_path), "%s%s", home, HISTORY_FILE);
+
+    // Read history
+    char *entries[HISTORY_MAX];
+    int   count = 0;
+    FILE *fh = fopen(hist_path, "r");
+    if (fh) {
+        char line[4096];
+        while (count < HISTORY_MAX && fgets(line, sizeof(line), fh)) {
+            int len = strlen(line);
+            while (len > 0 && (line[len-1] == '\n' || line[len-1] == '\r')) line[--len] = '\0';
+            if (len > 0) entries[count++] = strdup(line);
+        }
+        fclose(fh);
+    }
+
+    if (count == 0) return NULL;   // no history → fall through to error
+
+    setlocale(LC_ALL, "");
+    initscr();
+    cbreak();
+    noecho();
+    keypad(stdscr, TRUE);
+    if (has_colors()) {
+        start_color();
+        use_default_colors();
+        init_pair(1, COLOR_WHITE,   -1);
+        init_pair(3, COLOR_CYAN,    -1);
+        init_pair(5, COLOR_GREEN,   -1);
+        init_pair(6, COLOR_YELLOW,  -1);
+    }
+
+    int sel = 0;
+    char *result = NULL;
+
+    while (1) {
+        clear();
+
+        attron(COLOR_PAIR(5) | A_BOLD);
+        mvprintw(0, 2, "Recent files  (↑↓/jk — select | Enter — open | q/Esc — quit)");
+        attroff(COLOR_PAIR(5) | A_BOLD);
+
+        for (int i = 0; i < count; i++) {
+            if (i == sel) {
+                attron(COLOR_PAIR(3) | A_REVERSE);
+                mvprintw(2 + i, 2, "  %-*s", COLS - 6, entries[i]);
+                attroff(COLOR_PAIR(3) | A_REVERSE);
+            } else {
+                attron(COLOR_PAIR(1));
+                mvprintw(2 + i, 2, "  %-*s", COLS - 6, entries[i]);
+                attroff(COLOR_PAIR(1));
+            }
+        }
+
+        attron(COLOR_PAIR(6));
+        mvprintw(LINES - 1, 2, "No history file? Pass a filename directly: csvview <file.csv>");
+        attroff(COLOR_PAIR(6));
+
+        refresh();
+
+        int ch = getch();
+        if (ch == KEY_UP   || ch == 'k') { if (sel > 0) sel--; }
+        else if (ch == KEY_DOWN || ch == 'j') { if (sel < count - 1) sel++; }
+        else if (ch == KEY_HOME) { sel = 0; }
+        else if (ch == KEY_END)  { sel = count - 1; }
+        else if (ch == '\n' || ch == KEY_ENTER) {
+            result = strdup(entries[sel]);
+            break;
+        }
+        else if (ch == 27 || ch == 'q' || ch == 'Q') {
+            break;
+        }
+    }
+
+    endwin();
+    for (int i = 0; i < count; i++) free(entries[i]);
+    return result;
+}
+
+// ────────────────────────────────────────────────
 // main
 // ────────────────────────────────────────────────
 int main(int argc, char *argv[]) {
@@ -210,11 +342,16 @@ int main(int argc, char *argv[]) {
         printf("Merged file: %s\n", file_to_open);
     } else {
         if (argc < 2) {
-            fprintf(stderr, "Usage: %s <file.csv>\n", argv[0]);
-            free(input_files);
-            return 1;
+            char *hist_pick = show_history_picker();
+            if (!hist_pick) {
+                free(input_files);
+                fprintf(stderr, "Usage: %s <file.csv>\n", argv[0]);
+                return 1;
+            }
+            file_to_open = hist_pick;
+        } else {
+            file_to_open = strdup(argv[1]);
         }
-        file_to_open = strdup(argv[1]);
         free(input_files);
     }
 
@@ -229,6 +366,7 @@ int main(int argc, char *argv[]) {
 
     f = fopen(file_to_open, "r");
     if (!f) { perror("fopen"); return 1; }
+    history_add(file_to_open);
 
     struct stat st;
     if (fstat(fileno(f), &st) == 0) {

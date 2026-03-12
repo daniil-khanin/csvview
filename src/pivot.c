@@ -1420,7 +1420,7 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
                 char col_key_buf[CELL_WIDTH * 2 + 1];
                 snprintf(col_key_buf, CELL_WIDTH - 1, "%s", key);
                 attron(COLOR_PAIR(is_current_col ? 3 : 6) | A_BOLD);
-                mvprintw(4, pivot_row_index_width + c * CELL_WIDTH, "%-*s",
+                mvprintw(4, pivot_row_index_width + c * CELL_WIDTH, "%*s",
                          CELL_WIDTH - 2, col_key_buf);
                 attroff(COLOR_PAIR(3) | COLOR_PAIR(6) | A_BOLD);
             }
