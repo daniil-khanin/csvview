@@ -56,6 +56,12 @@
  */
 void draw_graph(int col, int height, int width, RowIndex *rows, FILE *f, int row_count, int cursor_pos, int min_max_show);
 
+/**
+ * Рисует линию между двумя пикселями в массиве dots (алгоритм Брезенхема).
+ * Экспортируется для использования в draw_pivot_graph.
+ */
+void draw_bresenham(bool *dots, int w, int h, int x0, int y0, int x1, int y1);
+
 // Добавляем в конец graph.h
 int find_min_index(double *values, int count);
 int find_max_index(double *values, int count);

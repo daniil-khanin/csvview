@@ -10,6 +10,7 @@
 #include "ui_draw.h"
 #include "sorting.h"
 #include "filtering.h"
+#include "graph.h"          // draw_bresenham
 
 #include <ncurses.h>        // отрисовка
 #include <stdlib.h>         // malloc, free, qsort, calloc
@@ -17,6 +18,7 @@
 #include <stdio.h>          // fopen, fprintf, sscanf
 #include <math.h>           // INFINITY
 #include <time.h>           // struct tm, strptime
+#include <wchar.h>          // wcrtomb для Braille
 
 
 unsigned long hash_string(const char *str) {
@@ -155,6 +157,281 @@ static int compare_order_by_agg(const void *a, const void *b) {
     if (va < vb) return -g_sort_dir;
     if (va > vb) return  g_sort_dir;
     return 0;
+}
+
+// ────────────────────────────────────────────────
+// Нормализация Y для pivot-графика
+// ────────────────────────────────────────────────
+static double pivot_norm_y(double val, double min_y, double max_y, GraphScale scale) {
+    if (scale == SCALE_LOG) {
+        if (val <= 0.0) return 0.0;
+        return log10(val) / log10(max_y > 0.0 ? max_y : 1.0);
+    }
+    if (max_y == min_y) return 0.5;
+    return (val - min_y) / (max_y - min_y);
+}
+
+static void format_y_label(char *buf, int bufsz, double val) {
+    double av = fabs(val);
+    if (av >= 1e9)       snprintf(buf, bufsz, "%.2fG", val / 1e9);
+    else if (av >= 1e6)  snprintf(buf, bufsz, "%.2fM", val / 1e6);
+    else if (av >= 1e3)  snprintf(buf, bufsz, "%.1fK", val / 1e3);
+    else if (av >= 100)  snprintf(buf, bufsz, "%.0f",  val);
+    else if (av >= 10)   snprintf(buf, bufsz, "%.1f",  val);
+    else                 snprintf(buf, bufsz, "%.2f",  val);
+}
+
+// ────────────────────────────────────────────────
+// График для сводной таблицы (Braille, multi-series)
+// ────────────────────────────────────────────────
+static void draw_pivot_graph(
+    int gx, int height, int gwidth,
+    Agg **matrix, Agg *row_totals, Agg *col_totals, const Agg *grand,
+    char **row_keys, int unique_rows,
+    char **col_keys, int unique_cols,
+    int *row_order, int *col_order,
+    bool *series_pinned,
+    int cur_row_p, int cur_col_p,
+    int graph_axis,
+    GraphType gtype, GraphScale gscale,
+    const char *aggregation,
+    int total_rows, int total_cols
+) {
+    // ── Геометрия области ──────────────────────────────────────────────────────
+    int plot_start_y = 5;
+    int plot_start_x = gx + 10;
+    int legend_y     = height - 3;
+    int xlabel_y     = height - 4;
+    int plot_height  = xlabel_y - plot_start_y - 1;
+    int plot_width   = gx + gwidth - plot_start_x - 2;
+
+    if (plot_height < 4 || plot_width < 8) return;
+
+    // ── Активные серии (cursor first, then pinned, max 6) ─────────────────────
+    int cursor_series  = (graph_axis == 0) ? cur_col_p : cur_row_p;
+    int max_series_idx = (graph_axis == 0) ? total_cols : total_rows;
+
+    int active_series[6];
+    int n_active = 0;
+
+    if (cursor_series >= 0 && cursor_series < max_series_idx)
+        active_series[n_active++] = cursor_series;
+
+    for (int i = 0; i < max_series_idx && n_active < 6; i++) {
+        if (i == cursor_series) continue;
+        if (series_pinned[i]) active_series[n_active++] = i;
+    }
+    if (n_active == 0) return;
+
+    // ── Число точек по оси X ──────────────────────────────────────────────────
+    int n_points = (graph_axis == 0) ? total_rows : total_cols;
+    if (n_points == 0) return;
+
+    // ── Данные для всех серий + глобальный min/max ─────────────────────────────
+    double *all_values[6] = {NULL};
+    double global_min = INFINITY, global_max = -INFINITY;
+
+    for (int s = 0; s < n_active; s++) {
+        int sidx = active_series[s];
+        double *vals = malloc(n_points * sizeof(double));
+        if (!vals) continue;
+
+        for (int i = 0; i < n_points; i++) {
+            const Agg *agg;
+            if (graph_axis == 0) {
+                // X = строки, серия = столбец sidx
+                int arid = (i    < unique_rows) ? row_order[i]    : -1;
+                int acid = (sidx < unique_cols) ? col_order[sidx] : -1;
+                if      (i < unique_rows && sidx < unique_cols)  agg = &matrix[arid][acid];
+                else if (i < unique_rows && sidx == unique_cols) agg = &row_totals[arid];
+                else if (i == unique_rows && sidx < unique_cols) agg = &col_totals[acid];
+                else                                              agg = grand;
+            } else {
+                // X = столбцы, серия = строка sidx
+                int arid = (sidx < unique_rows) ? row_order[sidx] : -1;
+                int acid = (i    < unique_cols) ? col_order[i]    : -1;
+                if      (sidx < unique_rows && i < unique_cols)  agg = &matrix[arid][acid];
+                else if (sidx < unique_rows && i == unique_cols) agg = &row_totals[arid];
+                else if (sidx == unique_rows && i < unique_cols) agg = &col_totals[acid];
+                else                                              agg = grand;
+            }
+            vals[i] = agg_sort_value(agg, aggregation);
+            if (vals[i] < global_min) global_min = vals[i];
+            if (vals[i] > global_max) global_max = vals[i];
+        }
+        all_values[s] = vals;
+    }
+
+    if (isinf(global_min) || isinf(global_max)) goto pivot_graph_cleanup;
+    if (global_min == global_max) { global_max += 1.0; }
+
+    // ── Y-метки (max / mid / min) ─────────────────────────────────────────────
+    {
+        char ybuf[16];
+        attron(COLOR_PAIR(6));
+        format_y_label(ybuf, sizeof(ybuf), global_max);
+        mvprintw(plot_start_y, gx + 1, "%8s", ybuf);
+        double mid = (global_max + global_min) / 2.0;
+        format_y_label(ybuf, sizeof(ybuf), mid);
+        mvprintw(plot_start_y + plot_height / 2, gx + 1, "%8s", ybuf);
+        format_y_label(ybuf, sizeof(ybuf), global_min);
+        mvprintw(plot_start_y + plot_height - 1, gx + 1, "%8s", ybuf);
+        attroff(COLOR_PAIR(6));
+    }
+
+    // ── X-метки (до 6) ────────────────────────────────────────────────────────
+    {
+        int n_xlabels = (n_points < 6) ? n_points : 6;
+        attron(COLOR_PAIR(6));
+        for (int i = 0; i < n_xlabels; i++) {
+            int pt = (n_xlabels > 1) ? i * (n_points - 1) / (n_xlabels - 1) : 0;
+            const char *label = "?";
+            if (graph_axis == 0)
+                label = (pt < unique_rows) ? row_keys[row_order[pt]] : "Total";
+            else
+                label = (pt < unique_cols) ? col_keys[col_order[pt]] : "Total";
+
+            char lbuf[12];
+            snprintf(lbuf, sizeof(lbuf), "%.10s", label);
+            int xpos = plot_start_x + (n_points > 1 ? pt * (plot_width - 1) / (n_points - 1) : 0);
+            int llen = (int)strlen(lbuf);
+            if (xpos + llen > gx + gwidth - 1) xpos = gx + gwidth - 1 - llen;
+            mvprintw(xlabel_y, xpos, "%s", lbuf);
+        }
+        attroff(COLOR_PAIR(6));
+    }
+
+    // ── Рендеринг серий через Braille ─────────────────────────────────────────
+    {
+        int pixel_h = plot_height * 4;
+        int pixel_w = plot_width  * 2;
+
+        // Grouped bars: размеры слотов
+        int group_w  = (n_points > 0) ? pixel_w / n_points : pixel_w;
+        if (group_w < 1) group_w = 1;
+        int bar_slot = (n_active > 0) ? group_w / n_active : group_w;
+        if (bar_slot < 1) bar_slot = 1;
+        int bar_hw = bar_slot / 2;
+        if (bar_hw < 1) bar_hw = 1;
+
+        for (int s = 0; s < n_active; s++) {
+            if (!all_values[s]) continue;
+            double *vals = all_values[s];
+
+            bool *dots = calloc(pixel_h * pixel_w, sizeof(bool));
+            if (!dots) continue;
+
+            // Оси
+            draw_bresenham(dots, pixel_w, pixel_h, 0, pixel_h-1, pixel_w-1, pixel_h-1);
+            draw_bresenham(dots, pixel_w, pixel_h, 0, pixel_h-1, 0, 0);
+
+            if (gtype == GRAPH_BAR) {
+                for (int i = 0; i < n_points; i++) {
+                    double norm   = pivot_norm_y(vals[i], global_min, global_max, gscale);
+                    int bar_h_px  = (int)round(norm * (pixel_h - 1));
+                    int bar_center = i * group_w + s * bar_slot + bar_slot / 2;
+                    for (int h = 0; h <= bar_h_px; h++) {
+                        for (int bw = -(bar_hw - 1); bw <= (bar_hw - 1); bw++) {
+                            int px = bar_center + bw;
+                            if (px >= 0 && px < pixel_w)
+                                dots[(pixel_h - 1 - h) * pixel_w + px] = true;
+                        }
+                    }
+                }
+            } else if (gtype == GRAPH_LINE) {
+                for (int i = 0; i < n_points - 1; i++) {
+                    double y0n = pivot_norm_y(vals[i],   global_min, global_max, gscale);
+                    double y1n = pivot_norm_y(vals[i+1], global_min, global_max, gscale);
+                    int py0 = (int)round((1.0 - y0n) * (pixel_h - 1));
+                    int py1 = (int)round((1.0 - y1n) * (pixel_h - 1));
+                    int px0 = (n_points > 1) ? i       * (pixel_w - 1) / (n_points - 1) : 0;
+                    int px1 = (n_points > 1) ? (i + 1) * (pixel_w - 1) / (n_points - 1) : 0;
+                    draw_bresenham(dots, pixel_w, pixel_h, px0, py0, px1, py1);
+                }
+            } else { // GRAPH_DOT
+                for (int i = 0; i < n_points; i++) {
+                    double norm = pivot_norm_y(vals[i], global_min, global_max, gscale);
+                    int py = (int)round((1.0 - norm) * (pixel_h - 1));
+                    int px = (n_points > 1) ? i * (pixel_w - 1) / (n_points - 1) : 0;
+                    if (px >= 0 && px < pixel_w && py >= 0 && py < pixel_h) {
+                        dots[py * pixel_w + px] = true;
+                        if (px > 0)          dots[py * pixel_w + (px-1)] = true;
+                        if (px < pixel_w-1)  dots[py * pixel_w + (px+1)] = true;
+                        if (py > 0)          dots[(py-1) * pixel_w + px] = true;
+                        if (py < pixel_h-1)  dots[(py+1) * pixel_w + px] = true;
+                    }
+                }
+            }
+
+            // Braille-рендеринг с цветом серии
+            int color = GRAPH_COLOR_BASE + s;
+            int is_cursor_s = (active_series[s] == cursor_series);
+            attr_t attrs = (attr_t)COLOR_PAIR(color) | (is_cursor_s ? (attr_t)A_BOLD : 0);
+            attron(attrs);
+
+            for (int cy = 0; cy < plot_height; cy++) {
+                for (int cx = 0; cx < plot_width; cx++) {
+                    int code = 0;
+                    for (int by = 0; by < 4; by++) {
+                        for (int bx = 0; bx < 2; bx++) {
+                            int py2 = cy * 4 + by;
+                            int px2 = cx * 2 + bx;
+                            if (px2 < pixel_w && py2 < pixel_h && dots[py2 * pixel_w + px2]) {
+                                int bit = (bx == 0) ? by : by + 3;
+                                if (by == 3) bit = (bx == 0) ? 6 : 7;
+                                code |= (1 << bit);
+                            }
+                        }
+                    }
+                    if (code != 0) {
+                        char braille_utf8[5] = {0};
+                        wcrtomb(braille_utf8, 0x2800 + code, NULL);
+                        mvaddstr(plot_start_y + cy, plot_start_x + cx, braille_utf8);
+                    }
+                }
+            }
+            attroff(attrs);
+            free(dots);
+        }
+    }
+
+    // ── Легенда (предпоследняя строка внутри рамки) ────────────────────────────
+    {
+        int lx = gx + 2;
+        int max_name = (n_active > 0) ? (gwidth - 4) / n_active - 4 : 12;
+        if (max_name < 3) max_name = 3;
+
+        for (int s = 0; s < n_active && lx < gx + gwidth - 2; s++) {
+            int sidx = active_series[s];
+            const char *name;
+            if (graph_axis == 0)
+                name = (sidx < unique_cols) ? col_keys[col_order[sidx]] : "Total";
+            else
+                name = (sidx < unique_rows) ? row_keys[row_order[sidx]] : "Total";
+
+            int is_cursor_s = (sidx == cursor_series);
+            int is_pinned   = series_pinned[sidx];
+            int color       = GRAPH_COLOR_BASE + s;
+
+            attron(COLOR_PAIR(color) | A_BOLD);
+            // ■ курсорная серия, ▪ закреплённая, ─ остальные (не бывает, но на всякий)
+            const char *marker = is_cursor_s  ? "\xe2\x96\xa0" :
+                                 is_pinned     ? "\xe2\x96\xaa" : "\xe2\x96\xa1";
+            mvaddstr(legend_y, lx, marker);
+            attroff(COLOR_PAIR(color) | A_BOLD);
+            lx += 2;
+
+            attron(COLOR_PAIR(6));
+            char nbuf[32];
+            snprintf(nbuf, sizeof(nbuf), "%.*s", max_name, name);
+            mvprintw(legend_y, lx, "%s", nbuf);
+            attroff(COLOR_PAIR(6));
+            lx += (int)strlen(nbuf) + 2;
+        }
+    }
+
+pivot_graph_cleanup:
+    for (int s = 0; s < n_active; s++) free(all_values[s]);
 }
 
 int load_pivot_settings(const char *csv_filename, PivotSettings *settings) {
@@ -968,9 +1245,30 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
     // Now display loop
     int top_row = 0, cur_row_p = 0, left_col_p = 0, cur_col_p = 0;
     int vis_rows = height - 7;
-    int vis_cols = (width - pivot_row_index_width - 2) / CELL_WIDTH;
+
+    // Graph state
+    int graph_split  = 0;
+    int graph_axis   = 0;  // 0 = X-axis is rows, series = cols; 1 = X-axis is cols, series = rows
+    GraphType  pivot_gtype  = GRAPH_BAR;
+    GraphScale pivot_gscale = SCALE_LINEAR;
+    bool series_pinned[512];
+    memset(series_pinned, 0, sizeof(series_pinned));
 
     while (1) {
+        // ── Geometry (recalculated every frame) ───────────────────────────────
+        int table_w, graph_x, graph_w, vis_cols;
+        if (graph_split) {
+            table_w = (int)(width * 0.35);
+            if (table_w < pivot_row_index_width + CELL_WIDTH + 4) table_w = pivot_row_index_width + CELL_WIDTH + 4;
+            graph_x = table_w + 1;
+            graph_w = width - graph_x;
+            vis_cols = (table_w - pivot_row_index_width - 2) / CELL_WIDTH;
+        } else {
+            table_w = width;
+            graph_x = 0; graph_w = 0;
+            vis_cols = (width - pivot_row_index_width - 2) / CELL_WIDTH;
+        }
+        if (vis_cols < 1) vis_cols = 1;
         clear();
         draw_menu(0, 1, width, 2);
         draw_table_frame(1, 0, height - 2, width);
@@ -1081,6 +1379,7 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
         printw("]");
 
         attroff(COLOR_PAIR(6));
+
         refresh();
 
         // Заголовок столбцов (верхняя строка)
@@ -1146,6 +1445,55 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
                 attroff(COLOR_PAIR(2) | COLOR_PAIR(1) | COLOR_PAIR(8));
             }
         }
+
+        // ── Vertical divider + graph panel ────────────────────────────────────
+        if (graph_split) {
+            // Vertical divider: plain top at y=5, vlines 5..height-3, T-bottom at height-2
+            attron(COLOR_PAIR(6));
+            for (int y = 5; y <= height - 3; y++) mvaddch(y, table_w, ACS_VLINE);
+            mvaddch(height - 2, table_w, ACS_BTEE);   // ┴ connects to bottom frame
+
+            // Graph info on bottom frame, right of divider: [G:bar lin col→x]
+            // '[' and 'G:' gray, values yellow, ']' gray
+            const char *gtype_s  = (pivot_gtype  == GRAPH_BAR)  ? "bar"  :
+                                   (pivot_gtype  == GRAPH_LINE) ? "line" : "dot";
+            const char *gscale_s = (pivot_gscale == SCALE_LOG)  ? "log"  : "lin";
+            const char *gaxis_s  = (graph_axis   == 0)          ? "row\xe2\x86\x92x" : "col\xe2\x86\x92x";
+            int gix = table_w + 2;
+            attron(COLOR_PAIR(6));
+            mvprintw(height - 2, gix, "[G:");
+            gix += 3;
+            attroff(COLOR_PAIR(6));
+            attron(COLOR_PAIR(3));
+            mvprintw(height - 2, gix, "%s %s %s", gtype_s, gscale_s, gaxis_s);
+            gix += (int)strlen(gtype_s) + 1 + (int)strlen(gscale_s) + 1 + (int)strlen(gaxis_s) + 2; // +2 for arrow bytes width diff
+            attroff(COLOR_PAIR(3));
+            attron(COLOR_PAIR(6));
+            // find column after the printed text
+            {
+                int after_x = table_w + 2 + 3 + (int)strlen(gtype_s) + 1 + (int)strlen(gscale_s) + 1 + (int)strlen(gaxis_s);
+                // gaxis_s contains UTF-8 arrow (→ = 3 bytes but 1 char wide)
+                // compensate: printed width = strlen - 2 extra bytes
+                after_x -= 2;
+                mvaddch(height - 2, after_x, ']');
+            }
+            attroff(COLOR_PAIR(6));
+
+            // Draw graph
+            draw_pivot_graph(
+                graph_x, height, graph_w,
+                matrix, row_totals, col_totals, &grand,
+                row_keys, unique_rows,
+                col_keys, unique_cols,
+                row_order, col_order,
+                series_pinned,
+                cur_row_p, cur_col_p,
+                graph_axis,
+                pivot_gtype, pivot_gscale,
+                settings->aggregation ? settings->aggregation : "SUM",
+                total_rows, total_cols
+            );
+        }
         refresh();
 
         int ch = getch();
@@ -1210,6 +1558,13 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
             } else if (strcmp(cmd, "o") == 0) {
                 show_pivot_settings_window(settings, csv_filename, height, width);
                 break;
+            } else if (strcmp(cmd, "gt") == 0 && arg) {
+                if (strcmp(arg, "bar")  == 0) pivot_gtype = GRAPH_BAR;
+                else if (strcmp(arg, "line") == 0) pivot_gtype = GRAPH_LINE;
+                else if (strcmp(arg, "dot")  == 0) pivot_gtype = GRAPH_DOT;
+            } else if (strcmp(cmd, "gs") == 0 && arg) {
+                if (strcmp(arg, "log") == 0) pivot_gscale = SCALE_LOG;
+                else if (strcmp(arg, "lin") == 0) pivot_gscale = SCALE_LINEAR;
             }
             clrtoeol();
             refresh();
@@ -1269,6 +1624,35 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
             top_row += step;
             if (top_row > total_rows - vis_rows) top_row = total_rows - vis_rows;
             if (top_row < 0) top_row = 0;
+        }
+        // G — toggle graph split
+        else if (ch == 'G') {
+            graph_split = !graph_split;
+            if (graph_split) {
+                memset(series_pinned, 0, sizeof(series_pinned));
+                left_col_p = 0;
+            }
+        }
+        // Space — pin/unpin current series
+        else if (ch == ' ') {
+            if (graph_split) {
+                int sidx = (graph_axis == 0) ? cur_col_p : cur_row_p;
+                int max_sidx = (graph_axis == 0) ? total_cols : total_rows;
+                if (sidx >= 0 && sidx < max_sidx && sidx < 512)
+                    series_pinned[sidx] = !series_pinned[sidx];
+            }
+        }
+        // a — toggle graph axis
+        else if (ch == 'a') {
+            if (graph_split) {
+                graph_axis = !graph_axis;
+                memset(series_pinned, 0, sizeof(series_pinned));
+            }
+        }
+        // s — toggle lin/log scale
+        else if (ch == 's') {
+            if (graph_split)
+                pivot_gscale = (pivot_gscale == SCALE_LINEAR) ? SCALE_LOG : SCALE_LINEAR;
         }
         else if (ch == 'q' || ch == 27) {
             break;
