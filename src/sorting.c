@@ -12,6 +12,79 @@
 #include <string.h>         // strcasecmp, strlen
 #include <stdio.h>          // fseek, fgets (если нужно)
 
+// ────────────────────────────────────────────────
+// Быстрый экстрактор одного поля CSV без malloc
+// ────────────────────────────────────────────────
+
+static const char *get_field_fast(const char *line, int idx)
+{
+    static char buf[MAX_LINE_LEN];
+    buf[0] = '\0';
+    if (!line || idx < 0) return buf;
+
+    int field = 0;
+    const char *p = line;
+    int in_quote = 0;
+
+    // Пропускаем поля до нужного
+    while (*p && field < idx) {
+        if (*p == '"') { in_quote = !in_quote; p++; continue; }
+        if (!in_quote && *p == csv_delimiter) field++;
+        p++;
+    }
+    if (!*p || field != idx) return buf;
+
+    // Извлекаем нужное поле
+    char *out = buf;
+    char *out_end = buf + sizeof(buf) - 1;
+    in_quote = (*p == '"');
+    if (in_quote) p++;
+
+    while (*p && out < out_end) {
+        if (in_quote) {
+            if (*p == '"') {
+                if (*(p + 1) == '"') { *out++ = '"'; p += 2; continue; }
+                break; // закрывающая кавычка
+            }
+        } else {
+            if (*p == csv_delimiter || *p == '\n' || *p == '\r') break;
+        }
+        *out++ = *p++;
+    }
+    *out = '\0';
+    return buf;
+}
+
+// ────────────────────────────────────────────────
+// Массив предвычисленных ключей сортировки
+// ────────────────────────────────────────────────
+
+typedef struct {
+    union { double num; char *str; };
+    int is_num;
+} SortKey;
+
+static SortKey *g_sort_keys  = NULL;
+static int      g_sort_start = 0;
+
+static int compare_by_preextracted(const void *pa, const void *pb)
+{
+    int ra = *(const int *)pa;
+    int rb = *(const int *)pb;
+    const SortKey *a = &g_sort_keys[ra - g_sort_start];
+    const SortKey *b = &g_sort_keys[rb - g_sort_start];
+
+    int result;
+    if (a->is_num && b->is_num) {
+        if (a->num < b->num) result = -1;
+        else if (a->num > b->num) result =  1;
+        else                      result =  0;
+    } else {
+        result = strcasecmp(a->str ? a->str : "", b->str ? b->str : "");
+    }
+    return sort_order * result;
+}
+
 /**
  * @brief Функция сравнения двух строк для qsort (callback)
  *
@@ -212,42 +285,81 @@ int compare_rows_by_column(const void *pa, const void *pb)
  */
 void build_sorted_index(void)
 {
-    // Проверка: если столбец для сортировки не задан или некорректен
-    if (sort_col < 0 || sort_col >= col_count)
-    {
-        sorted_count = 0;
-        return;
-    }
+    if (sort_col < 0 || sort_col >= col_count) { sorted_count = 0; return; }
 
-    // Определяем начало данных (пропускаем заголовок, если он есть)
     int start = use_headers ? 1 : 0;
 
     if (filter_active && filtered_count > 0)
     {
-        // Если фильтр активен — сортируем только отфильтрованные строки
+        // Фильтр активен: набор уже маленький, используем старый компаратор.
+        // Он делает fseek+parse внутри, но при малом filtered_count это приемлемо.
         sorted_count = filtered_count;
         for (int i = 0; i < sorted_count; i++)
-        {
             sorted_rows[i] = filtered_rows[i];
+
+        if (sorted_count > 1) {
+            spinner_tick();
+            qsort(sorted_rows, sorted_count, sizeof(int), compare_rows_by_column);
+            spinner_clear();
         }
-    }
-    else
-    {
-        // Иначе — сортируем все строки данных
-        sorted_count = row_count - start;
-        for (int i = 0; i < sorted_count; i++)
-        {
-            sorted_rows[i] = start + i;
-        }
+        return;
     }
 
-    // Если строк больше одной — выполняем сортировку
-    if (sorted_count > 1)
-    {
+    // Полная сортировка: предвычисляем ключи — один раз на строку.
+    // Компаратор не делает I/O и не аллоцирует память.
+    sorted_count = row_count - start;
+    for (int i = 0; i < sorted_count; i++)
+        sorted_rows[i] = start + i;
+
+    if (sorted_count <= 1) return;
+
+    SortKey *keys = malloc((size_t)sorted_count * sizeof(SortKey));
+    if (!keys) {
+        // OOM-fallback: старый метод
         spinner_tick();
         qsort(sorted_rows, sorted_count, sizeof(int), compare_rows_by_column);
         spinner_clear();
+        return;
     }
+
+    spinner_tick();
+
+    // Последовательное чтение файла + извлечение ключа для каждой строки.
+    // Не кэшируем строки — экономим оперативную память.
+    rewind(f);
+    char seq_buf[MAX_LINE_LEN];
+    for (int r = 0; r < row_count; r++) {
+        if (!fgets(seq_buf, sizeof(seq_buf), f)) break;
+        if (r < start) continue;
+
+        seq_buf[strcspn(seq_buf, "\r\n")] = '\0';
+
+        int ki = r - start;
+        const char *raw = get_field_fast(seq_buf, sort_col);
+
+        char *end;
+        double num = parse_double(raw, &end);
+        if (end != raw && (*end == '\0' || *end == ' ')) {
+            keys[ki].is_num = 1;
+            keys[ki].num    = num;
+        } else {
+            keys[ki].is_num = 0;
+            keys[ki].str    = strdup(raw);
+        }
+    }
+
+    // Сортируем по предвычисленным ключам — 0 malloc и 0 I/O в компараторе
+    g_sort_keys  = keys;
+    g_sort_start = start;
+    qsort(sorted_rows, sorted_count, sizeof(int), compare_by_preextracted);
+    g_sort_keys  = NULL;
+
+    // Освобождаем строковые ключи
+    for (int i = 0; i < sorted_count; i++)
+        if (!keys[i].is_num) free(keys[i].str);
+    free(keys);
+
+    spinner_clear();
 }
 
 /**
