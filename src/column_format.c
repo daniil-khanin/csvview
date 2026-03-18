@@ -239,13 +239,12 @@ void auto_detect_column_types(void)
             // Загружаем строку в кэш если нужно
             if (!rows[r].line_cache) {
                 fseek(f, rows[r].offset, SEEK_SET);
-                char *line = malloc(MAX_LINE_LEN);
-                if (fgets(line, MAX_LINE_LEN, f)) {
-                    line[strcspn(line, "\r\n")] = '\0';
-                    rows[r].line_cache = line;
+                char line_buf[MAX_LINE_LEN];
+                if (fgets(line_buf, sizeof(line_buf), f)) {
+                    line_buf[strcspn(line_buf, "\r\n")] = '\0';
+                    rows[r].line_cache = strdup(line_buf);
                 } else {
                     rows[r].line_cache = strdup("");
-                    free(line);
                 }
             }
 

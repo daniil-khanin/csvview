@@ -59,30 +59,27 @@ void apply_filter(RowIndex *rows, FILE *f, int row_count)
     // Пропускаем заголовок, если он есть
     int start_row = use_headers ? 1 : 0;
 
-    for (int r = start_row; r < row_count && filtered_count < MAX_ROWS; r++)
+    // Последовательное чтение файла — один проход вместо fseek на каждую строку.
+    // Для строк с line_cache (например, отредактированных) используем кэш как источник истины,
+    // но всё равно читаем файл последовательно чтобы не терять позицию.
+    // Несовпавшие строки НЕ кэшируем — экономим память.
+    rewind(f);
+    char seq_buf[MAX_LINE_LEN];
+
+    for (int r = 0; r < row_count && filtered_count < MAX_ROWS; r++)
     {
+        if (!fgets(seq_buf, sizeof(seq_buf), f)) break;
+
+        if (r < start_row) continue;
+
         if ((r - start_row) % 5000 == 0 && r > start_row) spinner_tick();
 
-        // Загружаем строку, если кэш пустой
-        if (!rows[r].line_cache)
-        {
-            fseek(f, rows[r].offset, SEEK_SET);
-            char *line = malloc(MAX_LINE_LEN);
-            if (fgets(line, MAX_LINE_LEN, f))
-            {
-                line[strcspn(line, "\n")] = '\0';
-                rows[r].line_cache = line;
-            }
-            else
-            {
-                rows[r].line_cache = strdup("");
-            }
-        }
+        seq_buf[strcspn(seq_buf, "\r\n")] = '\0';
 
-        const char *line = rows[r].line_cache;
-        if (!line || !*line) {
-            continue;
-        }
+        // Если строка уже в кэше (например, была отредактирована) — используем кэш.
+        // Иначе используем только что прочитанный буфер (без аллокации).
+        const char *line = rows[r].line_cache ? rows[r].line_cache : seq_buf;
+        if (!*line) continue;
 
         int match = 0;
 
@@ -191,6 +188,11 @@ void apply_filter(RowIndex *rows, FILE *f, int row_count)
         if (match)
         {
             filtered_rows[filtered_count++] = r;
+            // Кэшируем совпавшую строку для отрисовки (только если ещё не в кэше).
+            // strdup выделяет ровно нужный размер, а не MAX_LINE_LEN (8192 байт).
+            if (!rows[r].line_cache) {
+                rows[r].line_cache = strdup(seq_buf);
+            }
         }
     }
 

@@ -38,11 +38,11 @@ void perform_search(RowIndex *rows, FILE *f, int row_count)
         if (!rows[r].line_cache)
         {
             fseek(f, rows[r].offset, SEEK_SET);
-            char *line = malloc(MAX_LINE_LEN);
-            if (fgets(line, MAX_LINE_LEN, f))
+            char line_buf[MAX_LINE_LEN];
+            if (fgets(line_buf, sizeof(line_buf), f))
             {
-                line[strcspn(line, "\n")] = '\0';
-                rows[r].line_cache = line;
+                line_buf[strcspn(line_buf, "\n")] = '\0';
+                rows[r].line_cache = strdup(line_buf);
             }
             else
             {

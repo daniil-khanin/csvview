@@ -495,23 +495,17 @@ int main(int argc, char *argv[]) {
     if (col_count == 0) {  // защита от повторного парсинга
         if (!rows[0].line_cache) {
             fseek(f, rows[0].offset, SEEK_SET);
-            char *line = malloc(MAX_LINE_LEN);
-            if (!line) {
-                // обработка ошибки памяти, например:
-                endwin();
-                fprintf(stderr, "Не хватает памяти для заголовка\n");
-                exit(1);
-            }
-            if (fgets(line, MAX_LINE_LEN, f)) {
+            char line_buf[MAX_LINE_LEN];
+            if (fgets(line_buf, sizeof(line_buf), f)) {
                 // Убираем ВСЕ возможные окончания строки и мусор
-                line[strcspn(line, "\r\n")] = '\0';
+                line_buf[strcspn(line_buf, "\r\n")] = '\0';
                 // Дополнительно убираем trailing пробелы (включая неразрывный пробел)
-                char *end = line + strlen(line) - 1;
-                while (end >= line && 
+                char *end = line_buf + strlen(line_buf) - 1;
+                while (end >= line_buf &&
                        (*end == ' ' || *end == '\t' || (unsigned char)*end == 0xA0)) {
                     *end-- = '\0';
                 }
-                rows[0].line_cache = line;
+                rows[0].line_cache = strdup(line_buf);
             } else {
                 rows[0].line_cache = strdup("");
             }
@@ -613,10 +607,10 @@ int main(int argc, char *argv[]) {
         if (cur_real_row < row_count) {
             if (!rows[cur_real_row].line_cache) {
                 fseek(f, rows[cur_real_row].offset, SEEK_SET);
-                char *line = malloc(MAX_LINE_LEN);
-                if (fgets(line, MAX_LINE_LEN, f)) {
-                    line[strcspn(line, "\r\n")] = '\0';  // лучше убирать и \r и \n
-                    rows[cur_real_row].line_cache = line;
+                char line_buf[MAX_LINE_LEN];
+                if (fgets(line_buf, sizeof(line_buf), f)) {
+                    line_buf[strcspn(line_buf, "\r\n")] = '\0';
+                    rows[cur_real_row].line_cache = strdup(line_buf);
                 } else {
                     rows[cur_real_row].line_cache = strdup("");
                 }
@@ -2281,10 +2275,10 @@ int main(int argc, char *argv[]) {
 
                     if (!rows[real_row].line_cache) {
                         fseek(f, rows[real_row].offset, SEEK_SET);
-                        char *line = malloc(MAX_LINE_LEN);
-                        if (fgets(line, MAX_LINE_LEN, f)) {
-                            line[strcspn(line, "\n")] = '\0';
-                            rows[real_row].line_cache = line;
+                        char line_buf[MAX_LINE_LEN];
+                        if (fgets(line_buf, sizeof(line_buf), f)) {
+                            line_buf[strcspn(line_buf, "\n")] = '\0';
+                            rows[real_row].line_cache = strdup(line_buf);
                         } else {
                             rows[real_row].line_cache = strdup("");
                         }

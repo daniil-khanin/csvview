@@ -296,12 +296,12 @@ void fill_column(int col_idx, const char *arg, const char *csv_filename)
             /* lazy load — всегда нужен для save даже для строк вне вида */
             if (!rows[r].line_cache) {
                 fseek(f, rows[r].offset, SEEK_SET);
-                char *ln = malloc(MAX_LINE_LEN);
-                if (fgets(ln, MAX_LINE_LEN, f)) {
-                    ln[strcspn(ln, "\r\n")] = '\0';  /* срезаем \r\n */
-                    rows[r].line_cache = ln;
+                char ln_buf[MAX_LINE_LEN];
+                if (fgets(ln_buf, sizeof(ln_buf), f)) {
+                    ln_buf[strcspn(ln_buf, "\r\n")] = '\0';
+                    rows[r].line_cache = strdup(ln_buf);
                 } else {
-                    rows[r].line_cache = strdup(""); free(ln);
+                    rows[r].line_cache = strdup("");
                 }
             }
 
@@ -397,11 +397,11 @@ void fill_column(int col_idx, const char *arg, const char *csv_filename)
         if (!rows[r].line_cache)
         {
             fseek(f, rows[r].offset, SEEK_SET);
-            char *line = malloc(MAX_LINE_LEN);
-            if (fgets(line, MAX_LINE_LEN, f))
+            char line_buf[MAX_LINE_LEN];
+            if (fgets(line_buf, sizeof(line_buf), f))
             {
-                line[strcspn(line, "\n")] = '\0';
-                rows[r].line_cache = line;
+                line_buf[strcspn(line_buf, "\n")] = '\0';
+                rows[r].line_cache = strdup(line_buf);
             }
             else
             {

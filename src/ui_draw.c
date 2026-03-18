@@ -202,11 +202,11 @@ void draw_table_body(int top, int offset __attribute__((unused)), int visible_ro
         if (!rows[real_row].line_cache)
         {
             fseek(f, rows[real_row].offset, SEEK_SET);
-            char *line = malloc(MAX_LINE_LEN);
-            if (fgets(line, MAX_LINE_LEN, f))
+            char line_buf[MAX_LINE_LEN];
+            if (fgets(line_buf, sizeof(line_buf), f))
             {
-                line[strcspn(line, "\r\n")] = '\0';
-                rows[real_row].line_cache = line;
+                line_buf[strcspn(line_buf, "\r\n")] = '\0';
+                rows[real_row].line_cache = strdup(line_buf);
             }
             else
             {
