@@ -7,10 +7,11 @@ No Python. No Electron. No dependencies — just C and ncurses.
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)](#install)
 [![Language](https://img.shields.io/badge/language-C-orange)](#build-from-source)
 
-<!--
-TODO: add demo.gif here
-![csvview demo](assets/demo.gif)
--->
+![Pivot table](assets/screenshot-pivot-1.png)
+
+![Pivot table settings](assets/screenshot-pivot-2.png)
+
+![Pivot table with graph](assets/screenshot-pivot-3.png)
 
 ---
 
