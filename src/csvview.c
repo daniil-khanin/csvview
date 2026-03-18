@@ -664,16 +664,6 @@ int main(int argc, char *argv[]) {
                     }
                 }
                 graph_col_count = 0;
-                if (in_filter_mode) {
-                    draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
-                    attron(COLOR_PAIR(3));
-                    printw(" | Filtering...               ");
-                    attroff(COLOR_PAIR(3));
-                    refresh();
-                    
-                    apply_filter(rows, f, row_count);
-                }
-
                 continue;
             } else if (ch == KEY_LEFT || ch == 'j' || ch == 'h') {
                 if (graph_cursor_pos > 0) graph_cursor_pos--;
