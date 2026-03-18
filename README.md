@@ -46,7 +46,7 @@ sudo make install        # installs to /usr/local/bin + man page
 
 Requires: `clang` (or `gcc`), `ncurses` (pre-installed on macOS and most Linux distros).
 
-### macOS (Homebrew) — coming soon
+### macOS (Homebrew)
 
 ```sh
 brew tap daniil-khanin/csvview
