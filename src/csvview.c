@@ -489,6 +489,7 @@ int main(int argc, char *argv[]) {
     int settings_loaded = load_column_settings(file_to_open);
 
     if (!settings_loaded) {
+        auto_detect_column_types();
         if (show_column_setup(file_to_open)) {
             endwin();
             return 0;

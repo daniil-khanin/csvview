@@ -88,6 +88,18 @@ char *format_cell_value(const char *raw_value, int col_idx);
  *
  * @param csv_filename  Имя исходного CSV-файла (без расширения .csvf)
  */
+/**
+ * @brief Автоматически определяет типы столбцов по сэмплу первых 200 строк данных.
+ *
+ * Для каждого столбца проверяет ≥90% непустых значений:
+ *   - если парсятся как число → COL_NUM
+ *   - если совпадают с датой → COL_DATE (приоритет над числами)
+ *   - иначе → COL_STR
+ * Поддерживаемые форматы дат: YYYY-MM-DD, DD.MM.YYYY, DD/MM/YYYY, YYYY/MM/DD, YYYY-MM.
+ * Вызывать только когда .csvf не найден (до show_column_setup).
+ */
+void auto_detect_column_types(void);
+
 void save_column_settings(const char *csv_filename);
 
 /**

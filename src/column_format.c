@@ -202,6 +202,117 @@ char *format_cell_value(const char *raw_value, int col_idx)
     return formatted ? formatted : strdup(raw_value);
 }
 
+// ────────────────────────────────────────────────
+// Автоопределение типов столбцов по сэмплу строк
+// ────────────────────────────────────────────────
+
+#define AUTODETECT_SAMPLE_ROWS 200
+#define AUTODETECT_THRESHOLD   0.90
+
+void auto_detect_column_types(void)
+{
+    if (row_count == 0 || col_count == 0) return;
+
+    int data_start = use_headers ? 1 : 0;
+    int sample_end = data_start + AUTODETECT_SAMPLE_ROWS;
+    if (sample_end > row_count) sample_end = row_count;
+    int sample_size = sample_end - data_start;
+    if (sample_size <= 0) return;
+
+    // Поддерживаемые форматы дат (strptime и строка для date_format)
+    const char *date_fmts[] = {
+        "%Y-%m-%d",
+        "%d.%m.%Y",
+        "%d/%m/%Y",
+        "%Y/%m/%d",
+        "%Y-%m",
+        NULL
+    };
+    int n_date_fmts = 5;
+
+    for (int c = 0; c < col_count; c++) {
+        int num_ok   = 0;
+        int date_ok[5] = {0};
+        int total    = 0;
+
+        for (int r = data_start; r < sample_end; r++) {
+            // Загружаем строку в кэш если нужно
+            if (!rows[r].line_cache) {
+                fseek(f, rows[r].offset, SEEK_SET);
+                char *line = malloc(MAX_LINE_LEN);
+                if (fgets(line, MAX_LINE_LEN, f)) {
+                    line[strcspn(line, "\r\n")] = '\0';
+                    rows[r].line_cache = line;
+                } else {
+                    rows[r].line_cache = strdup("");
+                    free(line);
+                }
+            }
+
+            int field_count = 0;
+            char **fields = parse_csv_line(rows[r].line_cache, &field_count);
+            if (!fields) continue;
+
+            const char *val = (c < field_count) ? fields[c] : "";
+
+            // Пропускаем пустые и null-подобные значения
+            int is_empty = (!val || !*val ||
+                strcmp(val, "NA") == 0 || strcmp(val, "na") == 0 ||
+                strcmp(val, "N/A") == 0 || strcmp(val, "n/a") == 0 ||
+                strcmp(val, "null") == 0 || strcmp(val, "NULL") == 0 ||
+                strcmp(val, "-") == 0);
+
+            if (!is_empty) {
+                total++;
+
+                // Числовая проверка: parse_double + нет ведущих нулей
+                int leading_zero = (val[0] == '0' && val[1] != '\0' &&
+                                    val[1] != '.' && val[1] != ',');
+                if (!leading_zero) {
+                    char *endptr;
+                    parse_double(val, &endptr);
+                    while (*endptr == ' ' || *endptr == '\t') endptr++;
+                    if (*endptr == '\0') num_ok++;
+                }
+
+                // Проверка дат
+                for (int d = 0; d < n_date_fmts; d++) {
+                    struct tm tm = {0};
+                    char *end = strptime(val, date_fmts[d], &tm);
+                    if (end && (*end == '\0' || *end == ' ')) date_ok[d]++;
+                }
+            }
+
+            for (int k = 0; k < field_count; k++) free(fields[k]);
+            free(fields);
+        }
+
+        if (total == 0) continue;
+
+        // Лучший формат даты
+        int best_date_fmt = -1;
+        int best_date_count = 0;
+        for (int d = 0; d < n_date_fmts; d++) {
+            if (date_ok[d] > best_date_count) {
+                best_date_count = date_ok[d];
+                best_date_fmt = d;
+            }
+        }
+
+        // Даты имеют приоритет над числами (напр. "2026-01-15" парсится и так и так)
+        if (best_date_fmt >= 0 &&
+            (double)best_date_count / total >= AUTODETECT_THRESHOLD) {
+            col_types[c] = COL_DATE;
+            strncpy(col_formats[c].date_format, date_fmts[best_date_fmt],
+                    sizeof(col_formats[c].date_format) - 1);
+            col_formats[c].date_format[sizeof(col_formats[c].date_format) - 1] = '\0';
+        } else if ((double)num_ok / total >= AUTODETECT_THRESHOLD) {
+            col_types[c] = COL_NUM;
+        }
+        // иначе остаётся COL_STR
+    }
+}
+
 void save_column_settings(const char *csv_filename)
 {
     if (!csv_filename || !*csv_filename) {
