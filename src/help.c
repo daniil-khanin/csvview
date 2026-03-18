@@ -50,6 +50,7 @@ void show_help(int use_ncurses)
         "  f                    Quick filter (old syntax)",
         "  Shift+F              Advanced filter (new syntax)",
         "  Enter                Edit current cell",
+        "  u                    Undo last cell edit (up to 20 steps)",
         "  s                    Save file",
         "  t                    Open/edit column settings",
         "  w / W                Increase / decrease column width",

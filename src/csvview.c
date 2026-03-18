@@ -116,6 +116,39 @@ int col_hidden[MAX_COLS] = {0};
 // 12. Drill-down из pivot: фильтр для возврата в основную таблицу
 char pivot_drilldown_filter[512] = "";
 
+// 13. Undo-стек для редактирования ячеек
+#define UNDO_MAX 20
+typedef struct {
+    int   real_row;
+    char *old_line;
+} UndoEntry;
+
+static UndoEntry undo_stack[UNDO_MAX];
+static int undo_top = 0;  // 0 = пусто
+
+static void undo_push(int real_row, const char *old_line)
+{
+    if (undo_top == UNDO_MAX) {
+        // Стек полон — сдвигаем, удаляя самую старую запись
+        free(undo_stack[0].old_line);
+        memmove(&undo_stack[0], &undo_stack[1], (UNDO_MAX - 1) * sizeof(UndoEntry));
+        undo_top--;
+    }
+    undo_stack[undo_top].real_row = real_row;
+    undo_stack[undo_top].old_line = strdup(old_line ? old_line : "");
+    undo_top++;
+}
+
+static int undo_pop(int *real_row_out, char **old_line_out)
+{
+    if (undo_top == 0) return 0;
+    undo_top--;
+    *real_row_out = undo_stack[undo_top].real_row;
+    *old_line_out = undo_stack[undo_top].old_line;
+    undo_stack[undo_top].old_line = NULL;
+    return 1;
+}
+
 // ────────────────────────────────────────────────
 // File history (~/.csvview_history)
 // ────────────────────────────────────────────────
@@ -1105,6 +1138,44 @@ int main(int argc, char *argv[]) {
             }
         }
 
+        if (ch == 'u') {
+            int undo_row;
+            char *undo_line;
+            if (undo_pop(&undo_row, &undo_line)) {
+                free(rows[undo_row].line_cache);
+                rows[undo_row].line_cache = undo_line;
+
+                // Перемещаем курсор на изменённую строку
+                int display_pos = undo_row - (use_headers ? 1 : 0);
+                if (filter_active) {
+                    // Ищем строку в filtered_rows
+                    for (int i = 0; i < filtered_count; i++) {
+                        if (filtered_rows[i] == undo_row) { display_pos = i; break; }
+                    }
+                }
+                if (display_pos >= 0 && display_pos < display_count) {
+                    cur_display_row = display_pos;
+                    if (cur_display_row < top_display_row)
+                        top_display_row = cur_display_row;
+                    else if (cur_display_row >= top_display_row + visible_rows)
+                        top_display_row = cur_display_row - visible_rows + 1;
+                    if (top_display_row < 0) top_display_row = 0;
+                }
+
+                draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
+                attron(COLOR_PAIR(3));
+                printw(" | Undo (%d left)", undo_top);
+                attroff(COLOR_PAIR(3));
+                refresh();
+            } else {
+                draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
+                attron(COLOR_PAIR(1));
+                printw(" | Nothing to undo");
+                attroff(COLOR_PAIR(1));
+                refresh();
+            }
+        }
+
         if (ch == 's' || ch == 'S') {
             int save_ok = save_file(file_to_open, f, rows, row_count);
 
@@ -1215,6 +1286,9 @@ int main(int argc, char *argv[]) {
             refresh();
 
             if (!canceled && strcmp(edit_buffer, current_cell_content) != 0) {
+                // Сохраняем состояние до изменения для undo
+                undo_push(cur_real_row, rows[cur_real_row].line_cache);
+
                 int field_count = 0;
                 char **fields = parse_csv_line(
                     rows[cur_real_row].line_cache ? rows[cur_real_row].line_cache : "",
