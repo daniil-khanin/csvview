@@ -25,14 +25,14 @@
 
 #define CSVVIEW_VERSION         12
 
-#define MAX_ROWS           		10000000
+#define MAX_ROWS           		50000000
 #define MAX_COLS                702
 #define CELL_WIDTH              20
 #define MAX_LINE_LEN           	8192
 #define INPUT_BUF_SIZE         	1024
 #define ROW_NUMBER_WIDTH        8
 #define ROW_DATA_OFFSET         11
-#define MAX_SEARCH_RESULTS 		10000000
+#define MAX_SEARCH_RESULTS 		100000
 
 // Окно статистики
 #define STATS_W                 150
@@ -165,7 +165,7 @@ extern int search_index;
 extern char search_query[256];
 extern int in_search_mode;
 
-extern int filtered_rows[MAX_ROWS];
+extern int *filtered_rows;
 extern int filtered_count;
 extern char filter_query[256];
 extern int in_filter_mode;
@@ -191,7 +191,7 @@ extern int col_widths[MAX_COLS];
 // Сортировка
 extern int sort_col;
 extern int sort_order;
-extern int sorted_rows[MAX_ROWS];
+extern int *sorted_rows;
 extern int sorted_count;
 
 // Общие данные файла

@@ -41,7 +41,7 @@ char         search_query[256] = "";
 int          in_search_mode  = 0;
 
 // 3. Фильтрация
-int  filtered_rows[MAX_ROWS] = {0};
+int *filtered_rows           = NULL;
 int  filtered_count          = 0;
 char filter_query[256]       = "";
 int  in_filter_mode          = 0;
@@ -64,7 +64,7 @@ int         use_headers            = 0;
 int         col_widths[MAX_COLS]   = {0};
 
 // 6. Сортировка
-int sorted_rows[MAX_ROWS] = {0};
+int *sorted_rows          = NULL;
 int sorted_count          = 0;
 int sort_col              = -1;     // -1 = без сортировки
 int sort_order            = 0;      // 1 = asc, -1 = desc, 0 = none
@@ -188,6 +188,24 @@ static RowIndex *build_row_index(FILE *fp, int *out_count)
     *out_count = cnt;
     rewind(fp);
     return r;
+}
+
+// ────────────────────────────────────────────────
+// Динамическое выделение массивов фильтрации/сортировки
+// ────────────────────────────────────────────────
+
+static int alloc_row_arrays(int count)
+{
+    free(filtered_rows);
+    free(sorted_rows);
+    filtered_rows = calloc((size_t)count, sizeof(int));
+    sorted_rows   = calloc((size_t)count, sizeof(int));
+    if (!filtered_rows || !sorted_rows) {
+        free(filtered_rows); filtered_rows = NULL;
+        free(sorted_rows);   sorted_rows   = NULL;
+        return 0;
+    }
+    return 1;
 }
 
 // ────────────────────────────────────────────────
@@ -453,6 +471,7 @@ int main(int argc, char *argv[]) {
 
     rows = build_row_index(f, &row_count);
     if (!rows) { perror("malloc"); return 1; }
+    if (!alloc_row_arrays(row_count)) { perror("malloc"); return 1; }
 
     setlocale(LC_ALL, "");
     setlocale(LC_NUMERIC, "C");
@@ -1689,6 +1708,10 @@ int main(int argc, char *argv[]) {
             free(rows);
             rows = build_row_index(f, &row_count);
             if (!rows) {
+                mvprintw(LINES - 1, 0, "Out of memory during reload");
+                refresh(); getch(); continue;
+            }
+            if (!alloc_row_arrays(row_count)) {
                 mvprintw(LINES - 1, 0, "Out of memory during reload");
                 refresh(); getch(); continue;
             }
