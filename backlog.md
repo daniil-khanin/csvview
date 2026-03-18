@@ -22,7 +22,7 @@ Goal: close basic gaps → strengthen unique features → scale to large files.
       z — freeze/unfreeze current column. :fz N — exact count. Saved in .csvf.
 - [x] Drill-down from pivot: Enter on a pivot cell → opens main table
       with auto-filter by row and column values of that cell
-- [ ] Go-to row: jump to row by number (`:N` or Ctrl+G)
+- [x] Go-to row: jump to row by number (`:N` or Ctrl+G)
 
 ## P2 — strengthen unique advantages
 - [x] UI polish: move filename to top under action line as -[ filename ]-, move row count and file size to bottom as -[ 100 000 ]--[ 168 Mb ]-
