@@ -1,12 +1,21 @@
-# Скомпилированные файлы
+# Build output
 obj/
+csvview
 csvview.v11
-old/
 
 # macOS
 .DS_Store
 
-# Данные (не коммитим тестовые/большие файлы)
+# Test / local data files
 *.csv
 *.csvf
 *.pivot
+data/
+
+# Internal files
+help.txt
+backlog.md
+old/
+
+# Claude Code memory
+.claude/
