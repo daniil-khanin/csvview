@@ -21,15 +21,13 @@ Most terminal CSV tools either lack interactivity (miller, xsv, csvkit) or requi
 
 | Feature | csvview | VisiData | sc-im | csvlens |
 |---|:---:|:---:|:---:|:---:|
-| Interactive TUI | ✅ | ✅ | ✅ | ✅ |
-| Edit cells | ✅ | ✅ | ✅ | ❌ |
-| Filter + sort | ✅ | ✅ | ✅ | filter only |
-| Pivot tables | ✅ | ✅ | ❌ | ❌ |
-| Graphs in terminal | ✅ | ASCII only | GNUPlot req. | ❌ |
-| Computed columns | ✅ | Python expr | formulas | ❌ |
-| No runtime needed | ✅ | ❌ Python | ✅ | ✅ |
-| Row limit | 10M | ~5M (slow) | **65K** | RAM |
-| Single binary | ✅ | ❌ | ✅ | ✅ |
+| Interactive TUI | + | + | + | + |
+| Edit cells | + | + | + | — |
+| Filter + sort | + | + | + | filter only |
+| Pivot tables | + | + | — | — |
+| Computed columns | + | Python expr | formulas | — |
+| No runtime needed | + | — Python | + | + |
+| Single binary | + | — | + | + |
 
 ---
 
