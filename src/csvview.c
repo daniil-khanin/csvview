@@ -1641,9 +1641,31 @@ int main(int argc, char *argv[]) {
             if (top_display_row > cur_display_row)
                 top_display_row = cur_display_row;
         }
-        else if (ch == 'D' || ch == 'd') {  
+        else if (ch == 'D' || ch == 'd') {
             // статистика столбца
             show_column_stats(cur_col);
+        }
+        else if (ch == ('G' & 0x1f)) {  // Ctrl+G — перейти к строке по номеру
+            draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
+            attron(COLOR_PAIR(3));
+            printw(" | Go to row: ");
+            attroff(COLOR_PAIR(3));
+            refresh();
+            char num_buf[16] = {0};
+            echo();
+            wgetnstr(stdscr, num_buf, sizeof(num_buf) - 1);
+            noecho();
+            int target = atoi(num_buf) - 1;
+            if (target < 0) target = 0;
+            if (target >= display_count) target = display_count - 1;
+            cur_display_row = target;
+            if (cur_display_row < top_display_row)
+                top_display_row = cur_display_row;
+            else if (cur_display_row >= top_display_row + visible_rows)
+                top_display_row = cur_display_row - visible_rows + 1;
+            if (top_display_row < 0) top_display_row = 0;
+            clrtoeol();
+            refresh();
         }
 
         // После ввода фильтра (Shift+F или f) — когда ты уже в режиме ввода
@@ -2201,17 +2223,34 @@ int main(int argc, char *argv[]) {
                 draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
                 attron(COLOR_PAIR(3));
                 printw(" | Exported %d rows to '%s'", count_exported, filename);
-                attroff(COLOR_PAIR(3));    
+                attroff(COLOR_PAIR(3));
 
                 refresh();
                 getch();
                 clrtoeol();
                 refresh();
-            } 
+            } else {
+                // Числовая команда (:N) — переход к строке N (1-based)
+                int is_num = (cmd[0] != '\0');
+                for (const char *p = cmd; *p; p++) {
+                    if (*p < '0' || *p > '9') { is_num = 0; break; }
+                }
+                if (is_num) {
+                    int target = atoi(cmd) - 1;
+                    if (target < 0) target = 0;
+                    if (target >= display_count) target = display_count - 1;
+                    cur_display_row = target;
+                    if (cur_display_row < top_display_row)
+                        top_display_row = cur_display_row;
+                    else if (cur_display_row >= top_display_row + visible_rows)
+                        top_display_row = cur_display_row - visible_rows + 1;
+                    if (top_display_row < 0) top_display_row = 0;
+                }
+            }
 
             clrtoeol();
             refresh();
-        }        
+        }
         // Обновляем реальный номер строки
         cur_real_row = get_real_row(cur_display_row);
     }
