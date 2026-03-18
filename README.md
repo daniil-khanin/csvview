@@ -230,3 +230,7 @@ make install PREFIX=/opt/homebrew
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+---
+
+~80% of the code was written by [Claude Code](https://claude.ai/code) (Anthropic), ~20% by the author.
