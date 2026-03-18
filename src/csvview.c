@@ -150,6 +150,47 @@ static int undo_pop(int *real_row_out, char **old_line_out)
 }
 
 // ────────────────────────────────────────────────
+// Динамическое построение индекса строк файла
+// ────────────────────────────────────────────────
+
+static RowIndex *build_row_index(FILE *fp, int *out_count)
+{
+    size_t cap = 4096;
+    RowIndex *r = malloc(cap * sizeof(RowIndex));
+    if (!r) return NULL;
+
+    r[0].offset     = 0;
+    r[0].line_cache = NULL;
+    int cnt  = 1;
+    long pos = 0;
+    char buf[1024];
+
+    while (fgets(buf, sizeof(buf), fp)) {
+        pos += (long)strlen(buf);
+        if (cnt >= MAX_ROWS) break;
+        if ((size_t)cnt >= cap) {
+            cap *= 2;
+            if (cap > (size_t)(MAX_ROWS + 1)) cap = (size_t)(MAX_ROWS + 1);
+            RowIndex *tmp = realloc(r, cap * sizeof(RowIndex));
+            if (!tmp) { free(r); return NULL; }
+            r = tmp;
+        }
+        r[cnt].offset     = pos;
+        r[cnt].line_cache = NULL;
+        cnt++;
+    }
+    cnt--;  // последняя запись — смещение за концом файла, не нужна
+
+    // Уменьшаем до точного размера
+    RowIndex *tmp = realloc(r, ((size_t)cnt + 1) * sizeof(RowIndex));
+    if (tmp) r = tmp;
+
+    *out_count = cnt;
+    rewind(fp);
+    return r;
+}
+
+// ────────────────────────────────────────────────
 // File history (~/.csvview_history)
 // ────────────────────────────────────────────────
 #define HISTORY_FILE  "/.csvview_history"
@@ -410,23 +451,8 @@ int main(int argc, char *argv[]) {
         else snprintf(file_size_str, sizeof(file_size_str), "%.1f GB", size / (1024.0 * 1024.0 * 1024.0));
     }
 
-    rows = malloc((MAX_ROWS + 1) * sizeof(RowIndex));
+    rows = build_row_index(f, &row_count);
     if (!rows) { perror("malloc"); return 1; }
-
-    rows[0].offset = 0; rows[0].line_cache = NULL;
-    long pos = 0;
-    row_count = 1;
-    char buf[1024];
-    while (fgets(buf, sizeof(buf), f)) {
-        pos += strlen(buf);
-        if (row_count < MAX_ROWS) {
-            rows[row_count].offset = pos;
-            rows[row_count].line_cache = NULL;
-            row_count++;
-        }
-    }
-    row_count--;
-    rewind(f);
 
     setlocale(LC_ALL, "");
     setlocale(LC_NUMERIC, "C");
@@ -790,7 +816,7 @@ int main(int argc, char *argv[]) {
                             }
                         } else {
                             save_sorted_count = sorted_count;
-                            save_sorted_rows = malloc(sizeof(int) * MAX_ROWS);
+                            save_sorted_rows = malloc(sizeof(int) * sorted_count);
                             if (save_sorted_rows) {
                                 memcpy(save_sorted_rows, sorted_rows, sizeof(int) * sorted_count);
                             }
@@ -1081,7 +1107,7 @@ int main(int argc, char *argv[]) {
                         qsort(filtered_rows, filtered_count, sizeof(int), compare_rows_by_column);
                     } else {
                         save_sorted_count = sorted_count;
-                        save_sorted_rows = malloc(sizeof(int) * MAX_ROWS);
+                        save_sorted_rows = malloc(sizeof(int) * sorted_count);
                         if (save_sorted_rows) {
                             memcpy(save_sorted_rows, sorted_rows, sizeof(int) * save_sorted_count);
                         }
@@ -1666,21 +1692,12 @@ int main(int argc, char *argv[]) {
             }
 
             // 4. Переиндексируем строки
-            rows[0].offset = 0;
-            rows[0].line_cache = NULL;
-            long rpos = 0;
-            row_count = 1;
-            char rbuf[1024];
-            while (fgets(rbuf, sizeof(rbuf), f)) {
-                rpos += strlen(rbuf);
-                if (row_count < MAX_ROWS) {
-                    rows[row_count].offset = rpos;
-                    rows[row_count].line_cache = NULL;
-                    row_count++;
-                }
+            free(rows);
+            rows = build_row_index(f, &row_count);
+            if (!rows) {
+                mvprintw(LINES - 1, 0, "Out of memory during reload");
+                refresh(); getch(); continue;
             }
-            row_count--;
-            rewind(f);
 
             // 5. Переприменяем фильтр если был активен
             if (strlen(filter_query) > 0) {
@@ -2001,15 +2018,12 @@ int main(int argc, char *argv[]) {
                     continue;
                 }
 
-                char buf[MAX_LINE_LEN];
-                long offset = 0;
-                rows = malloc((MAX_ROWS + 1) * sizeof(RowIndex));
-                while (fgets(buf, sizeof(buf), f)) {
-                    if (row_count >= MAX_ROWS) break;
-                    rows[row_count].offset = offset;
-                    rows[row_count].line_cache = NULL;
-                    offset += strlen(buf);
-                    row_count++;
+                rows = build_row_index(f, &row_count);
+                if (!rows) {
+                    mvprintw(LINES - 1, 0, "Out of memory");
+                    refresh();
+                    getch();
+                    continue;
                 }
 
                 // Обновляем и сохраняем настройки столбцов
@@ -2098,15 +2112,12 @@ int main(int argc, char *argv[]) {
                     continue;
                 }
 
-                char buf[MAX_LINE_LEN];
-                long offset = 0;
-                rows = malloc((MAX_ROWS + 1) * sizeof(RowIndex));
-                while (fgets(buf, sizeof(buf), f)) {
-                    if (row_count >= MAX_ROWS) break;
-                    rows[row_count].offset = offset;
-                    rows[row_count].line_cache = NULL;
-                    offset += strlen(buf);
-                    row_count++;
+                rows = build_row_index(f, &row_count);
+                if (!rows) {
+                    mvprintw(LINES - 1, 0, "Out of memory");
+                    refresh();
+                    getch();
+                    continue;
                 }
 
                 rebuild_header_row();
