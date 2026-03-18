@@ -29,7 +29,7 @@ void show_help(int use_ncurses)
 {
     const char *help_text[] = {
         "CSV Viewer & Editor - Terminal Tool",
-        "Version 12 dated March 12, 2026 by Daniil Khanin & Claude",
+        "Version 13 dated March 18, 2026 by Daniil Khanin & Claude",
         "",
         "Usage:",
         "  csvview <file>                  Open file (auto-detects .tsv / .psv)",
