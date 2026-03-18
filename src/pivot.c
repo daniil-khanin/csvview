@@ -978,24 +978,45 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
     refresh();
 
     int start_row = use_headers ? 1 : 0;
+
+    // При отсутствии фильтра/сортировки читаем файл последовательно — без fseek на каждую строку
+    int use_seq = (!filter_active && sort_col < 0);
+    if (use_seq) rewind(f);
+    char seq_buf[MAX_LINE_LEN];
+
     for (int d = 0; d < display_count; d++) {
         int real_row = get_real_row(d);
-        if (real_row < start_row) continue;
+        const char *line;
 
-        if (!rows[real_row].line_cache) {
-            fseek(f, rows[real_row].offset, SEEK_SET);
-            char buf[MAX_LINE_LEN];
-            if (fgets(buf, sizeof(buf), f)) {
-                buf[strcspn(buf, "\n")] = '\0';
-                rows[real_row].line_cache = strdup(buf);
-            } else {
-                rows[real_row].line_cache = strdup("");
+        if (use_seq) {
+            if (!fgets(seq_buf, sizeof(seq_buf), f)) break;
+            seq_buf[strcspn(seq_buf, "\r\n")] = '\0';
+            if (real_row < start_row) continue;
+            line = seq_buf;
+            if (!rows[real_row].line_cache)
+                rows[real_row].line_cache = strdup(seq_buf);
+        } else {
+            if (real_row < start_row) continue;
+            if (!rows[real_row].line_cache) {
+                fseek(f, rows[real_row].offset, SEEK_SET);
+                char buf[MAX_LINE_LEN];
+                if (fgets(buf, sizeof(buf), f)) {
+                    buf[strcspn(buf, "\n")] = '\0';
+                    rows[real_row].line_cache = strdup(buf);
+                } else {
+                    rows[real_row].line_cache = strdup("");
+                }
             }
+            line = rows[real_row].line_cache;
         }
-        const char *line = rows[real_row].line_cache;
+
+        // Парсим строку один раз, извлекаем поля по заранее известным индексам
+        int fc = 0;
+        char **fields = parse_csv_line(line, &fc);
+        if (!fields) continue;
 
         if (row_group_idx >= 0) {
-            char *rval = get_column_value(line, settings->row_group_col, use_headers);
+            char *rval = (row_group_idx < fc) ? strdup(fields[row_group_idx]) : strdup("");
             char *rkey = get_group_key(rval, row_type, settings->date_grouping, row_group_idx);
             if (rkey && *rkey) {
                 if (!hash_map_get(row_map, rkey)) hash_map_put(row_map, rkey, (void*)1);
@@ -1007,7 +1028,7 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
         }
 
         if (col_group_idx >= 0) {
-            char *cval = get_column_value(line, settings->col_group_col, use_headers);
+            char *cval = (col_group_idx < fc) ? strdup(fields[col_group_idx]) : strdup("");
             char *ckey = get_group_key(cval, col_type, settings->date_grouping, col_group_idx);
             if (ckey && *ckey) {
                 if (!hash_map_get(col_map, ckey)) hash_map_put(col_map, ckey, (void*)1);
@@ -1017,6 +1038,8 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
         } else {
             hash_map_put(col_map, "Total", (void*)1);
         }
+
+        free_csv_fields(fields, fc);
 
         if (d % 50000 == 0) {
             draw_status_bar(height - 1, 1, csv_filename, row_count, file_size_str);
@@ -1092,12 +1115,18 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
 
     Agg grand = {0, 0, INFINITY, -INFINITY, 0, NULL, NULL};
 
-    HashMap **cell_uniques = calloc(unique_rows * unique_cols, sizeof(HashMap*));
+    // Вычисляем хорошие начальные размеры хеш-таблиц (следующая степень 2)
+    // чтобы избежать коллизий при большом числе уникальных значений
+    int hm_grand  = 16; { int n = display_count / 2; while (hm_grand < n && hm_grand < 65536) hm_grand <<= 1; }
+    int hm_perrow = 16; { int n = (display_count / (unique_rows > 0 ? unique_rows : 1)) * 2; while (hm_perrow < n && hm_perrow < 65536) hm_perrow <<= 1; }
+    int hm_percol = 16; { int n = (display_count / (unique_cols > 0 ? unique_cols : 1)) * 2; while (hm_percol < n && hm_percol < 65536) hm_percol <<= 1; }
+
+    HashMap **cell_uniques    = calloc(unique_rows * unique_cols, sizeof(HashMap*));
     HashMap **row_unique_maps = calloc(unique_rows, sizeof(HashMap*));
     HashMap **col_unique_maps = calloc(unique_cols, sizeof(HashMap*));
-    HashMap *grand_unique_map = hash_map_create(4096);
+    HashMap  *grand_unique_map = hash_map_create(hm_grand);
 
-    // Второй проход: агрегация
+    // Второй проход: агрегация (строки уже закэшированы в Pass 1 — I/O не нужен)
     draw_status_bar(height - 1, 1, csv_filename, row_count, file_size_str);
     attron(COLOR_PAIR(3));
     printw(" | Aggregating... 0%%                         ");
@@ -1108,22 +1137,23 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
         int real_row = get_real_row(d);
         if (real_row < start_row) continue;
 
-        if (!rows[real_row].line_cache) {
-            fseek(f, rows[real_row].offset, SEEK_SET);
-            char buf[MAX_LINE_LEN];
-            if (fgets(buf, sizeof(buf), f)) {
-                buf[strcspn(buf, "\n")] = '\0';
-                rows[real_row].line_cache = strdup(buf);
-            } else {
-                rows[real_row].line_cache = strdup("");
-            }
-        }
-        const char *line = rows[real_row].line_cache;
+        // Pass 1 уже закэшировал все строки
+        const char *line = rows[real_row].line_cache ? rows[real_row].line_cache : "";
+        if (!*line) continue;
 
-        // Получаем значения
-        char *rval = (row_group_idx >= 0) ? get_column_value(line, settings->row_group_col, use_headers) : strdup("Total");
-        char *cval = (col_group_idx >= 0) ? get_column_value(line, settings->col_group_col, use_headers) : strdup("Total");
-        char *vval = get_column_value(line, settings->value_col, use_headers);
+        // Парсим строку один раз, извлекаем все нужные поля по индексу
+        int fc = 0;
+        char **fields = parse_csv_line(line, &fc);
+        if (!fields) continue;
+
+        char *rval = (row_group_idx >= 0) ?
+            (row_group_idx < fc ? strdup(fields[row_group_idx]) : strdup("")) :
+            strdup("Total");
+        char *cval = (col_group_idx >= 0) ?
+            (col_group_idx < fc ? strdup(fields[col_group_idx]) : strdup("")) :
+            strdup("Total");
+        char *vval = (value_idx < fc) ? strdup(fields[value_idx]) : strdup("");
+        free_csv_fields(fields, fc);
 
         // Генерируем ключи
         char *rkey = get_group_key(rval, row_type, settings->date_grouping, row_group_idx);
@@ -1160,7 +1190,7 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
 
             // Unique count для ячейки
             int cell_idx = ridx * unique_cols + cidx;
-            if (!cell_uniques[cell_idx]) cell_uniques[cell_idx] = hash_map_create(64);
+            if (!cell_uniques[cell_idx]) cell_uniques[cell_idx] = hash_map_create(256);
             const char *v_for_unique = vval ? vval : "";
             if (!hash_map_get(cell_uniques[cell_idx], v_for_unique)) {
                 hash_map_put(cell_uniques[cell_idx], v_for_unique, (void*)1);
@@ -1169,7 +1199,7 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
 
             // Row total
             update_agg(&row_totals[ridx], vval, value_type);
-            if (!row_unique_maps[ridx]) row_unique_maps[ridx] = hash_map_create(4096);
+            if (!row_unique_maps[ridx]) row_unique_maps[ridx] = hash_map_create(hm_perrow);
             if (!hash_map_get(row_unique_maps[ridx], v_for_unique)) {
                 hash_map_put(row_unique_maps[ridx], v_for_unique, (void*)1);
                 row_totals[ridx].unique_count++;
@@ -1177,7 +1207,7 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
 
             // Col total
             update_agg(&col_totals[cidx], vval, value_type);
-            if (!col_unique_maps[cidx]) col_unique_maps[cidx] = hash_map_create(4096);
+            if (!col_unique_maps[cidx]) col_unique_maps[cidx] = hash_map_create(hm_percol);
             if (!hash_map_get(col_unique_maps[cidx], v_for_unique)) {
                 hash_map_put(col_unique_maps[cidx], v_for_unique, (void*)1);
                 col_totals[cidx].unique_count++;
