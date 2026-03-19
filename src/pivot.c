@@ -4,6 +4,8 @@
  * Реализация сводных таблиц (pivot tables) для csvview
  */
 
+#define _XOPEN_SOURCE 700  /* strptime on Linux */
+
 #include "pivot.h"
 #include "utils.h"          // get_column_value, col_name_to_num, col_to_num
 #include "csvview_defs.h"   // globals, RowIndex, ColType

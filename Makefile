@@ -2,7 +2,7 @@
 
 CC       = clang
 CFLAGS   = -Wall -Wextra -g -O2
-LDFLAGS  = -lncurses
+LDFLAGS  = -lncurses -lm
 
 TARGET   = csvview
 MAN      = csvview.1

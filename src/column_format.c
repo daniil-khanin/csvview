@@ -4,6 +4,8 @@
  * Реализация форматирования и настройки отображения столбцов
  */
 
+#define _XOPEN_SOURCE 700  /* strptime on Linux */
+
 #include "column_format.h"
 #include "utils.h"          // trim, col_letter
 
