@@ -343,6 +343,84 @@ static char *show_history_picker(void)
 }
 
 // ────────────────────────────────────────────────
+// Column-name autocomplete input
+// ────────────────────────────────────────────────
+
+/* Return full column name that starts with word[0..wlen-1], or NULL */
+static const char *ac_match(const char *word, int wlen)
+{
+    if (wlen <= 0) return NULL;
+    for (int i = 0; i < col_count; i++) {
+        if (column_names[i] && (int)strlen(column_names[i]) > wlen &&
+            strncasecmp(column_names[i], word, wlen) == 0)
+            return column_names[i];
+    }
+    return NULL;
+}
+
+/* Read a line with ghost-text column-name autocomplete.
+ * Caller draws the label; y,x is where the input itself starts.
+ * Returns 1 on Enter (buf filled), 0 on Esc (buf cleared). */
+static int ac_readline(char *buf, int maxlen, int y, int x)
+{
+    int pos = 0;
+    buf[0] = '\0';
+    curs_set(1);
+    noecho();
+
+    while (1) {
+        /* Find start of current token (scan back over word chars) */
+        int ts = pos;
+        while (ts > 0 && (isalnum((unsigned char)buf[ts-1]) || buf[ts-1] == '_'))
+            ts--;
+
+        const char *full = (pos > ts) ? ac_match(buf + ts, pos - ts) : NULL;
+        const char *ghost = full ? full + (pos - ts) : NULL; /* suffix to display */
+
+        /* Redraw: input + ghost */
+        move(y, x);
+        addstr(buf);
+        if (ghost) {
+            attron(A_DIM);
+            addstr(ghost);
+            attroff(A_DIM);
+        }
+        clrtoeol();
+        move(y, x + pos);
+        refresh();
+
+        int key = getch();
+
+        if (key == '\n' || key == KEY_ENTER) {
+            break;
+        } else if (key == 27) {
+            buf[0] = '\0';
+            curs_set(0);
+            return 0;
+        } else if (key == '\t') {
+            if (full) {
+                /* Replace token with canonical column name */
+                int full_len = (int)strlen(full);
+                int after_len = (int)strlen(buf + pos);
+                if (ts + full_len + after_len < maxlen - 1) {
+                    memmove(buf + ts + full_len, buf + pos, after_len + 1);
+                    memcpy(buf + ts, full, full_len);
+                    pos = ts + full_len;
+                }
+            }
+        } else if ((key == KEY_BACKSPACE || key == 127) && pos > 0) {
+            buf[--pos] = '\0';
+        } else if (key >= 32 && key <= 126 && pos < maxlen - 1) {
+            buf[pos++] = (char)key;
+            buf[pos] = '\0';
+        }
+    }
+
+    curs_set(0);
+    return 1;
+}
+
+// ────────────────────────────────────────────────
 // main
 // ────────────────────────────────────────────────
 int main(int argc, char *argv[]) {
@@ -721,9 +799,7 @@ int main(int argc, char *argv[]) {
                 printw(" | :");
                 attroff(COLOR_PAIR(3));
                 refresh();
-                echo();
-                wgetnstr(stdscr, cmd_buf, sizeof(cmd_buf) - 1);
-                noecho();
+                { int cy, cx; getyx(stdscr, cy, cx); ac_readline(cmd_buf, sizeof(cmd_buf), cy, cx); }
 
                 // Разделяем команду и аргумент (если есть)
                 char *cmd = cmd_buf;
@@ -1406,30 +1482,8 @@ int main(int argc, char *argv[]) {
             clrtoeol();
             refresh();
 
-            echo();
-            curs_set(1);
-
-            int pos = 0;
-            while (1) {
-                int key = getch();
-                if (key == '\n' || key == KEY_ENTER) break;
-                if (key == 27) { in_filter_mode = 0; break; }
-                if ((key == KEY_BACKSPACE || key == 127) && pos > 0) {
-                    pos--;
-                    filter_query[pos] = '\0';
-                } else if (key >= 32 && key <= 126 && pos < 255) {
-                    filter_query[pos++] = (char)key;
-                    filter_query[pos] = '\0';
-                }
-
-                mvprintw(2, 2, "F:%s", filter_query);
-                clrtoeol();
-                move(2, 4 + pos);
-                refresh();
-            }
-
-            noecho();
-            curs_set(0);
+            if (!ac_readline(filter_query, sizeof(filter_query), 2, 4))
+                in_filter_mode = 0;
 
             if (in_filter_mode && strlen(filter_query) > 0) {
                 cur_col = 0;
@@ -1780,9 +1834,7 @@ int main(int argc, char *argv[]) {
             printw(" | :");
             attroff(COLOR_PAIR(3));
             refresh();
-            echo();
-            wgetnstr(stdscr, cmd_buf, sizeof(cmd_buf) - 1);
-            noecho();
+            { int cy, cx; getyx(stdscr, cy, cx); ac_readline(cmd_buf, sizeof(cmd_buf), cy, cx); }
 
             // Разделяем команду и аргумент (если есть)
             char *cmd = cmd_buf;
