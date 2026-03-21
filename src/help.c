@@ -151,6 +151,7 @@ void show_help(int use_ncurses)
         "    Date:   format string (e.g. %Y-%m-%d)",
         "  X                    Hide / show current column (saved in .csvf)",
         "  H                    Toggle use-headers ON/OFF (preview updates live)",
+        "  C                    Cycle field separator: , → ; → tab → | → , (reloads file)",
         "  q / Esc              Save & return to table",
         "",
         "Column statistics (d):",

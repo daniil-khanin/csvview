@@ -332,6 +332,7 @@ void save_column_settings(const char *csv_filename)
     fprintf(fp, "use_headers:%d\n", use_headers);
     fprintf(fp, "col_count:%d\n", col_count);
     fprintf(fp, "freeze:%d\n", freeze_cols);
+    fprintf(fp, "delimiter:%d\n", (int)(unsigned char)csv_delimiter);
 
     // Настройки каждого столбца
     for (int i = 0; i < col_count; i++)
@@ -450,6 +451,11 @@ int load_column_settings(const char *csv_filename)
         if (strncmp(line, "use_headers:", 12) == 0)
         {
             temp_use_headers = atoi(line + 12);
+        }
+        else if (strncmp(line, "delimiter:", 10) == 0)
+        {
+            int d = atoi(line + 10);
+            if (d > 0 && d < 256) csv_delimiter = (char)d;
         }
         else if (strncmp(line, "freeze:", 7) == 0)
         {
@@ -864,6 +870,21 @@ int show_column_setup(const char *csv_filename)
         mvprintw(win_top + 1, 3, "Headers: %s", use_headers ? "ON  [H to toggle]" : "OFF [H to toggle]");
         attroff(COLOR_PAIR(use_headers ? 3 : 2) | A_BOLD);
 
+        // Текущий разделитель
+        {
+            const char *delim_name;
+            switch (csv_delimiter) {
+                case ',':  delim_name = "comma  ,"; break;
+                case ';':  delim_name = "semicolon ;"; break;
+                case '\t': delim_name = "tab \\t"; break;
+                case '|':  delim_name = "pipe |"; break;
+                default:   delim_name = "custom"; break;
+            }
+            attron(COLOR_PAIR(3) | A_BOLD);
+            mvprintw(win_top + 1, 35, "Separator: %-12s [C to cycle]", delim_name);
+            attroff(COLOR_PAIR(3) | A_BOLD);
+        }
+
         // Заголовки столбцов
         attron(COLOR_PAIR(5) | A_BOLD);
         mvprintw(win_top + 2, 3,   "Column");
@@ -931,7 +952,7 @@ int show_column_setup(const char *csv_filename)
         // Подсказки (обновлённые)
         char hint[128];
         snprintf(hint, sizeof(hint),
-                 "[ ↑↓/jk move • S/N/D type • X hide/show • Enter edit • H headers • q/Esc save&exit ]");
+                 "[ ↑↓/jk move • S/N/D type • X hide/show • Enter edit • H headers • C separator • q/Esc save ]");
 
         int hint_len = strlen(hint);
         int hint_x = (win_width - hint_len) / 2;
@@ -1089,6 +1110,94 @@ int show_column_setup(const char *csv_filename)
                     free(fields);
                 }
             }
+        }
+        else if (ch == 'c' || ch == 'C')
+        {
+            // Цикл разделителей: , → ; → \t → | → ,
+            switch (csv_delimiter) {
+                case ',':  csv_delimiter = ';';  break;
+                case ';':  csv_delimiter = '\t'; break;
+                case '\t': csv_delimiter = '|';  break;
+                default:   csv_delimiter = ',';  break;
+            }
+            save_column_settings(csv_filename);
+
+            // Перепарсить имена столбцов из строки 0
+            for (int i = 0; i < col_count; i++) {
+                free(column_names[i]);
+                column_names[i] = NULL;
+            }
+            col_count = 0;
+            memset(col_hidden, 0, sizeof(col_hidden));
+
+            // Очищаем кэш строки 0, чтобы она была перечитана свежей
+            free(rows[0].line_cache);
+            rows[0].line_cache = NULL;
+
+            // Перечитываем строку 0
+            if (f) {
+                fseek(f, rows[0].offset, SEEK_SET);
+                char line_buf[MAX_LINE_LEN];
+                if (fgets(line_buf, sizeof(line_buf), f)) {
+                    line_buf[strcspn(line_buf, "\r\n")] = '\0';
+                    rows[0].line_cache = strdup(line_buf);
+                } else {
+                    rows[0].line_cache = strdup("");
+                }
+            }
+
+            // Парсим заголовки с новым разделителем
+            if (rows[0].line_cache) {
+                int hdr_count = 0;
+                char **hdr_fields = parse_csv_line(rows[0].line_cache, &hdr_count);
+                if (hdr_fields) {
+                    while (col_count < hdr_count && col_count < MAX_COLS) {
+                        char *t = hdr_fields[col_count];
+                        while (*t == ' ' || *t == '\t') t++;
+                        column_names[col_count] = strdup(t);
+                        col_types[col_count] = COL_STR;
+                        col_count++;
+                    }
+                    free_csv_fields(hdr_fields, hdr_count);
+                }
+            }
+            init_column_formats();
+
+            // Обновляем превью
+            memset(preview_values, 0, sizeof(preview_values));
+            preview_valid = 0;
+            if (row_count > (use_headers ? 1 : 0)) {
+                int preview_row = use_headers ? 1 : 0;
+                // Очищаем кэш строки превью, чтобы перечитать с новым разделителем
+                free(rows[preview_row].line_cache);
+                rows[preview_row].line_cache = NULL;
+                if (f) {
+                    fseek(f, rows[preview_row].offset, SEEK_SET);
+                    char *pline = malloc(MAX_LINE_LEN);
+                    if (pline && fgets(pline, MAX_LINE_LEN, f)) {
+                        pline[strcspn(pline, "\r\n")] = '\0';
+                        rows[preview_row].line_cache = pline;
+                    } else {
+                        free(pline);
+                        rows[preview_row].line_cache = strdup("");
+                    }
+                }
+                if (rows[preview_row].line_cache) {
+                    int field_count = 0;
+                    char **fields = parse_csv_line(rows[preview_row].line_cache, &field_count);
+                    if (fields) {
+                        for (int c = 0; c < field_count && c < col_count; c++) {
+                            strncpy(preview_values[c], fields[c], sizeof(preview_values[c]) - 1);
+                        }
+                        preview_valid = 1;
+                        for (int k = 0; k < field_count; k++) free(fields[k]);
+                        free(fields);
+                    }
+                }
+            }
+            // Сигнализируем вызывающему о смене разделителя — нужна полная перезагрузка
+            save_column_settings(csv_filename);
+            return 1;
         }
         else if (ch == 27 || ch == 'q' || ch == 'Q')
         {

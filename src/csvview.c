@@ -1800,10 +1800,31 @@ int main(int argc, char *argv[]) {
             if (left_col < freeze_cols) left_col = freeze_cols;
             save_column_settings(file_to_open);
         }
-        else if (ch == 't' || ch == 'T') {           // F2
+        else if (ch == 't' || ch == 'T') {
             clear();
-            show_column_setup(file_to_open);  // false = не начальная настройка
-            // после возврата — таблица перерисуется автоматически в следующем цикле
+            int setup_ret = show_column_setup(file_to_open);
+            if (setup_ret == 1) {
+                // Разделитель изменён — полная перезагрузка файла
+                for (int i = 0; i < row_count; i++) {
+                    free(rows[i].line_cache);
+                    rows[i].line_cache = NULL;
+                }
+                csv_mmap_close();
+                fclose(f);
+                f = fopen(file_to_open, "r");
+                if (f) csv_mmap_open(file_to_open);
+                free(rows);
+                rows = build_row_index(f, &row_count);
+                if (rows && !alloc_row_arrays(row_count)) { /* oom */ }
+                sort_col = -1; sort_order = 0; sort_level_count = 0; sorted_count = 0;
+                filter_active = 0; filtered_count = 0; filter_query[0] = '\0';
+                cur_display_row = 0; top_display_row = 0; cur_col = 0; left_col = 0;
+                draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
+                attron(COLOR_PAIR(3));
+                printw(" | Separator changed — file reloaded");
+                attroff(COLOR_PAIR(3));
+                refresh();
+            }
         }
         else if (ch == 'w') {
             if (cur_col < col_count) {
