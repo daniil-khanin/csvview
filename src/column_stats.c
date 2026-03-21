@@ -6,6 +6,7 @@
 
 #include "column_stats.h"
 #include "utils.h"          // get_column_value, trim, col_letter и т.д.
+#include "csv_mmap.h"
 
 #include <ncurses.h>        // newwin, mvwprintw, wrefresh и т.д.
 #include <stdlib.h>         // malloc, realloc, free, qsort
@@ -28,6 +29,53 @@ typedef struct {
     long count;
     int sort_key;           // для сортировки: year*100 + month и т.д.
 } DateGroup;
+
+#define MAX_UNIQUE 100000
+
+/* Hash table for O(1) frequency lookup instead of O(n) linear scan */
+#define FREQ_HASH_BITS 18
+#define FREQ_HASH_SIZE (1 << FREQ_HASH_BITS)
+#define FREQ_HASH_MASK (FREQ_HASH_SIZE - 1)
+
+static unsigned int freq_hash_fn(const char *s)
+{
+    unsigned int h = 2166136261u;
+    while (*s) { h ^= (unsigned char)*s++; h *= 16777619u; }
+    return h;
+}
+
+/* Find or insert value in freqs[]. Returns 1 on success, 0 if table full. */
+static int freq_lookup_insert(Freq *freqs, long *freq_count, long *ht, const char *val)
+{
+    unsigned int slot = freq_hash_fn(val) & FREQ_HASH_MASK;
+    for (int probe = 0; probe < 512; probe++, slot = (slot + 1) & FREQ_HASH_MASK) {
+        long idx = ht[slot];
+        if (idx < 0) {
+            /* Empty — insert new entry */
+            if (*freq_count >= MAX_UNIQUE) return 0;
+            idx = *freq_count;
+            freqs[idx].value = strdup(val);
+            freqs[idx].count = 1;
+            ht[slot] = idx;
+            (*freq_count)++;
+            return 1;
+        }
+        if (strcmp(freqs[idx].value, val) == 0) {
+            freqs[idx].count++;
+            return 1;
+        }
+    }
+    /* Fallback linear scan (shouldn't happen with good hash distribution) */
+    for (long j = 0; j < *freq_count; j++) {
+        if (strcmp(freqs[j].value, val) == 0) { freqs[j].count++; return 1; }
+    }
+    if (*freq_count < MAX_UNIQUE) {
+        freqs[*freq_count].value = strdup(val);
+        freqs[*freq_count].count = 1;
+        (*freq_count)++;
+    }
+    return 1;
+}
 
 // ────────────────────────────────────────────────
 // Основная функция статистики столбца
@@ -109,9 +157,11 @@ void show_column_stats(int col_idx)
     int max_year = 0, max_month = 0;
 
     // Частоты для топ-10 и моды (всегда как строки)
-    #define MAX_UNIQUE 100000
     Freq *freqs = calloc(MAX_UNIQUE, sizeof(Freq));
     long freq_count = 0;
+    /* Hash table for O(1) freq lookup (initialized to -1 = empty) */
+    long *freq_ht = malloc((size_t)FREQ_HASH_SIZE * sizeof(long));
+    if (freq_ht) memset(freq_ht, 0xFF, (size_t)FREQ_HASH_SIZE * sizeof(long));
 
     long count_processed = 0;
     int display_count = filter_active ? filtered_count : row_count;
@@ -123,19 +173,22 @@ void show_column_stats(int col_idx)
             continue;
         }
 
-        // Ленивая загрузка строки
-        if (!rows[real_row].line_cache)
-        {
-            fseek(f, rows[real_row].offset, SEEK_SET);
-            char *line = malloc(MAX_LINE_LEN + 1);
-            if (fgets(line, MAX_LINE_LEN + 1, f))
-            {
-                line[strcspn(line, "\n")] = '\0';
-                rows[real_row].line_cache = line;
-            }
-            else
-            {
-                rows[real_row].line_cache = strdup("");
+        /* Fast row access via mmap or fseek fallback */
+        char mmap_buf[MAX_LINE_LEN];
+        if (!rows[real_row].line_cache) {
+            if (g_mmap_base) {
+                char *ml = csv_mmap_get_line(rows[real_row].offset, mmap_buf, sizeof(mmap_buf));
+                rows[real_row].line_cache = strdup(ml ? ml : "");
+            } else {
+                fseek(f, rows[real_row].offset, SEEK_SET);
+                char *line = malloc(MAX_LINE_LEN + 1);
+                if (fgets(line, MAX_LINE_LEN + 1, f)) {
+                    line[strcspn(line, "\n")] = '\0';
+                    rows[real_row].line_cache = line;
+                } else {
+                    free(line);
+                    rows[real_row].line_cache = strdup("");
+                }
             }
         }
 
@@ -156,21 +209,19 @@ void show_column_stats(int col_idx)
         valid_count++;
 
         // Частоты значений (всегда как строка)
-        int found = 0;
-        for (long j = 0; j < freq_count; j++)
-        {
-            if (strcmp(freqs[j].value, cell) == 0)
-            {
-                freqs[j].count++;
-                found = 1;
-                break;
+        if (freq_ht) {
+            freq_lookup_insert(freqs, &freq_count, freq_ht, cell);
+        } else {
+            /* Fallback linear scan if ht alloc failed */
+            int found = 0;
+            for (long j = 0; j < freq_count; j++) {
+                if (strcmp(freqs[j].value, cell) == 0) { freqs[j].count++; found = 1; break; }
             }
-        }
-        if (!found && freq_count < MAX_UNIQUE)
-        {
-            freqs[freq_count].value = strdup(cell);
-            freqs[freq_count].count = 1;
-            freq_count++;
+            if (!found && freq_count < MAX_UNIQUE) {
+                freqs[freq_count].value = strdup(cell);
+                freqs[freq_count].count = 1;
+                freq_count++;
+            }
         }
 
         // ── Специальная обработка по типу столбца ──
@@ -225,7 +276,7 @@ void show_column_stats(int col_idx)
                 snprintf(label, sizeof(label), "%04d-%02d", year, month);
 
                 // Добавляем или увеличиваем счётчик группы
-                found = 0;
+                int found = 0;
                 for (int g = 0; g < monthly_group_count; g++)
                 {
                     if (strcmp(monthly_groups[g].label, label) == 0)
@@ -537,6 +588,7 @@ skip_num_alloc:
         free(freqs[i].value);
     }
     free(freqs);
+    free(freq_ht);
 
     delwin(win);
     touchwin(stdscr);

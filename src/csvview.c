@@ -24,6 +24,7 @@
 #include "help.h"
 #include "concat_files.h"
 #include "split_file.h"
+#include "csv_mmap.h"
 
 // ────────────────────────────────────────────────
 // Глобальные переменные — определения (инициализация)
@@ -459,6 +460,7 @@ int main(int argc, char *argv[]) {
 
     f = fopen(file_to_open, "r");
     if (!f) { perror("fopen"); return 1; }
+    csv_mmap_open(file_to_open);
     history_add(file_to_open);
 
     struct stat st;
@@ -1684,6 +1686,7 @@ int main(int argc, char *argv[]) {
             }
 
             // 2. Переоткрываем файл
+            csv_mmap_close();
             fclose(f);
             f = fopen(file_to_open, "r");
             if (!f) {
@@ -1691,6 +1694,7 @@ int main(int argc, char *argv[]) {
                 refresh();
                 continue;
             }
+            if (f) csv_mmap_open(file_to_open);
 
             // 3. Обновляем размер файла
             struct stat reload_st;
@@ -2026,6 +2030,7 @@ int main(int argc, char *argv[]) {
                 rows = NULL;
                 row_count = 0;
 
+                csv_mmap_close();
                 fclose(f);
                 f = fopen(file_to_open, "r");
                 if (!f) {
@@ -2034,6 +2039,7 @@ int main(int argc, char *argv[]) {
                     getch();
                     continue;
                 }
+                if (f) csv_mmap_open(file_to_open);
 
                 rows = build_row_index(f, &row_count);
                 if (!rows) {
@@ -2120,6 +2126,7 @@ int main(int argc, char *argv[]) {
                 rows = NULL;
                 row_count = 0;
 
+                csv_mmap_close();
                 fclose(f);
                 f = fopen(file_to_open, "r");
                 if (!f) {
@@ -2128,6 +2135,7 @@ int main(int argc, char *argv[]) {
                     getch();
                     continue;
                 }
+                if (f) csv_mmap_open(file_to_open);
 
                 rows = build_row_index(f, &row_count);
                 if (!rows) {
@@ -2297,13 +2305,19 @@ int main(int argc, char *argv[]) {
                     if (real_row < row_start) continue;
 
                     if (!rows[real_row].line_cache) {
-                        fseek(f, rows[real_row].offset, SEEK_SET);
-                        char line_buf[MAX_LINE_LEN];
-                        if (fgets(line_buf, sizeof(line_buf), f)) {
-                            line_buf[strcspn(line_buf, "\n")] = '\0';
-                            rows[real_row].line_cache = strdup(line_buf);
+                        if (g_mmap_base) {
+                            char mmap_buf[MAX_LINE_LEN];
+                            char *ml = csv_mmap_get_line(rows[real_row].offset, mmap_buf, sizeof(mmap_buf));
+                            rows[real_row].line_cache = strdup(ml ? ml : "");
                         } else {
-                            rows[real_row].line_cache = strdup("");
+                            fseek(f, rows[real_row].offset, SEEK_SET);
+                            char line_buf[MAX_LINE_LEN];
+                            if (fgets(line_buf, sizeof(line_buf), f)) {
+                                line_buf[strcspn(line_buf, "\n")] = '\0';
+                                rows[real_row].line_cache = strdup(line_buf);
+                            } else {
+                                rows[real_row].line_cache = strdup("");
+                            }
                         }
                     }
 
@@ -2352,6 +2366,7 @@ int main(int argc, char *argv[]) {
         free(column_names[i]);
     }
     free(rows);
+    csv_mmap_close();
     fclose(f);
     endwin();
     return 0;

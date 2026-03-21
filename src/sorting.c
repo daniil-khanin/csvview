@@ -7,10 +7,12 @@
 #include "sorting.h"
 #include "utils.h"          // get_column_value, col_name_to_num и т.д.
 #include "ui_draw.h"        // spinner_tick / spinner_clear
+#include "csv_mmap.h"
 
 #include <stdlib.h>         // qsort
 #include <string.h>         // strcasecmp, strlen
 #include <stdio.h>          // fseek, fgets (если нужно)
+#include <pthread.h>
 
 // ────────────────────────────────────────────────
 // Быстрый экстрактор одного поля CSV без malloc
@@ -53,6 +55,42 @@ static const char *get_field_fast(const char *line, int idx)
     }
     *out = '\0';
     return buf;
+}
+
+/* Thread-safe version: uses caller-provided buf instead of static buffer */
+static void get_field_fast_ts(const char *line, int idx, char *buf, int buf_size)
+{
+    buf[0] = '\0';
+    if (!line || idx < 0) return;
+
+    int field = 0;
+    const char *p = line;
+    int in_quote = 0;
+
+    while (*p && field < idx) {
+        if (*p == '"') { in_quote = !in_quote; p++; continue; }
+        if (!in_quote && *p == csv_delimiter) field++;
+        p++;
+    }
+    if (!*p || field != idx) return;
+
+    char *out     = buf;
+    char *out_end = buf + buf_size - 1;
+    in_quote = (*p == '"');
+    if (in_quote) p++;
+
+    while (*p && out < out_end) {
+        if (in_quote) {
+            if (*p == '"') {
+                if (*(p + 1) == '"') { *out++ = '"'; p += 2; continue; }
+                break;
+            }
+        } else {
+            if (*p == csv_delimiter || *p == '\n' || *p == '\r') break;
+        }
+        *out++ = *p++;
+    }
+    *out = '\0';
 }
 
 // ────────────────────────────────────────────────
@@ -235,6 +273,50 @@ int compare_rows_by_column(const void *pa, const void *pb)
     return sort_order * result;
 }
 
+typedef struct {
+    int      start_r;
+    int      start_ki;
+    int      count;
+    int      scol;
+    SortKey *keys;
+} SortKeyWorker;
+
+static void *sort_key_worker(void *arg)
+{
+    SortKeyWorker *w = arg;
+    char line_buf[MAX_LINE_LEN];
+    char field_buf[MAX_LINE_LEN];
+
+    for (int i = 0; i < w->count; i++) {
+        int r  = w->start_r  + i;
+        int ki = w->start_ki + i;
+
+        const char *line;
+        if (rows[r].line_cache) {
+            line = rows[r].line_cache;
+        } else if (g_mmap_base) {
+            line = csv_mmap_get_line(rows[r].offset, line_buf, sizeof(line_buf));
+            if (!line) { w->keys[ki].is_num = 1; w->keys[ki].num = 0; continue; }
+        } else {
+            w->keys[ki].is_num = 1; w->keys[ki].num = 0;
+            continue;
+        }
+
+        get_field_fast_ts(line, w->scol, field_buf, sizeof(field_buf));
+
+        char *end;
+        double num = parse_double(field_buf, &end);
+        if (end != field_buf && (*end == '\0' || *end == ' ')) {
+            w->keys[ki].is_num = 1;
+            w->keys[ki].num    = num;
+        } else {
+            w->keys[ki].is_num = 0;
+            w->keys[ki].str    = strdup(field_buf);
+        }
+    }
+    return NULL;
+}
+
 /**
  * @brief Строит массив sorted_rows[] — индексы строк в отсортированном порядке
  *
@@ -324,27 +406,51 @@ void build_sorted_index(void)
 
     spinner_tick();
 
-    // Последовательное чтение файла + извлечение ключа для каждой строки.
-    // Не кэшируем строки — экономим оперативную память.
-    rewind(f);
-    char seq_buf[MAX_LINE_LEN];
-    for (int r = 0; r < row_count; r++) {
-        if (!fgets(seq_buf, sizeof(seq_buf), f)) break;
-        if (r < start) continue;
+    /* Parallel key extraction using mmap */
+    if (g_mmap_base) {
+        int nthreads = csv_num_threads();
+        int chunk    = (sorted_count + nthreads - 1) / nthreads;
 
-        seq_buf[strcspn(seq_buf, "\r\n")] = '\0';
+        SortKeyWorker *workers = calloc(nthreads, sizeof(SortKeyWorker));
+        pthread_t     *tids    = malloc(nthreads * sizeof(pthread_t));
 
-        int ki = r - start;
-        const char *raw = get_field_fast(seq_buf, sort_col);
+        for (int t = 0; t < nthreads; t++) {
+            workers[t].start_r  = start + t * chunk;
+            workers[t].start_ki = t * chunk;
+            workers[t].count    = chunk;
+            if (workers[t].start_r + workers[t].count > row_count)
+                workers[t].count = row_count - workers[t].start_r;
+            if (workers[t].count < 0) workers[t].count = 0;
+            workers[t].scol = sort_col;
+            workers[t].keys = keys;
+            pthread_create(&tids[t], NULL, sort_key_worker, &workers[t]);
+        }
+        for (int t = 0; t < nthreads; t++) pthread_join(tids[t], NULL);
 
-        char *end;
-        double num = parse_double(raw, &end);
-        if (end != raw && (*end == '\0' || *end == ' ')) {
-            keys[ki].is_num = 1;
-            keys[ki].num    = num;
-        } else {
-            keys[ki].is_num = 0;
-            keys[ki].str    = strdup(raw);
+        free(workers);
+        free(tids);
+    } else {
+        /* Sequential fallback */
+        rewind(f);
+        char seq_buf[MAX_LINE_LEN];
+        for (int r = 0; r < row_count; r++) {
+            if (!fgets(seq_buf, sizeof(seq_buf), f)) break;
+            if (r < start) continue;
+
+            seq_buf[strcspn(seq_buf, "\r\n")] = '\0';
+
+            int ki = r - start;
+            const char *raw = get_field_fast(seq_buf, sort_col);
+
+            char *end;
+            double num = parse_double(raw, &end);
+            if (end != raw && (*end == '\0' || *end == ' ')) {
+                keys[ki].is_num = 1;
+                keys[ki].num    = num;
+            } else {
+                keys[ki].is_num = 0;
+                keys[ki].str    = strdup(raw);
+            }
         }
     }
 

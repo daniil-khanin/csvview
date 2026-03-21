@@ -13,6 +13,7 @@
 #include "sorting.h"
 #include "filtering.h"
 #include "graph.h"          // draw_bresenham
+#include "csv_mmap.h"
 
 #include <ncurses.h>        // отрисовка
 #include <stdlib.h>         // malloc, free, qsort, calloc
@@ -983,7 +984,7 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
 
     // При отсутствии фильтра/сортировки читаем файл последовательно — без fseek на каждую строку
     int use_seq = (!filter_active && sort_col < 0);
-    if (use_seq) rewind(f);
+    if (use_seq && !g_mmap_base) rewind(f);
     char seq_buf[MAX_LINE_LEN];
 
     for (int d = 0; d < display_count; d++) {
@@ -991,22 +992,36 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
         const char *line;
 
         if (use_seq) {
-            if (!fgets(seq_buf, sizeof(seq_buf), f)) break;
-            seq_buf[strcspn(seq_buf, "\r\n")] = '\0';
-            if (real_row < start_row) continue;
-            line = seq_buf;
+            if (g_mmap_base) {
+                /* mmap: direct offset access, no sequential file pointer needed */
+                char *ml = csv_mmap_get_line((long)rows[d].offset, seq_buf, sizeof(seq_buf));
+                if (!ml) break;
+                if (real_row < start_row) continue;
+                line = seq_buf;
+            } else {
+                if (!fgets(seq_buf, sizeof(seq_buf), f)) break;
+                seq_buf[strcspn(seq_buf, "\r\n")] = '\0';
+                if (real_row < start_row) continue;
+                line = seq_buf;
+            }
             if (!rows[real_row].line_cache)
                 rows[real_row].line_cache = strdup(seq_buf);
         } else {
             if (real_row < start_row) continue;
             if (!rows[real_row].line_cache) {
-                fseek(f, rows[real_row].offset, SEEK_SET);
-                char buf[MAX_LINE_LEN];
-                if (fgets(buf, sizeof(buf), f)) {
-                    buf[strcspn(buf, "\n")] = '\0';
-                    rows[real_row].line_cache = strdup(buf);
+                if (g_mmap_base) {
+                    char mbuf[MAX_LINE_LEN];
+                    char *ml = csv_mmap_get_line(rows[real_row].offset, mbuf, sizeof(mbuf));
+                    rows[real_row].line_cache = strdup(ml ? ml : "");
                 } else {
-                    rows[real_row].line_cache = strdup("");
+                    fseek(f, rows[real_row].offset, SEEK_SET);
+                    char buf[MAX_LINE_LEN];
+                    if (fgets(buf, sizeof(buf), f)) {
+                        buf[strcspn(buf, "\n")] = '\0';
+                        rows[real_row].line_cache = strdup(buf);
+                    } else {
+                        rows[real_row].line_cache = strdup("");
+                    }
                 }
             }
             line = rows[real_row].line_cache;
