@@ -403,10 +403,12 @@ int dedup_file(const char *input_path,
 
 /* ── Interactive: dedup_make_filter ─────────────────────────────────────── */
 
-int *dedup_make_filter(const char *by_cols,
-                       int         keep_last,
-                       int        *out_count,
-                       int        *removed_out)
+int *dedup_make_filter(const char        *by_cols,
+                       int                keep_last,
+                       int               *out_count,
+                       int               *removed_out,
+                       dedup_progress_fn  progress,
+                       void              *ud)
 {
     *out_count   = 0;
     *removed_out = 0;
@@ -421,6 +423,11 @@ int *dedup_make_filter(const char *by_cols,
     int col_indices[702];
     int ncols_key = parse_cols_iact(by_cols, col_indices, 702);
     if (ncols_key < 0) return NULL;
+
+#define IACT_PROGRESS_STEP 50000
+#define IACT_PROGRESS(d, pass) \
+    do { if (progress && (d) % IACT_PROGRESS_STEP == 0) \
+             progress((long)(d), (long)display_count, (pass), ud); } while(0)
 
     int  *result  = malloc(display_count * sizeof(int));
     char  linebuf[MAX_LINE_LEN];
@@ -447,6 +454,7 @@ int *dedup_make_filter(const char *by_cols,
             build_key_iact(line, col_indices, ncols_key, keybuf, sizeof(keybuf));
             if (dhs_insert(seen, keybuf)) result[rcount++] = real_row;
             else                          dupes++;
+            IACT_PROGRESS(d, 2);
         }
         dhs_free(seen);
     } else {
@@ -470,6 +478,7 @@ int *dedup_make_filter(const char *by_cols,
             }
             build_key_iact(line, col_indices, ncols_key, keybuf, sizeof(keybuf));
             dhs_set_line(last, keybuf, (long)d);
+            IACT_PROGRESS(d, 1);
         }
 
         /* pass 2: keep rows matching their last d */
@@ -479,9 +488,13 @@ int *dedup_make_filter(const char *by_cols,
             build_key_iact(line, col_indices, ncols_key, keybuf, sizeof(keybuf));
             if (dhs_get_line(last, keybuf) == (long)d) result[rcount++] = real_row;
             else                                         dupes++;
+            IACT_PROGRESS(d, 2);
         }
         dhs_free(last);
     }
+
+#undef IACT_PROGRESS_STEP
+#undef IACT_PROGRESS
 
     *out_count   = rcount;
     *removed_out = dupes;

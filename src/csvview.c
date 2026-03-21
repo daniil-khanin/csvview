@@ -428,6 +428,27 @@ static int ac_readline(char *buf, int maxlen, int y, int x, int border_x)
 }
 
 // ────────────────────────────────────────────────
+// :dedup progress callback (TUI)
+// ────────────────────────────────────────────────
+static int         g_dedup_height   = 0;
+static const char *g_dedup_filename = NULL;
+
+static void g_dedup_progress_cb(long done, long total, int pass, void *ud)
+{
+    (void)ud;
+    if (done == 0 || total <= 0) return;
+    draw_status_bar(g_dedup_height - 1, 1, g_dedup_filename, row_count, file_size_str);
+    attron(COLOR_PAIR(3));
+    int pct = (int)(100LL * done / total);
+    if (pass == 1)
+        printw(" | Dedup pass 1/2... %3d%%", pct);
+    else
+        printw(" | Dedup...          %3d%%", pct);
+    attroff(COLOR_PAIR(3));
+    refresh();
+}
+
+// ────────────────────────────────────────────────
 // main
 // ────────────────────────────────────────────────
 static const char *program_path = NULL;
@@ -1900,8 +1921,12 @@ int main(int argc, char *argv[]) {
                     if (cols_buf[0]) by_cols = cols_buf;
                 }
 
+                g_dedup_height   = height;
+                g_dedup_filename = file_to_open;
+
                 int new_count = 0, removed = 0;
-                int *new_filter = dedup_make_filter(by_cols, keep_last, &new_count, &removed);
+                int *new_filter = dedup_make_filter(by_cols, keep_last, &new_count, &removed,
+                                                    g_dedup_progress_cb, NULL);
                 if (!new_filter) {
                     draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
                     attron(COLOR_PAIR(11));
