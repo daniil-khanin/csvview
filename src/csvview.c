@@ -315,9 +315,9 @@ static char *show_history_picker(void)
 
         for (int i = 0; i < count; i++) {
             if (i == sel) {
-                attron(COLOR_PAIR(3) | A_REVERSE);
+                attron(A_REVERSE);
                 mvprintw(2 + i, 2, "  %-*s", COLS - 6, entries[i]);
-                attroff(COLOR_PAIR(3) | A_REVERSE);
+                attroff(A_REVERSE);
             } else {
                 attron(COLOR_PAIR(1));
                 mvprintw(2 + i, 2, "  %-*s", COLS - 6, entries[i]);
