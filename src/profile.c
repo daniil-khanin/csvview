@@ -29,6 +29,32 @@ static void fmt_count(long n, char *buf, int sz)
     else                    snprintf(buf, sz, "%ld",   n);
 }
 
+/* Format a double without scientific notation, compact but readable.
+ * Uses M/k suffix for large integers, otherwise up to 4 significant digits. */
+static void fmt_num_nice(double v, char *buf, int sz)
+{
+    if (v != v) { snprintf(buf, sz, "nan");  return; }
+    double av = v < 0 ? -v : v;
+    /* Large integers: use M/k suffix */
+    if (av >= 1e6 && v == (long long)v)
+        snprintf(buf, sz, "%.2fM", v / 1e6);
+    else if (av >= 1e3 && v == (long long)v)
+        snprintf(buf, sz, "%.1fk", v / 1e3);
+    /* Very large / scientific range: use compact notation */
+    else if (av >= 1e9)
+        snprintf(buf, sz, "%.3gG", v / 1e9);
+    else if (av >= 1e6)
+        snprintf(buf, sz, "%.3gM", v / 1e6);
+    else if (av >= 1e3)
+        snprintf(buf, sz, "%.4g", v);
+    else if (av == 0.0)
+        snprintf(buf, sz, "0");
+    else if (av < 1e-3)
+        snprintf(buf, sz, "%.3e", v);
+    else
+        snprintf(buf, sz, "%.4g", v);
+}
+
 /* Try to parse as a double; return 1 on success */
 static int is_number(const char *s)
 {
@@ -582,22 +608,24 @@ void show_profile_window(void)
                  column_names[c] ? column_names[c] : "");
 
         char stats_buf[256] = "";
+        int  has_outlier = 0;
         if (strcmp(type_str, "number") == 0) {
             double sd = acc[c].num_count > 1
                         ? sqrt(acc[c].num_M2 / (acc[c].num_count - 1)) : 0.0;
-            char smin[20], smax[20], smean[20], sstd[20];
-            snprintf(smin,  sizeof(smin),  "%g", acc[c].num_min);
-            snprintf(smax,  sizeof(smax),  "%g", acc[c].num_max);
-            snprintf(smean, sizeof(smean), "%g", acc[c].num_mean);
-            snprintf(sstd,  sizeof(sstd),  "%g", sd);
+            char smin[16], smax[16], smean[16], sstd[16];
+            fmt_num_nice(acc[c].num_min,  smin,  sizeof(smin));
+            fmt_num_nice(acc[c].num_max,  smax,  sizeof(smax));
+            fmt_num_nice(acc[c].num_mean, smean, sizeof(smean));
+            fmt_num_nice(sd,              sstd,  sizeof(sstd));
             if (outliers[c] > 0) {
                 char ob[16]; fmt_count(outliers[c], ob, sizeof(ob));
                 snprintf(stats_buf, sizeof(stats_buf),
-                         "min=%-9s max=%-9s mean=%-9s s=%-7s [%s >3s]",
+                         "min=%-11s max=%-11s mean=%-11s s=%-9s [%s >3σ]",
                          smin, smax, smean, sstd, ob);
+                has_outlier = 1;
             } else {
                 snprintf(stats_buf, sizeof(stats_buf),
-                         "min=%-9s max=%-9s mean=%-9s s=%s",
+                         "min=%-11s max=%-11s mean=%-11s s=%s",
                          smin, smax, smean, sstd);
             }
         } else {
@@ -621,67 +649,82 @@ void show_profile_window(void)
                  c + 1, max_name, name_trunc, type_str, null_pct, uniq_str, stats_buf);
 
         lines[c + 2]  = strdup(row_buf);
-        /* color by type */
-        if (strcmp(type_str, "number") == 0)
-            colors[c + 2] = outliers[c] > 0 ? 11 : 3;   /* anomaly or accent */
-        else if (strcmp(type_str, "date") == 0)
-            colors[c + 2] = 5;   /* secondary accent */
-        else
-            colors[c + 2] = 1;   /* normal */
-        bolds[c + 2] = 0;
+        colors[c + 2] = has_outlier ? 11 : 1;   /* outlier → red, otherwise normal */
+        bolds[c + 2]  = 0;
     }
 
     /* ── show window ── */
 
-    int win_h = scr_h - 2;
-    int win_w = scr_w - 2;
-    int win_y = 1, win_x = 1;
+    int win_h = scr_h - 8;
+    int win_w = scr_w - 8;
+    int win_y = 4, win_x = 4;
 
     WINDOW *win = newwin(win_h, win_w, win_y, win_x);
     wbkgd(win, COLOR_PAIR(1));
     keypad(win, TRUE);
 
-    int visible = win_h - 3;   /* lines available for content */
+    /* data rows only (skip fixed header lines[0] and separator lines[1]) */
+    int total_data = col_count;
+    /* visible data rows: -1 top border, -1 subtitle, -1 col header, -1 separator, -1 bottom border */
+    int visible = win_h - 5;
     int top     = 0;
     char row_str[32];
     fmt_count((long)display_count, row_str, sizeof(row_str));
 
     while (1) {
         werase(win);
-        box(win, 0, 0);
 
-        /* title */
-        wattron(win, COLOR_PAIR(3) | A_BOLD);
-        mvwprintw(win, 0, (win_w - 18) / 2, " Data Profile ");
-        wattroff(win, COLOR_PAIR(3) | A_BOLD);
-
-        /* subtitle: row count + filter info */
+        /* border in dimmed color (same as main table) */
         wattron(win, COLOR_PAIR(6));
-        if (filter_active)
-            mvwprintw(win, 0, 2, " %s rows (filtered) x %d cols ", row_str, col_count);
-        else
-            mvwprintw(win, 0, 2, " %s rows x %d cols ", row_str, col_count);
+        box(win, 0, 0);
         wattroff(win, COLOR_PAIR(6));
 
-        /* content */
-        for (int i = 0; i < visible && (top + i) < total_lines; i++) {
-            int li = top + i;
+        /* title on top border */
+        wattron(win, COLOR_PAIR(3) | A_BOLD);
+        mvwprintw(win, 0, (win_w - 16) / 2, " Data Profile ");
+        wattroff(win, COLOR_PAIR(3) | A_BOLD);
+
+        /* row 1: subtitle (dimmed, inside window) */
+        wattron(win, COLOR_PAIR(6));
+        if (filter_active)
+            mvwprintw(win, 1, 2, "%s rows (filtered) x %d cols", row_str, col_count);
+        else
+            mvwprintw(win, 1, 2, "%s rows x %d cols", row_str, col_count);
+        wattroff(win, COLOR_PAIR(6));
+
+        /* row 2: fixed column header (lines[0]) */
+        wattron(win, COLOR_PAIR(5) | A_BOLD);
+        mvwprintw(win, 2, 1, "%-*s", win_w - 2, lines[0]);
+        wattroff(win, COLOR_PAIR(5) | A_BOLD);
+
+        /* row 3: separator with proper T-junctions */
+        wattron(win, COLOR_PAIR(6));
+        mvwaddch(win, 3, 0, ACS_LTEE);
+        mvwhline(win, 3, 1, ACS_HLINE, win_w - 2);
+        mvwaddch(win, 3, win_w - 1, ACS_RTEE);
+        wattroff(win, COLOR_PAIR(6));
+
+        /* rows 4+: scrollable data (lines[2..]) */
+        for (int i = 0; i < visible && (top + i) < total_data; i++) {
+            int li = 2 + top + i;   /* lines[0]=header, lines[1]=old sep, lines[2+]=data */
             if (bolds[li]) wattron(win, COLOR_PAIR(colors[li]) | A_BOLD);
             else            wattron(win, COLOR_PAIR(colors[li]));
-            mvwprintw(win, 1 + i, 1, "%-*s", win_w - 2, lines[li]);
+            mvwprintw(win, 4 + i, 1, "%-*s", win_w - 2, lines[li]);
             if (bolds[li]) wattroff(win, COLOR_PAIR(colors[li]) | A_BOLD);
             else            wattroff(win, COLOR_PAIR(colors[li]));
         }
 
-        /* footer */
+        /* footer on bottom border */
         wattron(win, COLOR_PAIR(6));
         mvwprintw(win, win_h - 1, 2,
                   "j/k arrow — scroll  |  PgUp/PgDn — page  |  q/Esc — close");
         wattroff(win, COLOR_PAIR(6));
 
         /* scroll indicator */
-        if (total_lines > visible) {
-            int pct = (int)(100LL * top / (total_lines - visible));
+        if (total_data > visible) {
+            int pct = top >= total_data - visible
+                      ? 100
+                      : (int)(100LL * top / (total_data - visible));
             wattron(win, COLOR_PAIR(6));
             mvwprintw(win, win_h - 1, win_w - 8, " %3d%% ", pct);
             wattroff(win, COLOR_PAIR(6));
@@ -692,11 +735,11 @@ void show_profile_window(void)
         int ch = wgetch(win);
         if (ch == 'q' || ch == 'Q' || ch == 27) break;
         else if (ch == KEY_UP   || ch == 'k') { if (top > 0) top--; }
-        else if (ch == KEY_DOWN || ch == 'j') { if (top < total_lines - visible) top++; }
+        else if (ch == KEY_DOWN || ch == 'j') { if (top < total_data - visible) top++; }
         else if (ch == KEY_PPAGE) { top -= visible; if (top < 0) top = 0; }
-        else if (ch == KEY_NPAGE) { top += visible; if (top > total_lines - visible) top = total_lines - visible; if (top < 0) top = 0; }
+        else if (ch == KEY_NPAGE) { top += visible; if (top > total_data - visible) top = total_data - visible; if (top < 0) top = 0; }
         else if (ch == KEY_HOME) top = 0;
-        else if (ch == KEY_END)  top = total_lines - visible; if (top < 0) top = 0;
+        else if (ch == KEY_END)  { top = total_data - visible; if (top < 0) top = 0; }
     }
 
     delwin(win);

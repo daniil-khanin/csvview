@@ -375,7 +375,9 @@ void show_saved_filters_window(const char *csv_filename)
 
     WINDOW *win = newwin(height, width, start_y, start_x);
     wbkgd(win, COLOR_PAIR(1));
+    wattron(win, COLOR_PAIR(6));
     box(win, 0, 0);
+    wattroff(win, COLOR_PAIR(6));
     mvwprintw(win, 0, (width - 18) / 2, " Saved Filters ");
 
     int selected = 0;
@@ -386,7 +388,9 @@ void show_saved_filters_window(const char *csv_filename)
     while (1)
     {
         werase(win);
+        wattron(win, COLOR_PAIR(6));
         box(win, 0, 0);
+        wattroff(win, COLOR_PAIR(6));
         mvwprintw(win, 0, (width - 18) / 2, " Saved Filters ");
 
         for (int i = 0; i < visible; i++)

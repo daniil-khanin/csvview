@@ -793,7 +793,9 @@ void show_pivot_settings_window(PivotSettings *settings, const char *csv_filenam
     int win_h = 16, win_w = 90;
     WINDOW *win = newwin(win_h, win_w, (height - win_h) / 2, (width - win_w) / 2);
     wbkgd(win, COLOR_PAIR(1));
+    wattron(win, COLOR_PAIR(6));
     box(win, 0, 0);
+    wattroff(win, COLOR_PAIR(6));
     keypad(win, TRUE);
 
     // Значения по умолчанию
@@ -900,7 +902,9 @@ void show_pivot_settings_window(PivotSettings *settings, const char *csv_filenam
 
     while (1) {
         werase(win);
+        wattron(win, COLOR_PAIR(6));
         box(win, 0, 0);
+        wattroff(win, COLOR_PAIR(6));
         mvwprintw(win, 1, 2, "Pivot Table Settings");
 
         // Проверяем, есть ли хотя бы один столбец даты в группировке

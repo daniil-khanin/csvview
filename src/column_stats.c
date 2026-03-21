@@ -98,7 +98,9 @@ void show_column_stats(int col_idx)
     wbkgd(win, COLOR_PAIR(1));
 
     scrollok(win, TRUE);
+    wattron(win, COLOR_PAIR(6));
     box(win, 0, 0);
+    wattroff(win, COLOR_PAIR(6));
 
     // Заголовок окна
     wattron(win, COLOR_PAIR(3) | A_BOLD);

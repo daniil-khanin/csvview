@@ -246,7 +246,9 @@ void show_help(int use_ncurses)
         if (!win) return;
 
         wbkgd(win, COLOR_PAIR(1));
+        wattron(win, COLOR_PAIR(6));
         box(win, 0, 0);
+        wattroff(win, COLOR_PAIR(6));
         keypad(win, TRUE);
 
         // Заголовок окна
@@ -266,7 +268,9 @@ void show_help(int use_ncurses)
         while (1)
         {
             werase(win);
+            wattron(win, COLOR_PAIR(6));
             box(win, 0, 0);
+            wattroff(win, COLOR_PAIR(6));
 
             // Перерисовываем заголовок
             wattron(win, COLOR_PAIR(3) | A_BOLD);
