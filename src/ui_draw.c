@@ -320,8 +320,14 @@ void draw_status_bar(int y, int x, const char *filename, int row_count, const ch
     mvprintw(1, 4, "%s", filename);
     attroff(COLOR_PAIR(3));
 
+    /* count display columns: UTF-8 continuation bytes (0x80-0xBF) don't
+       advance the cursor, so skip them when computing the visual width */
+    int dispw = 0;
+    for (const char *p = filename; *p; p++)
+        if (((unsigned char)*p & 0xC0) != 0x80) dispw++;
+
     attron(COLOR_PAIR(6));
-    mvprintw(1, 4 + strlen(filename), " ]");
+    mvprintw(1, 4 + dispw, " ]");
     attroff(COLOR_PAIR(6));
 
     // Число строк в файле и вес

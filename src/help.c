@@ -83,6 +83,7 @@ void show_help(int use_ncurses)
         "  :cf <formula>        Compute column values by formula (see Computed columns)",
         "  :cd <column_name>    Delete column (only if cursor is on this exact column)",
         "  :fz N                Freeze first N columns (:fz 0 = unfreeze all)",
+        "  :open                Open file history picker (replaces current file)",
         "",
         "Filter quick commands (: then command):",
         "  :fs                  Save current filter",

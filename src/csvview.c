@@ -8,7 +8,8 @@
 #include <time.h>
 #include <math.h>
 #include <search.h>
-#include <wchar.h>  
+#include <wchar.h>
+#include <unistd.h>
 
 #include "csvview_defs.h"
 #include "utils.h"
@@ -359,7 +360,8 @@ static const char *ac_match(const char *word, int wlen)
 /* Read a line with ghost-text column-name autocomplete.
  * Caller draws the label; y,x is where the input itself starts.
  * Returns 1 on Enter (buf filled), 0 on Esc (buf cleared). */
-static int ac_readline(char *buf, int maxlen, int y, int x)
+/* border_x > 0: redraw ACS_VLINE at that column after clearing (preserves box frame) */
+static int ac_readline(char *buf, int maxlen, int y, int x, int border_x)
 {
     int pos = 0;
     buf[0] = '\0';
@@ -384,6 +386,11 @@ static int ac_readline(char *buf, int maxlen, int y, int x)
             attroff(A_DIM);
         }
         clrtoeol();
+        if (border_x > 0) {
+            attron(COLOR_PAIR(6));
+            mvaddch(y, border_x, ACS_VLINE);
+            attroff(COLOR_PAIR(6));
+        }
         move(y, x + pos);
         refresh();
 
@@ -421,7 +428,10 @@ static int ac_readline(char *buf, int maxlen, int y, int x)
 // ────────────────────────────────────────────────
 // main
 // ────────────────────────────────────────────────
+static const char *program_path = NULL;
+
 int main(int argc, char *argv[]) {
+    program_path = argv[0];
     if (argc == 2 && (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "-?") == 0 || strcmp(argv[1], "/h") == 0)) {
         show_help(0);  // консольный вывод
         return 0;
@@ -779,7 +789,7 @@ int main(int argc, char *argv[]) {
                 printw(" | :");
                 attroff(COLOR_PAIR(3));
                 refresh();
-                { int cy, cx; getyx(stdscr, cy, cx); ac_readline(cmd_buf, sizeof(cmd_buf), cy, cx); }
+                { int cy, cx; getyx(stdscr, cy, cx); ac_readline(cmd_buf, sizeof(cmd_buf), cy, cx, 0); }
 
                 // Разделяем команду и аргумент (если есть)
                 char *cmd = cmd_buf;
@@ -1462,7 +1472,7 @@ int main(int argc, char *argv[]) {
             clrtoeol();
             refresh();
 
-            if (!ac_readline(filter_query, sizeof(filter_query), 2, 4))
+            if (!ac_readline(filter_query, sizeof(filter_query), 2, 4, width - 1))
                 in_filter_mode = 0;
 
             if (in_filter_mode && strlen(filter_query) > 0) {
@@ -1814,7 +1824,7 @@ int main(int argc, char *argv[]) {
             printw(" | :");
             attroff(COLOR_PAIR(3));
             refresh();
-            { int cy, cx; getyx(stdscr, cy, cx); ac_readline(cmd_buf, sizeof(cmd_buf), cy, cx); }
+            { int cy, cx; getyx(stdscr, cy, cx); ac_readline(cmd_buf, sizeof(cmd_buf), cy, cx, 0); }
 
             // Разделяем команду и аргумент (если есть)
             char *cmd = cmd_buf;
@@ -1834,6 +1844,13 @@ int main(int argc, char *argv[]) {
                 fclose(f);
                 endwin();
                 return 0;
+            } else if (strcmp(cmd, "open") == 0) {
+                /* Close current file and reopen file history picker */
+                endwin();
+                execlp(program_path, program_path, NULL);
+                /* execlp only returns on error */
+                fprintf(stderr, "Cannot reopen: %s\n", program_path);
+                return 1;
             } else if (strcmp(cmd, "theme") == 0) {
                 if (arg && *arg) {
                     const Theme *t = theme_by_name(arg);
