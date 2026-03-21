@@ -236,6 +236,9 @@ extern int freeze_cols;
 // Скрытие столбцов: 1 = столбец скрыт (не отображается)
 extern int col_hidden[MAX_COLS];
 
+// Относительная нумерация строк: 0 = абсолютная, 1 = относительная
+extern int relative_line_numbers;
+
 // Drill-down из pivot: после Enter на ячейке здесь хранится фильтр для основной таблицы
 // Пустая строка = нет drill-down, заполненная = надо применить фильтр
 extern char pivot_drilldown_filter[512];

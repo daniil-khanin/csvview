@@ -190,12 +190,19 @@ void draw_table_body(int top, int offset __attribute__((unused)), int visible_ro
         int real_row = get_real_row(display_pos);
 
         // Подсветка номера строки
-        if (display_pos == cur_display_row) {
+        int is_cur = (display_pos == cur_display_row);
+        if (is_cur) {
             attron(COLOR_PAIR(3) | A_BOLD);
         } else {
             attron(COLOR_PAIR(6));
         }
-        mvprintw(top + 2 + i, 1, "%*d", ROW_NUMBER_WIDTH - 2, display_pos + 1);
+        if (relative_line_numbers && !is_cur) {
+            int rel = display_pos - cur_display_row;
+            if (rel < 0) rel = -rel;
+            mvprintw(top + 2 + i, 1, "%*d", ROW_NUMBER_WIDTH - 2, rel);
+        } else {
+            mvprintw(top + 2 + i, 1, "%*d", ROW_NUMBER_WIDTH - 2, display_pos + 1);
+        }
         attroff(COLOR_PAIR(3) | COLOR_PAIR(6) | A_BOLD);
 
         // Ленивая загрузка строки

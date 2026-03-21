@@ -115,6 +115,7 @@ char csv_delimiter = ',';
 // 11. Заморозка столбцов (первые N всегда видны)
 int freeze_cols = 0;
 int col_hidden[MAX_COLS] = {0};
+int relative_line_numbers = 0;
 
 // 12. Drill-down из pivot: фильтр для возврата в основную таблицу
 char pivot_drilldown_filter[512] = "";
@@ -1902,6 +1903,13 @@ int main(int argc, char *argv[]) {
                 delete_column(cur_col, arg, file_to_open);
                 cur_col = 0;
                 left_col = freeze_cols;
+            } else if (strcmp(cmd, "rn") == 0) {
+                relative_line_numbers = !relative_line_numbers;
+                draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
+                attron(COLOR_PAIR(3));
+                printw(" | Line numbers: %s", relative_line_numbers ? "relative" : "absolute");
+                attroff(COLOR_PAIR(3));
+                refresh();
             } else if (strcmp(cmd, "fz") == 0) {
                 // :fz N — заморозить первые N столбцов (:fz 0 — снять заморозку)
                 int n = arg ? atoi(arg) : 0;
