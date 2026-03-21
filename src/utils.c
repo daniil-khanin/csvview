@@ -859,6 +859,44 @@ int evaluate_condition(const char *cell, const Condition *cond)
         size_t val_len  = strlen(val_trimmed);
         size_t cell_len = strlen(cell);
 
+        /* ── Quarter format: "2025-Q1" .. "2025-Q4" ── */
+        if (val_len == 7 && val_trimmed[5] == 'Q' &&
+            val_trimmed[6] >= '1' && val_trimmed[6] <= '4' &&
+            cell_len >= 10 && cell[4] == '-')
+        {
+            int q = val_trimmed[6] - '0';
+            int q_start_m = (q - 1) * 3 + 1;   /* Q1→1, Q2→4, Q3→7, Q4→10 */
+            int q_next_m  = q * 3 + 1;          /* first month of next quarter */
+            int val_year  = 0;
+            for (int i = 0; i < 4; i++) val_year = val_year * 10 + (val_trimmed[i] - '0');
+            int next_year = val_year + (q_next_m > 12 ? 1 : 0);
+            if (q_next_m > 12) q_next_m = 1;
+
+            /* "YYYY-MM" boundary strings for lexicographic compare */
+            char q_start[8], q_next[8];
+            snprintf(q_start, sizeof(q_start), "%04d-%02d", val_year, q_start_m);
+            snprintf(q_next,  sizeof(q_next),  "%04d-%02d", next_year, q_next_m);
+
+            if (cond->op == OP_EQ)
+            {
+                /* cell must be >= start of quarter AND < start of next quarter */
+                return strncmp(cell, q_start, 7) >= 0 && strncmp(cell, q_next, 7) < 0;
+            }
+            if (cond->op == OP_NE)
+            {
+                return !(strncmp(cell, q_start, 7) >= 0 && strncmp(cell, q_next, 7) < 0);
+            }
+            /* >= Q: date must be >= first day of quarter start month */
+            if (cond->op == OP_GE) return strncmp(cell, q_start, 7) >= 0;
+            /* >  Q: date must be >= first month of next quarter */
+            if (cond->op == OP_GT) return strncmp(cell, q_next,  7) >= 0;
+            /* <= Q: date must be < first month of next quarter */
+            if (cond->op == OP_LE) return strncmp(cell, q_next,  7) <  0;
+            /* <  Q: date must be < first month of this quarter */
+            if (cond->op == OP_LT) return strncmp(cell, q_start, 7) <  0;
+            return 0;
+        }
+
         if (cond->op == OP_EQ)
         {
             // Самый частый случай: ищем месяц "2026-01"
@@ -873,8 +911,7 @@ int evaluate_condition(const char *cell, const Condition *cond)
             return strcmp(cell, val_trimmed) == 0;
         }
 
-        // Все остальные операторы (>= > <= < !=) оставляем как лексикографическое сравнение строк
-        // Это уже работало и будет работать дальше
+        // Все остальные операторы (>= > <= < !=) — лексикографическое сравнение строк
         int cmp = strcmp(cell, val_trimmed);
 
         switch (cond->op)
