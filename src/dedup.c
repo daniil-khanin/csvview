@@ -8,6 +8,44 @@
 #include <string.h>
 #include <time.h>
 
+/* ── Progress display ────────────────────────────────────────────────────── */
+
+#define DEDUP_PROGRESS_STEP 100000
+#define DEDUP_BAR_WIDTH     30
+
+/* Call every DEDUP_PROGRESS_STEP rows.
+ * total > 0 → show percentage bar; total <= 0 → show spinner with row count. */
+static void dedup_progress(long done, long total)
+{
+    if (done % DEDUP_PROGRESS_STEP != 0) return;
+    if (total > 0) {
+        int pct = (int)(100LL * done / total);
+        int pos = (int)((long)DEDUP_BAR_WIDTH * done / total);
+        printf("\r  [");
+        for (int i = 0; i < DEDUP_BAR_WIDTH; i++) {
+            if      (i < pos) putchar('=');
+            else if (i == pos) putchar('>');
+            else               putchar(' ');
+        }
+        printf("] %3d%%  %ld / %ld rows", pct, done, total);
+    } else {
+        /* spinner: | / - \ */
+        static int spin = 0;
+        const char *frames = "|/-\\";
+        printf("\r  %c  %ld rows processed", frames[spin++ & 3], done);
+    }
+    fflush(stdout);
+}
+
+static void dedup_progress_done(long kept, long removed)
+{
+    printf("\r  [");
+    for (int i = 0; i < DEDUP_BAR_WIDTH; i++) putchar('=');
+    printf("] 100%%  done                        \n");
+    printf("  Kept: %ld rows  |  Removed: %ld duplicates\n", kept, removed);
+    fflush(stdout);
+}
+
 /* ── FNV-1a hash table ───────────────────────────────────────────────────── */
 
 #define DHASH_INIT 65536
@@ -304,10 +342,7 @@ int dedup_file(const char *input_path,
             if (dhs_insert(seen, keybuf)) { fprintf(out, "%s\n", linebuf); kept_rows++; }
             else                          dupes++;
             total_rows++;
-            if (total_rows % 500000 == 0) {
-                printf("  ... %ld rows processed\n", total_rows);
-                fflush(stdout);
-            }
+            dedup_progress(total_rows, -1);
         }
         fclose(out);
         dhs_free(seen);
@@ -317,7 +352,7 @@ int dedup_file(const char *input_path,
          * Pass 2: write only rows whose line number matches recorded value */
         DHashSet *last = dhs_new(DHASH_INIT);
 
-        printf("Pass 1: scanning for last occurrences...\n");
+        printf("Pass 1/2: scanning...\n");
         long lineno = 0;
         while (fgets(linebuf, 65536, in)) {
             linebuf[strcspn(linebuf, "\r\n")] = '\0';
@@ -325,16 +360,14 @@ int dedup_file(const char *input_path,
             build_key_sep(linebuf, sep, col_indices, ncols_key, keybuf, sizeof(keybuf));
             dhs_set_line(last, keybuf, lineno++);
             total_rows++;
-            if (total_rows % 500000 == 0) {
-                printf("  ... %ld rows scanned\n", total_rows);
-                fflush(stdout);
-            }
+            dedup_progress(total_rows, -1);
         }
+        printf("\n");
 
         rewind(in);
         fgets(linebuf, 65536, in); /* skip header */
 
-        printf("Pass 2: writing output...\n");
+        printf("Pass 2/2: writing output...\n");
         FILE *out = fopen(outfile, "w");
         if (!out) {
             fprintf(stderr, "Error: cannot create '%s'\n", outfile);
@@ -343,6 +376,7 @@ int dedup_file(const char *input_path,
         fprintf(out, "%s\n", header);
 
         lineno = 0;
+        long written = 0;
         while (fgets(linebuf, 65536, in)) {
             linebuf[strcspn(linebuf, "\r\n")] = '\0';
             if (!*linebuf) { lineno++; continue; }
@@ -350,17 +384,19 @@ int dedup_file(const char *input_path,
             if (dhs_get_line(last, keybuf) == lineno) { fprintf(out, "%s\n", linebuf); kept_rows++; }
             else                                        dupes++;
             lineno++;
+            written++;
+            dedup_progress(written, total_rows);
         }
         fclose(out);
         dhs_free(last);
     }
 
+    dedup_progress_done(kept_rows, dupes);
+
     fclose(in);
     free(linebuf);
     free(header);
 
-    printf("\nDone: %ld rows total, %ld kept, %ld duplicates removed\n",
-           total_rows, kept_rows, dupes);
     printf("Output: %s\n", outfile);
     return 0;
 }
