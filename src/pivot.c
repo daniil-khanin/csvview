@@ -1096,7 +1096,11 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
 
     // При отсутствии фильтра/сортировки читаем файл последовательно — без fseek на каждую строку
     int use_seq = (!filter_active && sort_col < 0);
-    if (use_seq && !g_mmap_base) rewind(f);
+    if (use_seq && !g_mmap_base) {
+        rewind(f);
+        /* skip header line so fgets at d=0 reads the first data row */
+        if (use_headers) { char _hdr[MAX_LINE_LEN]; (void)fgets(_hdr, sizeof(_hdr), f); }
+    }
     char seq_buf[MAX_LINE_LEN];
 
     for (int d = 0; d < display_count; d++) {
@@ -1105,15 +1109,13 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
 
         if (use_seq) {
             if (g_mmap_base) {
-                /* mmap: direct offset access, no sequential file pointer needed */
-                char *ml = csv_mmap_get_line((long)rows[d].offset, seq_buf, sizeof(seq_buf));
+                /* mmap: direct offset access — use real_row to skip header */
+                char *ml = csv_mmap_get_line((long)rows[real_row].offset, seq_buf, sizeof(seq_buf));
                 if (!ml) break;
-                if (real_row < start_row) continue;
                 line = seq_buf;
             } else {
                 if (!fgets(seq_buf, sizeof(seq_buf), f)) break;
                 seq_buf[strcspn(seq_buf, "\r\n")] = '\0';
-                if (real_row < start_row) continue;
                 line = seq_buf;
             }
             if (!rows[real_row].line_cache)
