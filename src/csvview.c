@@ -25,6 +25,7 @@
 #include "concat_files.h"
 #include "split_file.h"
 #include "csv_mmap.h"
+#include "themes.h"
 
 // ────────────────────────────────────────────────
 // Глобальные переменные — определения (инициализация)
@@ -288,10 +289,8 @@ static char *show_history_picker(void)
     curs_set(0);
     if (has_colors()) {
         start_color();
-        init_pair(1, 250,            COLOR_BLACK);
-        init_pair(3, COLOR_YELLOW,   COLOR_BLACK);
-        init_pair(5, COLOR_CYAN,     COLOR_BLACK);
-        init_pair(6, 244,            COLOR_BLACK);
+        theme_load_config();
+        theme_apply(current_theme);
         bkgd(COLOR_PAIR(1));
     }
 
@@ -462,6 +461,9 @@ int main(int argc, char *argv[]) {
                 csv_delimiter = '|';
             else if (*sep)
                 csv_delimiter = *sep;
+        } else if (strncmp(argv[i], "--theme=", 8) == 0) {
+            const Theme *t = theme_by_name(argv[i] + 8);
+            if (t) current_theme = t;
         } else if (argv[i][0] != '-') {
             input_files[input_count++] = argv[i];
         }
@@ -563,32 +565,9 @@ int main(int argc, char *argv[]) {
 
     if (has_colors()) {
         start_color();
-
-        init_color(COLOR_WHITE + 9, 1000 * 119 / 255, 1000 * 131 / 255, 1000 * 133 / 255); // выделенная ячейка
-        init_color(COLOR_WHITE + 8, 1000 * 141 / 255, 1000 * 141 / 255, 1000 * 141 / 255); // основной цвет для текста
-
-        init_pair(1, 250, COLOR_BLACK);
-        init_pair(2, COLOR_BLACK, COLOR_WHITE + 9);
-        init_pair(3, COLOR_YELLOW, COLOR_BLACK);
-        init_pair(5, COLOR_CYAN, COLOR_BLACK);
-        init_pair(6, 244, COLOR_BLACK);
-        init_pair(7, COLOR_BLACK, COLOR_YELLOW);
-
-        if (can_change_color()) {
-            init_pair(8, COLOR_WHITE + 8, COLOR_BLACK);
-        } else {
-            init_pair(8, COLOR_WHITE, COLOR_BLACK);  // или COLOR_WHITE с A_DIM
-        }
-
-        init_pair(GRAPH_COLOR_BASE + 0, COLOR_RED,     COLOR_BLACK);
-        init_pair(GRAPH_COLOR_BASE + 1, COLOR_GREEN,   COLOR_BLACK);
-        init_pair(GRAPH_COLOR_BASE + 2, COLOR_BLUE,    COLOR_BLACK);
-        init_pair(GRAPH_COLOR_BASE + 3, COLOR_YELLOW,  COLOR_BLACK);
-        init_pair(GRAPH_COLOR_BASE + 4, COLOR_CYAN,    COLOR_BLACK);
-        init_pair(GRAPH_COLOR_BASE + 5, COLOR_MAGENTA, COLOR_BLACK);
-        init_pair(GRAPH_COLOR_BASE + 6, COLOR_WHITE,   COLOR_BLACK); // default
-
-        bkgd(COLOR_PAIR(1));   // заполнить stdscr чёрным фоном
+        theme_load_config();
+        theme_apply(current_theme);
+        bkgd(COLOR_PAIR(1));
     }
 
     if (col_count == 0) {  // защита от повторного парсинга
@@ -1854,6 +1833,27 @@ int main(int argc, char *argv[]) {
                 fclose(f);
                 endwin();
                 return 0;
+            } else if (strcmp(cmd, "theme") == 0) {
+                if (arg && *arg) {
+                    const Theme *t = theme_by_name(arg);
+                    if (t) {
+                        theme_apply(t);
+                        bkgd(COLOR_PAIR(1));
+                        theme_save_config(t->name);
+                        attron(COLOR_PAIR(3));
+                        printw(" | Theme: %s", t->label);
+                        attroff(COLOR_PAIR(3));
+                    } else {
+                        attron(COLOR_PAIR(3));
+                        printw(" | Unknown theme. Available: %s", theme_list_names());
+                        attroff(COLOR_PAIR(3));
+                    }
+                } else {
+                    attron(COLOR_PAIR(3));
+                    printw(" | Themes: %s  (current: %s)",
+                           theme_list_names(), current_theme->name);
+                    attroff(COLOR_PAIR(3));
+                }
             } else if (strcmp(cmd, "fs") == 0 && filter_active) {
                 // Сохраняем текущий filter_query
                 //char cfg_path[1024];
