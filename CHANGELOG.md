@@ -1,5 +1,42 @@
 # Changelog
 
+## v14 — 2026-03-21
+
+### New features
+- **Tab autocomplete for column names** in filter input (`f` / `Shift+F`) and command mode (`:`):
+  ghost text shown in dim colour, `Tab` accepts, continuing to type overwrites
+- **Quarter filter format** `YYYY-Qn`: `date >= 2025-Q1 AND date <= 2025-Q3` now works correctly
+- **Parallel pivot aggregation** (Pass 2): up to 8 threads, ~2× speedup on 16M+ row files;
+  progress bar updates in real time during aggregation
+- **Parallel graph extraction**: background threads fill value arrays; large datasets render faster
+- **No-malloc field extraction** throughout pivot and graph paths — eliminates millions of small
+  allocations per pass
+
+### Bug fixes
+- Fixed: sort segfault on files with mixed string/numeric columns — union `.str` was read when
+  `is_num=1`, producing a garbage pointer
+- Fixed: `<= YYYY-MM` filter excluded the boundary month (e.g. `<= 2025-08` skipped August rows)
+  because `strcmp("2025-08-15", "2025-08") > 0` at the null terminator; fixed with `strncmp(…, 7)`
+- Fixed: progress bar stuck at 0% during parallel pivot — `pthread_join` blocked the main thread;
+  replaced with polling loop (`nanosleep(100 ms)`) on `volatile int done`
+- Fixed: Linux build — added `-lm` linker flag and `#define _XOPEN_SOURCE 700` for `strptime`
+
+---
+
+## v13 — 2026-03-19
+
+### New features
+- **50 million row limit** (raised from 10M): `filtered_rows` and `sorted_rows` arrays are now
+  dynamically allocated, removed the fixed 10M cap
+- **Pivot optimisation** (Pass 1): fields parsed once per row with a stack-local extractor instead
+  of allocating all fields; sequential scan order for better cache locality; tuned hash table sizes
+
+### Bug fixes
+- Fixed: sort crash on very large files — pre-extract sort keys into a flat `SortKey[]` array
+  before `qsort`; comparator no longer calls into `mmap` (was causing random SIGBUS)
+
+---
+
 ## v12 — 2026-03-18
 
 ### New features

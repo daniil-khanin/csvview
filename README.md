@@ -26,6 +26,8 @@ Most terminal CSV tools either lack interactivity (miller, xsv, csvkit) or requi
 | Filter + sort | + | + | + | filter only |
 | Pivot tables | + | + | — | — |
 | Computed columns | + | Python expr | formulas | — |
+| 50M+ row files | + | slow | — | + |
+| Parallel processing | + | — | — | — |
 | No runtime needed | + | — Python | + | + |
 | Single binary | + | — | + | + |
 
@@ -90,8 +92,10 @@ csvview                   # recent files picker
 
 ### Filtering
 - Advanced syntax: `revenue > 500 AND status = paid`
-- Date range matching: `date >= 2026-01`
+- Date range matching: `date >= 2026-01`, `date <= 2025-08` (boundary month included)
+- Quarter format: `date >= 2025-Q1 AND date <= 2025-Q3`
 - Negation: `! cohort = 2016-04`
+- **Tab autocomplete** for column names while typing — ghost text shown, `Tab` accepts
 - Quick filter from current cell: `:fq`, `:fqn`, `:fqo`, `:fqu`
 - Save/load filters (`:fs` / `:fl`) — stored in `<file>.csvf`
 
@@ -131,6 +135,7 @@ Aggregates (whole file): same with `_all` suffix
 - Date grouping: month / quarter / year
 - **Drill-down**: `Enter` on any cell → main table filtered by that cell's values
 - Export to CSV (`:e`)
+- Parallel aggregation — up to 8 threads; real-time progress bar on large files
 
 ### Graphs
 - Line, bar, and dot chart types
@@ -138,8 +143,9 @@ Aggregates (whole file): same with `_all` suffix
 - Cursor mode — scroll through data points with value display
 - Jump to min/max with `m`/`M`
 - Anomaly highlighting (values > 3σ)
-- Date column as X axis (`:gx <column>`)
+- Date column as X axis (`:gx <column>` — Tab autocomplete for column name)
 - **Pivot graph**: `G` in pivot mode splits screen — table on left, chart on right
+- Parallel value extraction — fast rendering on files with 10M+ rows
 
 ### Column statistics (`d`)
 - Numeric: sum, mean, median, mode, min/max, stddev, top-10 values + histogram
