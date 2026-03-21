@@ -22,7 +22,114 @@
 #include <math.h>           // INFINITY
 #include <time.h>           // struct tm, strptime
 #include <wchar.h>          // wcrtomb для Braille
+#include <pthread.h>
 
+
+/* ── Inline single-field extractor (no malloc) ── */
+static void get_field_csv(const char *line, int idx, char *buf, int buf_size)
+{
+    buf[0] = '\0';
+    if (!line || idx < 0) return;
+    int field = 0;
+    const char *p = line;
+    int in_quote = 0;
+    while (*p && field < idx) {
+        if (*p == '"') { in_quote = !in_quote; p++; continue; }
+        if (!in_quote && *p == csv_delimiter) field++;
+        p++;
+    }
+    if (!*p || field != idx) return;
+    char *out = buf, *out_end = buf + buf_size - 1;
+    in_quote = (*p == '"');
+    if (in_quote) p++;
+    while (*p && out < out_end) {
+        if (in_quote) {
+            if (*p == '"') {
+                if (*(p+1) == '"') { *out++ = '"'; p += 2; continue; }
+                break;
+            }
+        } else {
+            if (*p == csv_delimiter || *p == '\n' || *p == '\r') break;
+        }
+        *out++ = *p++;
+    }
+    *out = '\0';
+}
+
+/* ── Pass-2 parallel worker ── */
+typedef struct {
+    int start_d, count;
+    int start_row;
+    int row_group_idx, col_group_idx, value_idx;
+    int unique_rows, unique_cols;
+    char **row_keys, **col_keys;
+    int row_is_date, col_is_date;
+    const char *date_grouping;
+    ColType row_type, col_type, value_type;
+    /* outputs — allocated inside thread */
+    Agg *matrix;       /* unique_rows × unique_cols flat */
+    Agg *row_totals;   /* unique_rows */
+    Agg *col_totals;   /* unique_cols */
+    Agg  grand;
+} PivotPass2Worker;
+
+static void *pivot_pass2_thread(void *arg)
+{
+    PivotPass2Worker *w = arg;
+    int nr = w->unique_rows, nc = w->unique_cols;
+
+    w->matrix    = calloc((size_t)nr * nc, sizeof(Agg));
+    w->row_totals = calloc(nr, sizeof(Agg));
+    w->col_totals = calloc(nc, sizeof(Agg));
+    w->grand = (Agg){0, 0, INFINITY, -INFINITY, 0, NULL, NULL};
+    for (int i = 0; i < nr * nc; i++) { w->matrix[i].min = INFINITY; w->matrix[i].max = -INFINITY; }
+    for (int i = 0; i < nr; i++) { w->row_totals[i].min = INFINITY; w->row_totals[i].max = -INFINITY; }
+    for (int i = 0; i < nc; i++) { w->col_totals[i].min = INFINITY; w->col_totals[i].max = -INFINITY; }
+
+    char rval_buf[512], cval_buf[512], vval_buf[512];
+
+    for (int d = w->start_d; d < w->start_d + w->count; d++) {
+        int real_row = get_real_row(d);
+        if (real_row < w->start_row) continue;
+        const char *line = rows[real_row].line_cache ? rows[real_row].line_cache : "";
+        if (!*line) continue;
+
+        if (w->row_group_idx >= 0) get_field_csv(line, w->row_group_idx, rval_buf, sizeof(rval_buf));
+        else strcpy(rval_buf, "Total");
+        if (w->col_group_idx >= 0) get_field_csv(line, w->col_group_idx, cval_buf, sizeof(cval_buf));
+        else strcpy(cval_buf, "Total");
+        get_field_csv(line, w->value_idx, vval_buf, sizeof(vval_buf));
+
+        char *rkey = get_group_key(rval_buf, w->row_type, w->date_grouping, w->row_group_idx);
+        char *ckey = get_group_key(cval_buf, w->col_type, w->date_grouping, w->col_group_idx);
+
+        int ridx = -1;
+        if (rkey && *rkey) {
+            char *p = rkey;
+            char **r = w->row_is_date
+                ? (char**)bsearch(&p, w->row_keys, nr, sizeof(char*), compare_date_keys)
+                : (char**)bsearch(&p, w->row_keys, nr, sizeof(char*), compare_str);
+            ridx = r ? (int)(r - w->row_keys) : -1;
+        }
+        int cidx = -1;
+        if (ckey && *ckey) {
+            char *p = ckey;
+            char **c = w->col_is_date
+                ? (char**)bsearch(&p, w->col_keys, nc, sizeof(char*), compare_date_keys)
+                : (char**)bsearch(&p, w->col_keys, nc, sizeof(char*), compare_str);
+            cidx = c ? (int)(c - w->col_keys) : -1;
+        }
+        free(rkey); free(ckey);
+
+        if (ridx >= 0 && cidx >= 0) {
+            update_agg(&w->matrix[ridx * nc + cidx], vval_buf, w->value_type);
+            update_agg(&w->row_totals[ridx], vval_buf, w->value_type);
+            update_agg(&w->col_totals[cidx], vval_buf, w->value_type);
+            update_agg(&w->grand, vval_buf, w->value_type);
+        }
+    }
+    return NULL;
+}
 
 unsigned long hash_string(const char *str) {
     unsigned long hash = 5381;
@@ -1027,36 +1134,30 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
             line = rows[real_row].line_cache;
         }
 
-        // Парсим строку один раз, извлекаем поля по заранее известным индексам
-        int fc = 0;
-        char **fields = parse_csv_line(line, &fc);
-        if (!fields) continue;
+        /* Extract only the fields we need — no malloc for field array */
+        char p1_rval[512], p1_cval[512];
 
         if (row_group_idx >= 0) {
-            char *rval = (row_group_idx < fc) ? strdup(fields[row_group_idx]) : strdup("");
-            char *rkey = get_group_key(rval, row_type, settings->date_grouping, row_group_idx);
+            get_field_csv(line, row_group_idx, p1_rval, sizeof(p1_rval));
+            char *rkey = get_group_key(p1_rval, row_type, settings->date_grouping, row_group_idx);
             if (rkey && *rkey) {
                 if (!hash_map_get(row_map, rkey)) hash_map_put(row_map, rkey, (void*)1);
             }
             free(rkey);
-            free(rval);
         } else {
             hash_map_put(row_map, "Total", (void*)1);
         }
 
         if (col_group_idx >= 0) {
-            char *cval = (col_group_idx < fc) ? strdup(fields[col_group_idx]) : strdup("");
-            char *ckey = get_group_key(cval, col_type, settings->date_grouping, col_group_idx);
+            get_field_csv(line, col_group_idx, p1_cval, sizeof(p1_cval));
+            char *ckey = get_group_key(p1_cval, col_type, settings->date_grouping, col_group_idx);
             if (ckey && *ckey) {
                 if (!hash_map_get(col_map, ckey)) hash_map_put(col_map, ckey, (void*)1);
             }
             free(ckey);
-            free(cval);
         } else {
             hash_map_put(col_map, "Total", (void*)1);
         }
-
-        free_csv_fields(fields, fc);
 
         if (d % 50000 == 0) {
             draw_status_bar(height - 1, 1, csv_filename, row_count, file_size_str);
@@ -1150,107 +1251,144 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
     attroff(COLOR_PAIR(3));
     refresh();
 
-    for (int d = 0; d < display_count; d++) {
-        int real_row = get_real_row(d);
-        if (real_row < start_row) continue;
+    /* ── Parallel aggregation: SUM/COUNT/MIN/MAX across N threads ── */
+    {
+        int nthreads = csv_num_threads();
+        int chunk2   = (display_count + nthreads - 1) / nthreads;
+        PivotPass2Worker *p2w = calloc(nthreads, sizeof(PivotPass2Worker));
+        pthread_t        *p2t = malloc(nthreads * sizeof(pthread_t));
 
-        // Pass 1 уже закэшировал все строки
-        const char *line = rows[real_row].line_cache ? rows[real_row].line_cache : "";
-        if (!*line) continue;
-
-        // Парсим строку один раз, извлекаем все нужные поля по индексу
-        int fc = 0;
-        char **fields = parse_csv_line(line, &fc);
-        if (!fields) continue;
-
-        char *rval = (row_group_idx >= 0) ?
-            (row_group_idx < fc ? strdup(fields[row_group_idx]) : strdup("")) :
-            strdup("Total");
-        char *cval = (col_group_idx >= 0) ?
-            (col_group_idx < fc ? strdup(fields[col_group_idx]) : strdup("")) :
-            strdup("Total");
-        char *vval = (value_idx < fc) ? strdup(fields[value_idx]) : strdup("");
-        free_csv_fields(fields, fc);
-
-        // Генерируем ключи
-        char *rkey = get_group_key(rval, row_type, settings->date_grouping, row_group_idx);
-        char *ckey = get_group_key(cval, col_type, settings->date_grouping, col_group_idx);
-
-        // Поиск индексов — с правильным компаратором
-        int ridx = -1;
-        if (rkey && *rkey) {
-            char *rkey_ptr = rkey;
-            if (row_is_date) {
-                char **rfind = (char**)bsearch(&rkey_ptr, row_keys, unique_rows, sizeof(char*), compare_date_keys);
-                ridx = rfind ? (rfind - row_keys) : -1;
-            } else {
-                char **rfind = (char**)bsearch(&rkey_ptr, row_keys, unique_rows, sizeof(char*), compare_str);
-                ridx = rfind ? (rfind - row_keys) : -1;
-            }
+        for (int t = 0; t < nthreads; t++) {
+            p2w[t].start_d      = t * chunk2;
+            p2w[t].count        = chunk2;
+            if (p2w[t].start_d + p2w[t].count > display_count)
+                p2w[t].count = display_count - p2w[t].start_d;
+            if (p2w[t].count < 0) p2w[t].count = 0;
+            p2w[t].start_row    = start_row;
+            p2w[t].row_group_idx = row_group_idx;
+            p2w[t].col_group_idx = col_group_idx;
+            p2w[t].value_idx    = value_idx;
+            p2w[t].unique_rows  = unique_rows;
+            p2w[t].unique_cols  = unique_cols;
+            p2w[t].row_keys     = row_keys;
+            p2w[t].col_keys     = col_keys;
+            p2w[t].row_is_date  = row_is_date;
+            p2w[t].col_is_date  = col_is_date;
+            p2w[t].date_grouping = settings->date_grouping;
+            p2w[t].row_type     = row_type;
+            p2w[t].col_type     = col_type;
+            p2w[t].value_type   = value_type;
+            pthread_create(&p2t[t], NULL, pivot_pass2_thread, &p2w[t]);
         }
+        for (int t = 0; t < nthreads; t++) pthread_join(p2t[t], NULL);
 
-        int cidx = -1;
-        if (ckey && *ckey) {
-            char *ckey_ptr = ckey;
-            if (col_is_date) {
-                char **cfind = (char**)bsearch(&ckey_ptr, col_keys, unique_cols, sizeof(char*), compare_date_keys);
-                cidx = cfind ? (cfind - col_keys) : -1;
-            } else {
-                char **cfind = (char**)bsearch(&ckey_ptr, col_keys, unique_cols, sizeof(char*), compare_str);
-                cidx = cfind ? (cfind - col_keys) : -1;
+        /* Merge partial results into main matrix */
+        for (int t = 0; t < nthreads; t++) {
+            for (int i = 0; i < unique_rows; i++) {
+                for (int j = 0; j < unique_cols; j++) {
+                    Agg *src = &p2w[t].matrix[i * unique_cols + j];
+                    Agg *dst = &matrix[i][j];
+                    dst->sum   += src->sum;
+                    dst->count += src->count;
+                    if (src->min < dst->min) dst->min = src->min;
+                    if (src->max > dst->max) dst->max = src->max;
+                }
+                Agg *rs = &p2w[t].row_totals[i];
+                row_totals[i].sum   += rs->sum;
+                row_totals[i].count += rs->count;
+                if (rs->min < row_totals[i].min) row_totals[i].min = rs->min;
+                if (rs->max > row_totals[i].max) row_totals[i].max = rs->max;
             }
+            for (int j = 0; j < unique_cols; j++) {
+                Agg *cs = &p2w[t].col_totals[j];
+                col_totals[j].sum   += cs->sum;
+                col_totals[j].count += cs->count;
+                if (cs->min < col_totals[j].min) col_totals[j].min = cs->min;
+                if (cs->max > col_totals[j].max) col_totals[j].max = cs->max;
+            }
+            grand.sum   += p2w[t].grand.sum;
+            grand.count += p2w[t].grand.count;
+            if (p2w[t].grand.min < grand.min) grand.min = p2w[t].grand.min;
+            if (p2w[t].grand.max > grand.max) grand.max = p2w[t].grand.max;
+            free(p2w[t].matrix);
+            free(p2w[t].row_totals);
+            free(p2w[t].col_totals);
         }
+        free(p2w);
+        free(p2t);
+    }
 
-        if (ridx >= 0 && cidx >= 0) {
-            Agg *agg = &matrix[ridx][cidx];
-            update_agg(agg, vval, value_type);
+    /* ── Sequential pass: unique counts (hash maps not thread-safe) ── */
+    /* Only executed when UNIQUE aggregation is requested */
+    int need_unique = 0;
+    for (int a = 0; a < agg_count; a++)
+        if (strcmp(agg_list[a], "UNIQUE") == 0) { need_unique = 1; break; }
 
-            // Unique count для ячейки
-            int cell_idx = ridx * unique_cols + cidx;
-            if (!cell_uniques[cell_idx]) cell_uniques[cell_idx] = hash_map_create(256);
-            const char *v_for_unique = vval ? vval : "";
-            if (!hash_map_get(cell_uniques[cell_idx], v_for_unique)) {
-                hash_map_put(cell_uniques[cell_idx], v_for_unique, (void*)1);
-                agg->unique_count++;
+    if (need_unique) {
+        char rval_buf[512], cval_buf[512], vval_buf[512];
+        for (int d = 0; d < display_count; d++) {
+            int real_row = get_real_row(d);
+            if (real_row < start_row) continue;
+            const char *line = rows[real_row].line_cache ? rows[real_row].line_cache : "";
+            if (!*line) continue;
+
+            if (row_group_idx >= 0) get_field_csv(line, row_group_idx, rval_buf, sizeof(rval_buf));
+            else strcpy(rval_buf, "Total");
+            if (col_group_idx >= 0) get_field_csv(line, col_group_idx, cval_buf, sizeof(cval_buf));
+            else strcpy(cval_buf, "Total");
+            get_field_csv(line, value_idx, vval_buf, sizeof(vval_buf));
+
+            char *rkey = get_group_key(rval_buf, row_type, settings->date_grouping, row_group_idx);
+            char *ckey = get_group_key(cval_buf, col_type, settings->date_grouping, col_group_idx);
+
+            int ridx = -1;
+            if (rkey && *rkey) {
+                char *p = rkey;
+                char **r = row_is_date
+                    ? (char**)bsearch(&p, row_keys, unique_rows, sizeof(char*), compare_date_keys)
+                    : (char**)bsearch(&p, row_keys, unique_rows, sizeof(char*), compare_str);
+                ridx = r ? (int)(r - row_keys) : -1;
             }
-
-            // Row total
-            update_agg(&row_totals[ridx], vval, value_type);
-            if (!row_unique_maps[ridx]) row_unique_maps[ridx] = hash_map_create(hm_perrow);
-            if (!hash_map_get(row_unique_maps[ridx], v_for_unique)) {
-                hash_map_put(row_unique_maps[ridx], v_for_unique, (void*)1);
-                row_totals[ridx].unique_count++;
+            int cidx = -1;
+            if (ckey && *ckey) {
+                char *p = ckey;
+                char **c = col_is_date
+                    ? (char**)bsearch(&p, col_keys, unique_cols, sizeof(char*), compare_date_keys)
+                    : (char**)bsearch(&p, col_keys, unique_cols, sizeof(char*), compare_str);
+                cidx = c ? (int)(c - col_keys) : -1;
             }
+            free(rkey); free(ckey);
 
-            // Col total
-            update_agg(&col_totals[cidx], vval, value_type);
-            if (!col_unique_maps[cidx]) col_unique_maps[cidx] = hash_map_create(hm_percol);
-            if (!hash_map_get(col_unique_maps[cidx], v_for_unique)) {
-                hash_map_put(col_unique_maps[cidx], v_for_unique, (void*)1);
-                col_totals[cidx].unique_count++;
+            if (ridx >= 0 && cidx >= 0) {
+                const char *v = vval_buf;
+                int cell_idx = ridx * unique_cols + cidx;
+                if (!cell_uniques[cell_idx]) cell_uniques[cell_idx] = hash_map_create(256);
+                if (!hash_map_get(cell_uniques[cell_idx], v)) {
+                    hash_map_put(cell_uniques[cell_idx], v, (void*)1);
+                    matrix[ridx][cidx].unique_count++;
+                }
+                if (!row_unique_maps[ridx]) row_unique_maps[ridx] = hash_map_create(hm_perrow);
+                if (!hash_map_get(row_unique_maps[ridx], v)) {
+                    hash_map_put(row_unique_maps[ridx], v, (void*)1);
+                    row_totals[ridx].unique_count++;
+                }
+                if (!col_unique_maps[cidx]) col_unique_maps[cidx] = hash_map_create(hm_percol);
+                if (!hash_map_get(col_unique_maps[cidx], v)) {
+                    hash_map_put(col_unique_maps[cidx], v, (void*)1);
+                    col_totals[cidx].unique_count++;
+                }
+                if (!hash_map_get(grand_unique_map, v)) {
+                    hash_map_put(grand_unique_map, v, (void*)1);
+                    grand.unique_count++;
+                }
             }
-
-            // Grand total
-            update_agg(&grand, vval, value_type);
-            if (!hash_map_get(grand_unique_map, v_for_unique)) {
-                hash_map_put(grand_unique_map, v_for_unique, (void*)1);
-                grand.unique_count++;
+            if (d % 50000 == 0) {
+                draw_status_bar(height - 1, 1, csv_filename, row_count, file_size_str);
+                attron(COLOR_PAIR(3));
+                printw(" | Unique count... %3d%%                     ", (int)(100.0 * d / display_count));
+                attroff(COLOR_PAIR(3));
+                refresh();
             }
-        }
-
-        // Освобождаем память
-        free(rval);
-        free(cval);
-        free(vval);
-        free(rkey);
-        free(ckey);
-
-        if (d % 50000 == 0) {
-            draw_status_bar(height - 1, 1, csv_filename, row_count, file_size_str);
-            attron(COLOR_PAIR(3));
-            printw(" | Aggregating... %3d%%                       ", (int)(100.0 * d / display_count));
-            attroff(COLOR_PAIR(3));
-            refresh();
         }
     }
 
