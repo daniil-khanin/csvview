@@ -289,7 +289,6 @@ static char *show_history_picker(void)
     curs_set(0);
     if (has_colors()) {
         start_color();
-        theme_load_config();
         theme_apply(current_theme);
         bkgd(COLOR_PAIR(1));
     }
@@ -428,6 +427,9 @@ int main(int argc, char *argv[]) {
         return 0;
     }
 
+    /* Load saved theme first; CLI --theme= overrides it below */
+    theme_load_config();
+
     int concat_mode = 0;
     int split_mode  = 0;
     int split_drop  = 0;
@@ -565,7 +567,6 @@ int main(int argc, char *argv[]) {
 
     if (has_colors()) {
         start_color();
-        theme_load_config();
         theme_apply(current_theme);
         bkgd(COLOR_PAIR(1));
     }
@@ -1839,20 +1840,27 @@ int main(int argc, char *argv[]) {
                     if (t) {
                         theme_apply(t);
                         bkgd(COLOR_PAIR(1));
+                        clearok(stdscr, TRUE);
                         theme_save_config(t->name);
+                        draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
                         attron(COLOR_PAIR(3));
                         printw(" | Theme: %s", t->label);
                         attroff(COLOR_PAIR(3));
+                        refresh();
                     } else {
+                        draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
                         attron(COLOR_PAIR(3));
                         printw(" | Unknown theme. Available: %s", theme_list_names());
                         attroff(COLOR_PAIR(3));
+                        refresh();
                     }
                 } else {
+                    draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
                     attron(COLOR_PAIR(3));
                     printw(" | Themes: %s  (current: %s)",
                            theme_list_names(), current_theme->name);
                     attroff(COLOR_PAIR(3));
+                    refresh();
                 }
             } else if (strcmp(cmd, "fs") == 0 && filter_active) {
                 // Сохраняем текущий filter_query

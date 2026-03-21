@@ -48,16 +48,16 @@ static const Theme themes[] = {
     /* ── light ──────────────────────────────────────────────────────── */
     {
         "light", "Light",
-        /* pair1  headers   */ 236,  7,
-        /* pair2  cursor    */   7, 25,   /* white on medium blue */
-        /* pair3  accent    */ 130,  7,   /* dark orange on white */
-        /* pair5  accent2   */  25,  7,   /* blue on white */
-        /* pair6  dimmed    */ 246,  7,
-        /* pair7  search    */   7,130,
-        /* pair8  ghost     */ 250,  7,
-        /* pair11 anomaly   */   1,  7,
+        /* pair1  headers   */ 235, 15,   /* near-black on bright white */
+        /* pair2  cursor    */  15, 25,   /* bright white on medium blue */
+        /* pair3  accent    */ 130, 15,   /* dark orange on bright white */
+        /* pair5  accent2   */  25, 15,   /* blue on bright white */
+        /* pair6  dimmed    */ 242, 15,   /* dark gray — visible on white */
+        /* pair7  search    */  15,130,
+        /* pair8  ghost     */ 248, 15,
+        /* pair11 anomaly   */   1, 15,
         /* graph series fg  */ { 1, 25, 2, 130, 6, 5, 0 },
-        /* default_bg       */ 7
+        /* default_bg       */ 15
     },
 
     /* ── tokyonight ─────────────────────────────────────────────────── */
