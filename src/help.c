@@ -15,7 +15,7 @@
 void show_usage(void)
 {
     printf("CSV Viewer & Editor - Terminal Tool\n");
-    printf("Version %d dated March 12, 2026 by Daniil Khanin & Claude\n\n", CSVVIEW_VERSION);
+    printf("Version %d dated March 21, 2026 by Daniil Khanin & Claude\n\n", CSVVIEW_VERSION);
 
     printf("Usage:\n");
     printf("  csvview <file>                  Open file (auto-detects .tsv/.psv)\n");
@@ -29,7 +29,7 @@ void show_help(int use_ncurses)
 {
     const char *help_text[] = {
         "CSV Viewer & Editor - Terminal Tool",
-        "Version 13 dated March 18, 2026 by Daniil Khanin & Claude",
+        "Version 14 dated March 21, 2026 by Daniil Khanin & Claude",
         "",
         "Usage:",
         "  csvview <file>                  Open file (auto-detects .tsv / .psv)",
