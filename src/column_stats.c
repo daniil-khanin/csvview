@@ -95,6 +95,7 @@ void show_column_stats(int col_idx)
     if (!win) {
         return;
     }
+    wbkgd(win, COLOR_PAIR(1));
 
     scrollok(win, TRUE);
     box(win, 0, 0);

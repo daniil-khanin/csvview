@@ -792,6 +792,7 @@ void draw_table_frame(int y, int x, int height, int width) {
 void show_pivot_settings_window(PivotSettings *settings, const char *csv_filename, int height, int width) {
     int win_h = 16, win_w = 90;
     WINDOW *win = newwin(win_h, win_w, (height - win_h) / 2, (width - win_w) / 2);
+    wbkgd(win, COLOR_PAIR(1));
     box(win, 0, 0);
     keypad(win, TRUE);
 

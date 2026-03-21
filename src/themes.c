@@ -91,18 +91,20 @@ static const Theme themes[] = {
     },
 
     /* ── catppuccin (Mocha) ─────────────────────────────────────────── */
+    /* Distinguished from TokyoNight by: darker bg (234), mauve cursor,
+     * peach accent, teal secondary — purple/warm vs blue/cool              */
     {
         "catppuccin", "Catppuccin Mocha",
-        /* pair1  headers   */ 189, 235,
-        /* pair2  cursor    */ 235, 111,   /* bg on blue */
-        /* pair3  accent    */ 223, 235,   /* yellow */
-        /* pair5  accent2   */ 116, 235,   /* sapphire */
-        /* pair6  dimmed    */  60, 235,   /* overlay0 */
-        /* pair7  search    */ 235, 223,
-        /* pair8  ghost     */  60, 235,
-        /* pair11 anomaly   */ 211, 235,   /* red */
-        /* graph series fg  */ { 211, 151, 111, 223, 116, 183, 189 },
-        /* default_bg       */ 235
+        /* pair1  headers   */ 189, 234,   /* text on darker bg */
+        /* pair2  cursor    */ 234, 183,   /* bg on mauve — purple, not blue */
+        /* pair3  accent    */ 216, 234,   /* peach (#ffaf87) — warm, not yellow */
+        /* pair5  accent2   */ 122, 234,   /* teal (#87ffd7) — cooler cyan */
+        /* pair6  dimmed    */ 242, 234,   /* overlay0, slightly lighter */
+        /* pair7  search    */ 234, 216,   /* bg on peach */
+        /* pair8  ghost     */ 242, 234,
+        /* pair11 anomaly   */ 211, 234,   /* red */
+        /* graph series fg  */ { 211, 151, 183, 216, 122, 141, 189 },
+        /* default_bg       */ 234
     },
 };
 

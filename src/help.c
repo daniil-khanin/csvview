@@ -244,6 +244,7 @@ void show_help(int use_ncurses)
         WINDOW *win = newwin(win_h, win_w, start_y, start_x);
         if (!win) return;
 
+        wbkgd(win, COLOR_PAIR(1));
         box(win, 0, 0);
         keypad(win, TRUE);
 

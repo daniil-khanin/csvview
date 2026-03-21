@@ -374,6 +374,7 @@ void show_saved_filters_window(const char *csv_filename)
     int start_x = (COLS - width) / 2;
 
     WINDOW *win = newwin(height, width, start_y, start_x);
+    wbkgd(win, COLOR_PAIR(1));
     box(win, 0, 0);
     mvwprintw(win, 0, (width - 18) / 2, " Saved Filters ");
 
