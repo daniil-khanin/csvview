@@ -56,7 +56,7 @@ static const Theme themes[] = {
         /* pair7  search       */ 0,   3,  /* black on yellow            */
         /* pair8  ghost        */ 246,15,
         /* pair11 anomaly      */ 1,  15,  /* red on white               */
-        /* graph series fg     */ { 1, 25, 2, 3, 6, 5, 0 },
+        /* graph series fg     */ { 1, 2, 25, 3, 6, 5, 0 },
         /* default_bg          */ 15
     },
 
