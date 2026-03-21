@@ -118,7 +118,9 @@ static int compare_by_preextracted(const void *pa, const void *pb)
         else if (a->num > b->num) result =  1;
         else                      result =  0;
     } else {
-        result = strcasecmp(a->str ? a->str : "", b->str ? b->str : "");
+        const char *sa = a->is_num ? "" : (a->str ? a->str : "");
+        const char *sb = b->is_num ? "" : (b->str ? b->str : "");
+        result = strcasecmp(sa, sb);
     }
     return sort_order * result;
 }
