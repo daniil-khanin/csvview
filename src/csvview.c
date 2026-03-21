@@ -2423,15 +2423,29 @@ int main(int argc, char *argv[]) {
                 clrtoeol();
                 refresh();
             } else {
-                // Числовая команда (:N) — переход к строке N (1-based)
-                int is_num = (cmd[0] != '\0');
-                for (const char *p = cmd; *p; p++) {
-                    if (*p < '0' || *p > '9') { is_num = 0; break; }
+                /* :+N / :-N — relative jump from current row */
+                int target = -1;
+                if ((cmd[0] == '+' || cmd[0] == '-') && cmd[1] != '\0') {
+                    int ok = 1;
+                    for (const char *p = cmd + 1; *p; p++)
+                        if (*p < '0' || *p > '9') { ok = 0; break; }
+                    if (ok) {
+                        int delta = atoi(cmd + 1);
+                        target = cur_display_row + (cmd[0] == '+' ? delta : -delta);
+                    }
                 }
-                if (is_num) {
-                    int target = atoi(cmd) - 1;
-                    if (target < 0) target = 0;
+
+                /* :N — absolute jump (1-based) */
+                if (target < 0) {
+                    int is_num = (cmd[0] != '\0');
+                    for (const char *p = cmd; *p; p++)
+                        if (*p < '0' || *p > '9') { is_num = 0; break; }
+                    if (is_num) target = atoi(cmd) - 1;
+                }
+
+                if (target >= 0) {
                     if (target >= display_count) target = display_count - 1;
+                    if (target < 0) target = 0;
                     cur_display_row = target;
                     if (cur_display_row < top_display_row)
                         top_display_row = cur_display_row;

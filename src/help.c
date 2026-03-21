@@ -69,6 +69,7 @@ void show_help(int use_ncurses)
         "",
         "Command mode (press : then command):",
         "  :N                   Go to row N (e.g. :1000 jumps to row 1000)",
+        "  :+N / :-N            Relative jump: N rows down / up from current row",
         "  :e [filename]        Export current view (filtered/sorted) to CSV",
         "                       (default: filtered.csv / sorted.csv / table.csv)",
         "  :dr <row_number>     Delete row by visible number (1-based)",
