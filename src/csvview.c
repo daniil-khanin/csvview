@@ -27,6 +27,7 @@
 #include "split_file.h"
 #include "dedup.h"
 #include "profile.h"
+#include "bookmarks.h"
 #include "csv_mmap.h"
 #include "themes.h"
 
@@ -2133,6 +2134,28 @@ int main(int argc, char *argv[]) {
                 delete_column(cur_col, arg, file_to_open);
                 cur_col = 0;
                 left_col = freeze_cols;
+            } else if (strcmp(cmd, "marks") == 0) {
+                int target_real = show_marks_window(file_to_open);
+                if (target_real >= 0) {
+                    int disp = find_display_for_real(target_real, display_count);
+                    if (disp >= 0) {
+                        bookmark_scroll(disp, &cur_display_row, &top_display_row, visible_rows);
+                    } else if (filter_active) {
+                        draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
+                        attron(COLOR_PAIR(11));
+                        printw(" | Bookmark hidden by filter. Clear? [y/n]");
+                        attroff(COLOR_PAIR(11));
+                        refresh();
+                        int ans = getch();
+                        if (ans == 'y' || ans == 'Y') {
+                            filter_active = 0;
+                            int full = row_count - (use_headers ? 1 : 0);
+                            disp = find_display_for_real(target_real, full);
+                            if (disp >= 0)
+                                bookmark_scroll(disp, &cur_display_row, &top_display_row, visible_rows);
+                        }
+                    }
+                }
             } else if (strcmp(cmd, "dm") == 0 && arg && arg[0] >= 'a' && arg[0] <= 'z') {
                 int bi = arg[0] - 'a';
                 if (bookmarks[bi] >= 0) {

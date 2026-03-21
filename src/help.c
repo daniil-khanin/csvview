@@ -105,6 +105,7 @@ void show_help(int use_ncurses)
         "  m<a-z>               Set bookmark at current row",
         "                       Press same letter again on the bookmarked row → clears it",
         "  '<a-z>               Jump to bookmark (if hidden by filter: prompts to clear)",
+        "  :marks               Open bookmarks list (jump/delete interactively)",
         "  :dm <letter>         Delete bookmark by letter (e.g.  :dm a)",
         "  Bookmarks are saved in <yourfile.csv>.csvf (line: mark: a 1236)",
         "  Gutter shows bookmark letter next to line number when any bookmark is set",
