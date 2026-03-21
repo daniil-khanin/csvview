@@ -27,7 +27,6 @@ Most terminal CSV tools either lack interactivity (miller, xsv, csvkit) or requi
 | Pivot tables | + | + | — | — |
 | Computed columns | + | Python expr | formulas | — |
 | 50M+ row files | + | slow | — | + |
-| Parallel processing | + | — | — | — |
 | No runtime needed | + | — Python | + | + |
 | Single binary | + | — | + | + |
 
