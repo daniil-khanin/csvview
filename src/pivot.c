@@ -1826,9 +1826,9 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
                 if (strcmp(arg, "bar")  == 0) pivot_gtype = GRAPH_BAR;
                 else if (strcmp(arg, "line") == 0) pivot_gtype = GRAPH_LINE;
                 else if (strcmp(arg, "dot")  == 0) pivot_gtype = GRAPH_DOT;
-            } else if (strcmp(cmd, "gs") == 0 && arg) {
+            } else if (strcmp(cmd, "gy") == 0 && arg) {
                 if (strcmp(arg, "log") == 0) pivot_gscale = SCALE_LOG;
-                else if (strcmp(arg, "lin") == 0) pivot_gscale = SCALE_LINEAR;
+                else if (strcmp(arg, "lin") == 0 || strcmp(arg, "linear") == 0) pivot_gscale = SCALE_LINEAR;
             }
             clrtoeol();
             refresh();

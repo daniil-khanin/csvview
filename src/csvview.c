@@ -936,10 +936,10 @@ int main(int argc, char *argv[]) {
                 }
                 graph_col_count = 0;
                 continue;
-            } else if (ch == KEY_LEFT || ch == 'j' || ch == 'h') {
+            } else if (ch == KEY_LEFT || ch == 'h') {
                 if (graph_cursor_pos > 0) graph_cursor_pos--;
                 min_max_show = 0;
-            } else if (ch == KEY_RIGHT || ch == 'k' || ch == 'l') {
+            } else if (ch == KEY_RIGHT || ch == 'l') {
                 if (graph_cursor_pos < graph_visible_points - 1) graph_cursor_pos++;
                 min_max_show = 0;
             } else if (ch == 'r') {
@@ -1917,12 +1917,25 @@ int main(int argc, char *argv[]) {
                 cur_display_row = 0; top_display_row = 0;
             }
         }
-        else if (ch == 'r' || ch == 'R') {
+        else if (ch == 'r') {
             // Reset all sorting
             sort_col = -1; sort_order = 0;
             sort_level_count = 0;
             sorted_count = 0;
             cur_display_row = 0; top_display_row = 0;
+        }
+        else if (ch == 'R') {
+            // Reset filter
+            in_filter_mode = 0;
+            filter_active = 0;
+            filtered_count = 0;
+            filter_query[0] = '\0';
+            cur_display_row = 0; top_display_row = 0;
+            draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
+            attron(COLOR_PAIR(3));
+            printw(" | Filter cleared");
+            attroff(COLOR_PAIR(3));
+            refresh();
         }
         else if (ch == ('R' & 0x1f)) {  // Ctrl+R — перечитать файл
             // 1. Освобождаем все кэши строк
@@ -2266,8 +2279,8 @@ int main(int argc, char *argv[]) {
                 printw(" | Line numbers: %s", relative_line_numbers ? "relative" : "absolute");
                 attroff(COLOR_PAIR(3));
                 refresh();
-            } else if (strcmp(cmd, "fz") == 0) {
-                // :fz N — заморозить первые N столбцов (:fz 0 — снять заморозку)
+            } else if (strcmp(cmd, "freeze") == 0 || strcmp(cmd, "fz") == 0) {
+                // :freeze N — заморозить первые N столбцов (:freeze 0 — снять заморозку)
                 int n = arg ? atoi(arg) : 0;
                 if (n < 0) n = 0;
                 if (n > col_count) n = col_count;
