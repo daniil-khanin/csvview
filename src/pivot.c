@@ -1076,7 +1076,7 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
         if (agg_count == 0) { strcpy(agg_list[0], "SUM"); agg_count = 1; }
     }
 
-    int display_count = filter_active ? filtered_count : (sort_col >= 0 ? sorted_count : row_count);
+    int display_count = filter_active ? filtered_count : (sort_col >= 0 ? sorted_count : (row_count - (use_headers ? 1 : 0)));
 
     // Определяем типы группировки — ТОЛЬКО ЗДЕСЬ, ОДИН РАЗ
     int row_is_date = (row_group_idx >= 0) && (col_types[row_group_idx] == COL_DATE);
