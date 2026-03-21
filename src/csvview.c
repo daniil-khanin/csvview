@@ -26,6 +26,7 @@
 #include "concat_files.h"
 #include "split_file.h"
 #include "dedup.h"
+#include "profile.h"
 #include "csv_mmap.h"
 #include "themes.h"
 
@@ -117,6 +118,9 @@ char csv_delimiter = ',';
 int freeze_cols = 0;
 int col_hidden[MAX_COLS] = {0};
 int relative_line_numbers = 0;
+
+// 12a. Закладки (vim-style): 26 букв a-z, хранят display row (-1 = не задана)
+int bookmarks[26];
 
 // 12. Drill-down из pivot: фильтр для возврата в основную таблицу
 char pivot_drilldown_filter[512] = "";
@@ -455,6 +459,7 @@ static const char *program_path = NULL;
 
 int main(int argc, char *argv[]) {
     program_path = argv[0];
+    for (int i = 0; i < 26; i++) bookmarks[i] = -1;
     if (argc == 2 && (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "-?") == 0 || strcmp(argv[1], "/h") == 0)) {
         show_help(0);  // консольный вывод
         return 0;
@@ -463,10 +468,11 @@ int main(int argc, char *argv[]) {
     /* Load saved theme first; CLI --theme= overrides it below */
     theme_load_config();
 
-    int concat_mode = 0;
-    int split_mode  = 0;
-    int split_drop  = 0;
-    int dedup_mode  = 0;
+    int concat_mode  = 0;
+    int split_mode   = 0;
+    int split_drop   = 0;
+    int dedup_mode   = 0;
+    int profile_mode = 0;
     int dedup_keep_last = 0;
     char *dedup_by      = NULL;
     char *concat_column = NULL;
@@ -481,6 +487,8 @@ int main(int argc, char *argv[]) {
             concat_mode = 1;
         } else if (strcmp(argv[i], "--split") == 0) {
             split_mode = 1;
+        } else if (strcmp(argv[i], "--profile") == 0) {
+            profile_mode = 1;
         } else if (strcmp(argv[i], "--dedup") == 0) {
             dedup_mode = 1;
         } else if (strcmp(argv[i], "--keep=last") == 0) {
@@ -530,6 +538,23 @@ int main(int argc, char *argv[]) {
             return 1;
         }
         int ret = split_file(input_files[0], split_by, output_dir, split_drop);
+        free(input_files);
+        return ret;
+    }
+
+    if (profile_mode) {
+        if (input_count == 0) {
+            fprintf(stderr, "Error: --profile requires an input file\n");
+            fprintf(stderr, "Usage: csvview --profile [--sep=CHAR] file.csv\n");
+            free(input_files);
+            return 1;
+        }
+        const char *ext = strrchr(input_files[0], '.');
+        if (ext) {
+            if (strcmp(ext, ".tsv") == 0) csv_delimiter = '\t';
+            else if (strcmp(ext, ".psv") == 0) csv_delimiter = '|';
+        }
+        int ret = profile_file(input_files[0], csv_delimiter);
         free(input_files);
         return ret;
     }
@@ -1843,6 +1868,43 @@ int main(int argc, char *argv[]) {
         else if (ch == 'D' || ch == 'd') {
             // статистика столбца
             show_column_stats(cur_col);
+        }
+        else if (ch == 'm') {  /* set bookmark: m<a-z> */
+            int label = getch();
+            if (label >= 'a' && label <= 'z') {
+                bookmarks[label - 'a'] = cur_display_row;
+                draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
+                attron(COLOR_PAIR(3));
+                printw(" | Bookmark '%c' set at row %d", label, cur_display_row + 1);
+                attroff(COLOR_PAIR(3));
+                refresh();
+            }
+        }
+        else if (ch == '\'') {  /* jump to bookmark: '<a-z> */
+            int label = getch();
+            if (label >= 'a' && label <= 'z') {
+                int target = bookmarks[label - 'a'];
+                if (target < 0) {
+                    draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
+                    attron(COLOR_PAIR(11));
+                    printw(" | No bookmark '%c'", label);
+                    attroff(COLOR_PAIR(11));
+                    refresh();
+                } else {
+                    if (target >= display_count) target = display_count - 1;
+                    cur_display_row = target;
+                    if (cur_display_row < top_display_row)
+                        top_display_row = cur_display_row;
+                    else if (cur_display_row >= top_display_row + visible_rows)
+                        top_display_row = cur_display_row - visible_rows + 1;
+                    if (top_display_row < 0) top_display_row = 0;
+                    draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
+                    attron(COLOR_PAIR(3));
+                    printw(" | Bookmark '%c' -> row %d", label, cur_display_row + 1);
+                    attroff(COLOR_PAIR(3));
+                    refresh();
+                }
+            }
         }
         else if (ch == ('G' & 0x1f)) {  // Ctrl+G — перейти к строке по номеру
             draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
