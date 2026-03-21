@@ -911,6 +911,23 @@ int evaluate_condition(const char *cell, const Condition *cond)
             return strcmp(cell, val_trimmed) == 0;
         }
 
+        /* Month format "YYYY-MM": use 7-char prefix compare so that
+           "2025-08-15" <= "2025-08" works correctly (strcmp would give
+           wrong result because '-' > '\0' in the 8th position). */
+        if (val_len == 7 && cell_len >= 10 && cell[7] == '-')
+        {
+            int cmp = strncmp(cell, val_trimmed, 7);
+            switch (cond->op)
+            {
+                case OP_NE: return cmp != 0;
+                case OP_GT: return cmp >  0;
+                case OP_GE: return cmp >= 0;
+                case OP_LT: return cmp <  0;
+                case OP_LE: return cmp <= 0;
+                default:    return 0;
+            }
+        }
+
         // Все остальные операторы (>= > <= < !=) — лексикографическое сравнение строк
         int cmp = strcmp(cell, val_trimmed);
 
