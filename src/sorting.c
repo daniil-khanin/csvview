@@ -102,27 +102,33 @@ typedef struct {
     int is_num;
 } SortKey;
 
-static SortKey *g_sort_keys  = NULL;
+static SortKey *g_sort_keys_ml[MAX_SORT_LEVELS];
+static int      g_sort_level_count_local = 0;
 static int      g_sort_start = 0;
 
-static int compare_by_preextracted(const void *pa, const void *pb)
+/* Multi-level comparator using pre-extracted keys */
+static int compare_by_preextracted_ml(const void *pa, const void *pb)
 {
     int ra = *(const int *)pa;
     int rb = *(const int *)pb;
-    const SortKey *a = &g_sort_keys[ra - g_sort_start];
-    const SortKey *b = &g_sort_keys[rb - g_sort_start];
 
-    int result;
-    if (a->is_num && b->is_num) {
-        if (a->num < b->num) result = -1;
-        else if (a->num > b->num) result =  1;
-        else                      result =  0;
-    } else {
-        const char *sa = a->is_num ? "" : (a->str ? a->str : "");
-        const char *sb = b->is_num ? "" : (b->str ? b->str : "");
-        result = strcasecmp(sa, sb);
+    for (int lv = 0; lv < g_sort_level_count_local; lv++) {
+        const SortKey *a = &g_sort_keys_ml[lv][ra - g_sort_start];
+        const SortKey *b = &g_sort_keys_ml[lv][rb - g_sort_start];
+
+        int result;
+        if (a->is_num && b->is_num) {
+            if (a->num < b->num) result = -1;
+            else if (a->num > b->num) result =  1;
+            else                      result =  0;
+        } else {
+            const char *sa = a->is_num ? "" : (a->str ? a->str : "");
+            const char *sb = b->is_num ? "" : (b->str ? b->str : "");
+            result = strcasecmp(sa, sb);
+        }
+        if (result != 0) return sort_levels[lv].order * result;
     }
-    return sort_order * result;
+    return 0;
 }
 
 /**
@@ -175,6 +181,73 @@ static int compare_by_preextracted(const void *pa, const void *pb)
  *   - get_column_value() — получение значения ячейки
  *   - strcasecmp() — регистронезависимое сравнение строк
  */
+
+/* Multi-level slow comparator: reads from cache/mmap, used for filter-active sort */
+static int compare_rows_multilevel(const void *pa, const void *pb)
+{
+    int ra = *(const int *)pa;
+    int rb = *(const int *)pb;
+
+    if (use_headers) {
+        if (ra == 0) return -1;
+        if (rb == 0) return 1;
+    }
+
+    char line_buf_a[MAX_LINE_LEN], line_buf_b[MAX_LINE_LEN];
+    char *line_a = rows[ra].line_cache;
+    if (!line_a) {
+        if (g_mmap_base) {
+            line_a = csv_mmap_get_line(rows[ra].offset, line_buf_a, sizeof(line_buf_a));
+        } else if (f) {
+            fseek(f, rows[ra].offset, SEEK_SET);
+            if (fgets(line_buf_a, sizeof(line_buf_a), f)) {
+                line_buf_a[strcspn(line_buf_a, "\r\n")] = '\0';
+                line_a = line_buf_a;
+            }
+        }
+        if (!line_a) line_a = "";
+    }
+
+    char *line_b = rows[rb].line_cache;
+    if (!line_b) {
+        if (g_mmap_base) {
+            line_b = csv_mmap_get_line(rows[rb].offset, line_buf_b, sizeof(line_buf_b));
+        } else if (f) {
+            fseek(f, rows[rb].offset, SEEK_SET);
+            if (fgets(line_buf_b, sizeof(line_buf_b), f)) {
+                line_buf_b[strcspn(line_buf_b, "\r\n")] = '\0';
+                line_b = line_buf_b;
+            }
+        }
+        if (!line_b) line_b = "";
+    }
+
+    char val_a[256], val_b[256];
+    for (int lv = 0; lv < sort_level_count; lv++) {
+        int sc = sort_levels[lv].col;
+        if (sc < 0 || sc >= col_count) continue;
+
+        get_field_fast_ts(line_a, sc, val_a, sizeof(val_a));
+        get_field_fast_ts(line_b, sc, val_b, sizeof(val_b));
+
+        char *end_a, *end_b;
+        double num_a = parse_double(val_a, &end_a);
+        double num_b = parse_double(val_b, &end_b);
+        int is_num_a = (end_a != val_a && *end_a == '\0');
+        int is_num_b = (end_b != val_b && *end_b == '\0');
+
+        int result;
+        if (is_num_a && is_num_b) {
+            if (num_a < num_b) result = -1;
+            else if (num_a > num_b) result = 1;
+            else result = 0;
+        } else {
+            result = strcasecmp(val_a, val_b);
+        }
+        if (result != 0) return sort_levels[lv].order * result;
+    }
+    return 0;
+}
 
 int compare_rows_by_column(const void *pa, const void *pb)
 {
@@ -369,37 +442,45 @@ static void *sort_key_worker(void *arg)
  */
 void build_sorted_index(void)
 {
-    if (sort_col < 0 || sort_col >= col_count) { sorted_count = 0; return; }
+    if (sort_level_count == 0) { sorted_count = 0; return; }
+    if (sort_levels[0].col < 0 || sort_levels[0].col >= col_count) { sorted_count = 0; return; }
 
     int start = use_headers ? 1 : 0;
 
     if (filter_active && filtered_count > 0)
     {
-        // Фильтр активен: набор уже маленький, используем старый компаратор.
-        // Он делает fseek+parse внутри, но при малом filtered_count это приемлемо.
+        // Фильтр активен: набор уже маленький, используем многоуровневый компаратор.
         sorted_count = filtered_count;
         for (int i = 0; i < sorted_count; i++)
             sorted_rows[i] = filtered_rows[i];
 
         if (sorted_count > 1) {
             spinner_tick();
-            qsort(sorted_rows, sorted_count, sizeof(int), compare_rows_by_column);
+            qsort(sorted_rows, sorted_count, sizeof(int), compare_rows_multilevel);
             spinner_clear();
         }
         return;
     }
 
-    // Полная сортировка: предвычисляем ключи — один раз на строку.
-    // Компаратор не делает I/O и не аллоцирует память.
+    // Полная сортировка: предвычисляем ключи для каждого уровня.
     sorted_count = row_count - start;
     for (int i = 0; i < sorted_count; i++)
         sorted_rows[i] = start + i;
 
     if (sorted_count <= 1) return;
 
-    SortKey *keys = malloc((size_t)sorted_count * sizeof(SortKey));
-    if (!keys) {
-        // OOM-fallback: старый метод
+    // Выясняем сколько уровней валидны и аллоцируем массивы ключей
+    SortKey *keys_ml[MAX_SORT_LEVELS];
+    int valid_levels = 0;
+    for (int lv = 0; lv < sort_level_count; lv++) {
+        if (sort_levels[lv].col < 0 || sort_levels[lv].col >= col_count) break;
+        keys_ml[lv] = malloc((size_t)sorted_count * sizeof(SortKey));
+        if (!keys_ml[lv]) break;
+        valid_levels++;
+    }
+
+    if (valid_levels == 0) {
+        // OOM-fallback: используем старый медленный метод
         spinner_tick();
         qsort(sorted_rows, sorted_count, sizeof(int), compare_rows_by_column);
         spinner_clear();
@@ -408,64 +489,72 @@ void build_sorted_index(void)
 
     spinner_tick();
 
-    /* Parallel key extraction using mmap */
-    if (g_mmap_base) {
-        int nthreads = csv_num_threads();
-        int chunk    = (sorted_count + nthreads - 1) / nthreads;
+    // Извлекаем ключи для каждого уровня
+    for (int lv = 0; lv < valid_levels; lv++) {
+        int scol = sort_levels[lv].col;
 
-        SortKeyWorker *workers = calloc(nthreads, sizeof(SortKeyWorker));
-        pthread_t     *tids    = malloc(nthreads * sizeof(pthread_t));
+        if (g_mmap_base) {
+            int nthreads = csv_num_threads();
+            int chunk    = (sorted_count + nthreads - 1) / nthreads;
 
-        for (int t = 0; t < nthreads; t++) {
-            workers[t].start_r  = start + t * chunk;
-            workers[t].start_ki = t * chunk;
-            workers[t].count    = chunk;
-            if (workers[t].start_r + workers[t].count > row_count)
-                workers[t].count = row_count - workers[t].start_r;
-            if (workers[t].count < 0) workers[t].count = 0;
-            workers[t].scol = sort_col;
-            workers[t].keys = keys;
-            pthread_create(&tids[t], NULL, sort_key_worker, &workers[t]);
-        }
-        for (int t = 0; t < nthreads; t++) pthread_join(tids[t], NULL);
+            SortKeyWorker *workers = calloc(nthreads, sizeof(SortKeyWorker));
+            pthread_t     *tids    = malloc(nthreads * sizeof(pthread_t));
 
-        free(workers);
-        free(tids);
-    } else {
-        /* Sequential fallback */
-        rewind(f);
-        char seq_buf[MAX_LINE_LEN];
-        for (int r = 0; r < row_count; r++) {
-            if (!fgets(seq_buf, sizeof(seq_buf), f)) break;
-            if (r < start) continue;
+            for (int t = 0; t < nthreads; t++) {
+                workers[t].start_r  = start + t * chunk;
+                workers[t].start_ki = t * chunk;
+                workers[t].count    = chunk;
+                if (workers[t].start_r + workers[t].count > row_count)
+                    workers[t].count = row_count - workers[t].start_r;
+                if (workers[t].count < 0) workers[t].count = 0;
+                workers[t].scol = scol;
+                workers[t].keys = keys_ml[lv];
+                pthread_create(&tids[t], NULL, sort_key_worker, &workers[t]);
+            }
+            for (int t = 0; t < nthreads; t++) pthread_join(tids[t], NULL);
 
-            seq_buf[strcspn(seq_buf, "\r\n")] = '\0';
+            free(workers);
+            free(tids);
+        } else {
+            /* Sequential fallback */
+            rewind(f);
+            char seq_buf[MAX_LINE_LEN];
+            for (int r = 0; r < row_count; r++) {
+                if (!fgets(seq_buf, sizeof(seq_buf), f)) break;
+                if (r < start) continue;
 
-            int ki = r - start;
-            const char *raw = get_field_fast(seq_buf, sort_col);
+                seq_buf[strcspn(seq_buf, "\r\n")] = '\0';
 
-            char *end;
-            double num = parse_double(raw, &end);
-            if (end != raw && (*end == '\0' || *end == ' ')) {
-                keys[ki].is_num = 1;
-                keys[ki].num    = num;
-            } else {
-                keys[ki].is_num = 0;
-                keys[ki].str    = strdup(raw);
+                int ki = r - start;
+                const char *raw = get_field_fast(seq_buf, scol);
+
+                char *end;
+                double num = parse_double(raw, &end);
+                if (end != raw && (*end == '\0' || *end == ' ')) {
+                    keys_ml[lv][ki].is_num = 1;
+                    keys_ml[lv][ki].num    = num;
+                } else {
+                    keys_ml[lv][ki].is_num = 0;
+                    keys_ml[lv][ki].str    = strdup(raw);
+                }
             }
         }
     }
 
-    // Сортируем по предвычисленным ключам — 0 malloc и 0 I/O в компараторе
-    g_sort_keys  = keys;
+    // Сортируем по предвычисленным многоуровневым ключам
+    for (int lv = 0; lv < valid_levels; lv++)
+        g_sort_keys_ml[lv] = keys_ml[lv];
+    g_sort_level_count_local = valid_levels;
     g_sort_start = start;
-    qsort(sorted_rows, sorted_count, sizeof(int), compare_by_preextracted);
-    g_sort_keys  = NULL;
+    qsort(sorted_rows, sorted_count, sizeof(int), compare_by_preextracted_ml);
+    g_sort_level_count_local = 0;
 
-    // Освобождаем строковые ключи
-    for (int i = 0; i < sorted_count; i++)
-        if (!keys[i].is_num) free(keys[i].str);
-    free(keys);
+    // Освобождаем строковые ключи для всех уровней
+    for (int lv = 0; lv < valid_levels; lv++) {
+        for (int i = 0; i < sorted_count; i++)
+            if (!keys_ml[lv][i].is_num) free(keys_ml[lv][i].str);
+        free(keys_ml[lv]);
+    }
 
     spinner_clear();
 }
@@ -551,7 +640,7 @@ int get_real_row(int display_idx)
 
     // Приоритет 1: если активна сортировка и количество совпадает с видимыми
     // (т.е. сортировка применяется к текущему набору видимых строк)
-    if (sort_col >= 0 && sorted_count == total_visible)
+    if (sort_level_count > 0 && sorted_count == total_visible)
     {
         return sorted_rows[display_idx];
     }

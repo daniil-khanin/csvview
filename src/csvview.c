@@ -74,6 +74,8 @@ int *sorted_rows          = NULL;
 int sorted_count          = 0;
 int sort_col              = -1;     // -1 = без сортировки
 int sort_order            = 0;      // 1 = asc, -1 = desc, 0 = none
+SortLevel sort_levels[MAX_SORT_LEVELS];
+int       sort_level_count = 0;
 
 // 7. Данные файла
 int       row_count = 0;
@@ -105,8 +107,8 @@ int       min_max_show            = 0;
 
 // 9. Сохранение состояния (для undo/временного хранения)
 int   save_sort_col       = -1;
-
 int   save_sort_order     = 0;
+int   save_sort_level_count = 0;
 int   save_sorted_count   = 0;
 int  *save_sorted_rows    = NULL;
 int   save_filtered_count = 0;
@@ -874,7 +876,7 @@ int main(int argc, char *argv[]) {
             if (ch == 'q' || ch == 27) {  // Esc
                 in_graph_mode = 0;
                 if (using_date_x) {
-                    sort_col = save_sort_col;
+                    sort_col = save_sort_col; sort_level_count = save_sort_level_count;
                     sort_order = save_sort_order;
                     if (filter_active) {
                         memcpy(filtered_rows, save_filtered_rows, sizeof(int) * save_filtered_count);
@@ -946,7 +948,7 @@ int main(int argc, char *argv[]) {
 
                         // Возвращаем старую сортировку, если она была сохранена
                         if (save_sort_col != -999) {  // -999 как маркер "не сохранено"
-                            sort_col = save_sort_col;
+                            sort_col = save_sort_col; sort_level_count = save_sort_level_count;
                             sort_order = save_sort_order;
 
                             if (filter_active) {
@@ -1003,7 +1005,7 @@ int main(int argc, char *argv[]) {
 
                     // Сохраняем текущую сортировку (только если ещё не сохранено)
                     if (save_sort_col == -999) {  // маркер "не сохранено"
-                        save_sort_col = sort_col;
+                        save_sort_col = sort_col; save_sort_level_count = sort_level_count;
                         save_sort_order = sort_order;
                         if (filter_active) {
                             save_filtered_count = filtered_count;
@@ -1032,7 +1034,7 @@ int main(int argc, char *argv[]) {
                     }
 
                     // Восстанавливаем старый sort_col / sort_order (но индексы уже отсортированы по дате!)
-                    sort_col = save_sort_col;
+                    sort_col = save_sort_col; sort_level_count = save_sort_level_count;
                     sort_order = save_sort_order;
 
                     // Устанавливаем новую ось X
@@ -1281,7 +1283,7 @@ int main(int argc, char *argv[]) {
                 int yn = getch();
                 if (yn == 'y' || yn == 'Y') {
                     using_date_x = 1;
-                    save_sort_col = sort_col;
+                    save_sort_col = sort_col; save_sort_level_count = sort_level_count;
                     save_sort_order = sort_order;
                     int temp_sort_col = sort_col;
                     int temp_sort_order = sort_order;
@@ -1800,43 +1802,83 @@ int main(int argc, char *argv[]) {
             save_column_settings(file_to_open);
         }
         else if (ch == '[') {
-            draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
-            attron(COLOR_PAIR(3));
-            printw(" | Sorting...                       ");
-            attroff(COLOR_PAIR(3));
-            refresh();
-            // Сортировка по возрастанию по текущему столбцу
+            // Sort ascending — resets any existing multi-sort
             if (cur_col >= 0 && cur_col < col_count) {
-                sort_col = cur_col;
-                sort_order = 1;
+                draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
+                attron(COLOR_PAIR(3)); printw(" | Sorting..."); attroff(COLOR_PAIR(3));
+                refresh();
+                sort_col = cur_col; sort_order = 1;
+                sort_levels[0].col = cur_col; sort_levels[0].order = 1;
+                sort_level_count = 1;
                 build_sorted_index();
-                // Сбрасываем позицию на начало, чтобы пользователь видел результат
-                cur_display_row = 0;
-                top_display_row = 0;
+                cur_display_row = 0; top_display_row = 0;
             }
         }
         else if (ch == ']') {
-            draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
-            attron(COLOR_PAIR(3));
-            printw(" | Sorting...                  ");
-            attroff(COLOR_PAIR(3));
-            refresh();
-            // Сортировка по убыванию
+            // Sort descending — resets any existing multi-sort
             if (cur_col >= 0 && cur_col < col_count) {
-                sort_col = cur_col;
-                sort_order = -1;
+                draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
+                attron(COLOR_PAIR(3)); printw(" | Sorting..."); attroff(COLOR_PAIR(3));
+                refresh();
+                sort_col = cur_col; sort_order = -1;
+                sort_levels[0].col = cur_col; sort_levels[0].order = -1;
+                sort_level_count = 1;
                 build_sorted_index();
-                cur_display_row = 0;
-                top_display_row = 0;
+                cur_display_row = 0; top_display_row = 0;
+            }
+        }
+        else if (ch == '{') {
+            // Add current column as next ascending sort level (Shift+[)
+            if (cur_col >= 0 && cur_col < col_count) {
+                int found = -1;
+                for (int li = 0; li < sort_level_count; li++)
+                    if (sort_levels[li].col == cur_col) { found = li; break; }
+                if (found >= 0) {
+                    sort_levels[found].order = 1;
+                } else if (sort_level_count < MAX_SORT_LEVELS) {
+                    sort_levels[sort_level_count].col   = cur_col;
+                    sort_levels[sort_level_count].order = 1;
+                    sort_level_count++;
+                }
+                sort_col = sort_levels[0].col; sort_order = sort_levels[0].order;
+                draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
+                attron(COLOR_PAIR(3));
+                printw(" | Sorting (%d levels)...", sort_level_count);
+                attroff(COLOR_PAIR(3));
+                refresh();
+                build_sorted_index();
+                cur_display_row = 0; top_display_row = 0;
+            }
+        }
+        else if (ch == '}') {
+            // Add current column as next descending sort level (Shift+])
+            if (cur_col >= 0 && cur_col < col_count) {
+                int found = -1;
+                for (int li = 0; li < sort_level_count; li++)
+                    if (sort_levels[li].col == cur_col) { found = li; break; }
+                if (found >= 0) {
+                    sort_levels[found].order = -1;
+                } else if (sort_level_count < MAX_SORT_LEVELS) {
+                    sort_levels[sort_level_count].col   = cur_col;
+                    sort_levels[sort_level_count].order = -1;
+                    sort_level_count++;
+                }
+                sort_col = sort_levels[0].col; sort_order = sort_levels[0].order;
+                draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
+                attron(COLOR_PAIR(3));
+                printw(" | Sorting (%d levels)...", sort_level_count);
+                attroff(COLOR_PAIR(3));
+                refresh();
+                build_sorted_index();
+                cur_display_row = 0; top_display_row = 0;
             }
         }
         else if (ch == 'r' || ch == 'R') {
-            // Отмена сортировки
-            sort_col = -1;
-            sort_order = 0;
+            // Reset all sorting
+            sort_col = -1; sort_order = 0;
+            sort_level_count = 0;
             sorted_count = 0;
-            cur_display_row = 0;
-            top_display_row = 0;
+            cur_display_row = 0; top_display_row = 0;
         }
         else if (ch == ('R' & 0x1f)) {  // Ctrl+R — перечитать файл
             // 1. Освобождаем все кэши строк
@@ -2197,6 +2239,71 @@ int main(int argc, char *argv[]) {
                     printw(" | Columns unfrozen");
                 attroff(COLOR_PAIR(3));
                 refresh();
+            } else if (strcmp(cmd, "sort") == 0 && arg && *arg) {
+                // :sort col1 asc, col2 desc  — многоуровневая сортировка
+                int new_count = 0;
+                SortLevel new_levels[MAX_SORT_LEVELS];
+                char sort_arg[256];
+                strncpy(sort_arg, arg, sizeof(sort_arg) - 1);
+                sort_arg[sizeof(sort_arg) - 1] = '\0';
+
+                char *tok = sort_arg;
+                while (*tok && new_count < MAX_SORT_LEVELS) {
+                    while (*tok == ' ') tok++;
+                    if (!*tok) break;
+
+                    char col_tok[64] = {0};
+                    int ci = 0;
+                    while (*tok && *tok != ' ' && *tok != ',' && ci < 63)
+                        col_tok[ci++] = *tok++;
+                    col_tok[ci] = '\0';
+
+                    while (*tok == ' ') tok++;
+
+                    char dir_tok[16] = {0};
+                    ci = 0;
+                    while (*tok && *tok != ',' && *tok != ' ' && ci < 15)
+                        dir_tok[ci++] = *tok++;
+                    dir_tok[ci] = '\0';
+
+                    while (*tok == ' ' || *tok == ',') tok++;
+
+                    if (!col_tok[0]) continue;
+
+                    int cidx = use_headers ? col_name_to_num(col_tok) : col_to_num(col_tok);
+                    if (cidx < 0) cidx = col_to_num(col_tok);
+                    if (cidx < 0 || cidx >= col_count) continue;
+
+                    int order = 1;
+                    if (strncasecmp(dir_tok, "desc", 4) == 0 || strcmp(dir_tok, "-1") == 0)
+                        order = -1;
+
+                    new_levels[new_count].col   = cidx;
+                    new_levels[new_count].order = order;
+                    new_count++;
+                }
+
+                if (new_count > 0) {
+                    sort_level_count = new_count;
+                    for (int li = 0; li < new_count; li++)
+                        sort_levels[li] = new_levels[li];
+                    sort_col   = sort_levels[0].col;
+                    sort_order = sort_levels[0].order;
+
+                    draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
+                    attron(COLOR_PAIR(3));
+                    printw(" | Sorting (%d levels)...", sort_level_count);
+                    attroff(COLOR_PAIR(3));
+                    refresh();
+                    build_sorted_index();
+                    cur_display_row = 0; top_display_row = 0;
+                } else {
+                    draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
+                    attron(COLOR_PAIR(11));
+                    printw(" | :sort — column not found");
+                    attroff(COLOR_PAIR(11));
+                    refresh();
+                }
             } else if (strcmp(cmd, "fqu") == 0) {
                 // :fqu — быстрый фильтр ТОЛЬКО по текущей ячейке (сбрасывает старый фильтр)
 

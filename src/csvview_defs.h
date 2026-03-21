@@ -191,6 +191,12 @@ extern int col_widths[MAX_COLS];
 // Сортировка
 extern int sort_col;
 extern int sort_order;
+
+/* Multi-column sort levels */
+#define MAX_SORT_LEVELS 8
+typedef struct { int col; int order; /* 1=asc, -1=desc */ } SortLevel;
+extern SortLevel sort_levels[MAX_SORT_LEVELS];
+extern int       sort_level_count;
 extern int *sorted_rows;
 extern int sorted_count;
 
@@ -222,6 +228,7 @@ extern bool show_graph_cursor;
 // Временное сохранение состояния сортировки/фильтра
 extern int save_sort_col;
 extern int save_sort_order;
+extern int save_sort_level_count;
 extern int save_sorted_count;
 extern int *save_sorted_rows;
 extern int save_filtered_count;

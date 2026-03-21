@@ -111,12 +111,20 @@ static void draw_one_header(int top, int current_x, int col_idx, int cur_col)
         col_letter(col_idx, name);
     }
 
-    const char *arrow = "";
+    char arrow_buf[8] = "";
     int arrow_pair = 0;
-    if (sort_col == col_idx && sort_order != 0) {
-        arrow = (sort_order > 0) ? " ↑" : " ↓";
-        arrow_pair = 3;
+    for (int lv = 0; lv < sort_level_count; lv++) {
+        if (sort_levels[lv].col == col_idx) {
+            const char *dir = sort_levels[lv].order > 0 ? " ↑" : " ↓";
+            if (sort_level_count > 1)
+                snprintf(arrow_buf, sizeof(arrow_buf), "%s%d", dir, lv + 1);
+            else
+                snprintf(arrow_buf, sizeof(arrow_buf), "%s", dir);
+            arrow_pair = 3;
+            break;
+        }
     }
+    const char *arrow = arrow_buf;
 
     const char *fmt = (col_types[col_idx] == COL_NUM) ? "%*s" : "%-*s";
     char *disp = truncate_for_display(name, col_widths[col_idx] - 2);
@@ -129,7 +137,7 @@ static void draw_one_header(int top, int current_x, int col_idx, int cur_col)
     mvprintw(top + 1, current_x, fmt, col_widths[col_idx] - 2, disp);
 
     if (*arrow) {
-        int arrow_x = current_x + col_widths[col_idx] - 4;
+        int arrow_x = current_x + col_widths[col_idx] - (int)strlen(arrow);
         if (arrow_pair) attron(COLOR_PAIR(arrow_pair) | A_BOLD);
         mvprintw(top + 1, arrow_x, "%s", arrow);
         if (arrow_pair) attroff(COLOR_PAIR(arrow_pair) | A_BOLD);
