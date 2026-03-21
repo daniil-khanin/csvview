@@ -453,6 +453,31 @@ static void g_dedup_progress_cb(long done, long total, int pass, void *ud)
 }
 
 // ────────────────────────────────────────────────
+// Bookmarks helpers
+// ────────────────────────────────────────────────
+
+/* Return display index for the given real row, or -1 if not visible.
+ * Works for filtered, sorted, and plain views. */
+static int find_display_for_real(int real_row, int display_count)
+{
+    for (int d = 0; d < display_count; d++) {
+        if (get_real_row(d) == real_row) return d;
+    }
+    return -1;
+}
+
+/* Scroll view so that target display row is visible. */
+static void bookmark_scroll(int target, int *cur, int *top, int visible)
+{
+    *cur = target;
+    if (*cur < *top)
+        *top = *cur;
+    else if (*cur >= *top + visible)
+        *top = *cur - visible + 1;
+    if (*top < 0) *top = 0;
+}
+
+// ────────────────────────────────────────────────
 // main
 // ────────────────────────────────────────────────
 static const char *program_path = NULL;
@@ -825,6 +850,19 @@ int main(int argc, char *argv[]) {
             attron(COLOR_PAIR(3));
             printw(" | Filtered: %d", filtered_count);
             attroff(COLOR_PAIR(3));
+        }
+
+        /* Bookmark indicator: show if current row has a bookmark */
+        {
+            int cur_real_bm = get_real_row(cur_display_row);
+            for (int bi = 0; bi < 26; bi++) {
+                if (bookmarks[bi] == cur_real_bm) {
+                    attron(COLOR_PAIR(3));
+                    printw(" [bm:%c]", 'a' + bi);
+                    attroff(COLOR_PAIR(3));
+                    break;
+                }
+            }
         }
 
         refresh();
@@ -1875,7 +1913,8 @@ int main(int argc, char *argv[]) {
         else if (ch == 'm') {  /* set bookmark: m<a-z> */
             int label = getch();
             if (label >= 'a' && label <= 'z') {
-                bookmarks[label - 'a'] = cur_display_row;
+                bookmarks[label - 'a'] = get_real_row(cur_display_row);
+                save_column_settings(file_to_open);
                 draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
                 attron(COLOR_PAIR(3));
                 printw(" | Bookmark '%c' set at row %d", label, cur_display_row + 1);
@@ -1886,25 +1925,110 @@ int main(int argc, char *argv[]) {
         else if (ch == '\'') {  /* jump to bookmark: '<a-z> */
             int label = getch();
             if (label >= 'a' && label <= 'z') {
-                int target = bookmarks[label - 'a'];
-                if (target < 0) {
+                int target_real = bookmarks[label - 'a'];
+                if (target_real < 0) {
                     draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
                     attron(COLOR_PAIR(11));
                     printw(" | No bookmark '%c'", label);
                     attroff(COLOR_PAIR(11));
                     refresh();
                 } else {
-                    if (target >= display_count) target = display_count - 1;
-                    cur_display_row = target;
-                    if (cur_display_row < top_display_row)
-                        top_display_row = cur_display_row;
-                    else if (cur_display_row >= top_display_row + visible_rows)
-                        top_display_row = cur_display_row - visible_rows + 1;
-                    if (top_display_row < 0) top_display_row = 0;
+                    int disp = find_display_for_real(target_real, display_count);
+                    if (disp >= 0) {
+                        bookmark_scroll(disp, &cur_display_row, &top_display_row, visible_rows);
+                        draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
+                        attron(COLOR_PAIR(3));
+                        printw(" | Bookmark '%c' -> row %d", label, cur_display_row + 1);
+                        attroff(COLOR_PAIR(3));
+                        refresh();
+                    } else if (filter_active) {
+                        draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
+                        attron(COLOR_PAIR(11));
+                        printw(" | Bookmark '%c' hidden by filter. Clear? [y/n]", label);
+                        attroff(COLOR_PAIR(11));
+                        refresh();
+                        int ans = getch();
+                        if (ans == 'y' || ans == 'Y') {
+                            filter_active = 0;
+                            int full = row_count - (use_headers ? 1 : 0);
+                            disp = find_display_for_real(target_real, full);
+                            if (disp >= 0)
+                                bookmark_scroll(disp, &cur_display_row, &top_display_row, visible_rows);
+                        }
+                    }
+                }
+            }
+        }
+        else if (ch == ']') {  /* ]b — next bookmark */
+            int next_ch = getch();
+            if (next_ch == 'b') {
+                int cur_real = get_real_row(cur_display_row);
+                int best = -1;
+                for (int bi = 0; bi < 26; bi++) {
+                    if (bookmarks[bi] > cur_real && (best < 0 || bookmarks[bi] < best))
+                        best = bookmarks[bi];
+                }
+                if (best >= 0) {
+                    int disp = find_display_for_real(best, display_count);
+                    if (disp >= 0) {
+                        bookmark_scroll(disp, &cur_display_row, &top_display_row, visible_rows);
+                    } else if (filter_active) {
+                        draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
+                        attron(COLOR_PAIR(11));
+                        printw(" | Next bookmark hidden by filter. Clear? [y/n]");
+                        attroff(COLOR_PAIR(11));
+                        refresh();
+                        int ans = getch();
+                        if (ans == 'y' || ans == 'Y') {
+                            filter_active = 0;
+                            int full = row_count - (use_headers ? 1 : 0);
+                            disp = find_display_for_real(best, full);
+                            if (disp >= 0)
+                                bookmark_scroll(disp, &cur_display_row, &top_display_row, visible_rows);
+                        }
+                    }
+                } else {
                     draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
-                    attron(COLOR_PAIR(3));
-                    printw(" | Bookmark '%c' -> row %d", label, cur_display_row + 1);
-                    attroff(COLOR_PAIR(3));
+                    attron(COLOR_PAIR(6));
+                    printw(" | No next bookmark");
+                    attroff(COLOR_PAIR(6));
+                    refresh();
+                }
+            }
+        }
+        else if (ch == '[') {  /* [b — previous bookmark */
+            int next_ch = getch();
+            if (next_ch == 'b') {
+                int cur_real = get_real_row(cur_display_row);
+                int best = -1;
+                for (int bi = 0; bi < 26; bi++) {
+                    if (bookmarks[bi] >= 0 && bookmarks[bi] < cur_real && (best < 0 || bookmarks[bi] > best))
+                        best = bookmarks[bi];
+                }
+                if (best >= 0) {
+                    int disp = find_display_for_real(best, display_count);
+                    if (disp >= 0) {
+                        bookmark_scroll(disp, &cur_display_row, &top_display_row, visible_rows);
+                    } else if (filter_active) {
+                        draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
+                        attron(COLOR_PAIR(11));
+                        printw(" | Prev bookmark hidden by filter. Clear? [y/n]");
+                        attroff(COLOR_PAIR(11));
+                        refresh();
+                        int ans = getch();
+                        if (ans == 'y' || ans == 'Y') {
+                            filter_active = 0;
+                            int full = row_count - (use_headers ? 1 : 0);
+                            disp = find_display_for_real(best, full);
+                            if (disp >= 0)
+                                bookmark_scroll(disp, &cur_display_row, &top_display_row, visible_rows);
+                        }
+                    }
+                } else {
+                    draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
+                    attron(COLOR_PAIR(6));
+                    printw(" | No previous bookmark");
+                    attroff(COLOR_PAIR(6));
                     refresh();
                 }
             }

@@ -239,6 +239,9 @@ extern int col_hidden[MAX_COLS];
 // Относительная нумерация строк: 0 = абсолютная, 1 = относительная
 extern int relative_line_numbers;
 
+// Закладки (vim-style): индекс 0–25 = буквы a–z, значение = real row index (-1 = не задана)
+extern int bookmarks[26];
+
 // Drill-down из pivot: после Enter на ячейке здесь хранится фильтр для основной таблицы
 // Пустая строка = нет drill-down, заполненная = надо применить фильтр
 extern char pivot_drilldown_filter[512];

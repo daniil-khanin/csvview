@@ -381,6 +381,12 @@ void save_column_settings(const char *csv_filename)
         }
     }
 
+    // Закладки
+    for (int i = 0; i < 26; i++) {
+        if (bookmarks[i] >= 0)
+            fprintf(fp, "mark: %c %d\n", 'a' + i, bookmarks[i]);
+    }
+
     fclose(fp);
 }
 
@@ -408,6 +414,14 @@ int load_column_settings(const char *csv_filename)
     while (fgets(line, sizeof(line), fp))
     {
         line[strcspn(line, "\n")] = '\0';
+
+        // Закладки
+        if (strncmp(line, "mark: ", 6) == 0) {
+            char lc; int rr;
+            if (sscanf(line + 6, "%c %d", &lc, &rr) == 2 && lc >= 'a' && lc <= 'z')
+                bookmarks[lc - 'a'] = rr;
+            continue;
+        }
 
         // Фильтры загружаем отдельно (как раньше)
         if (strncmp(line, "filter: ", 8) == 0)

@@ -184,6 +184,10 @@ void draw_table_body(int top, int offset __attribute__((unused)), int visible_ro
 {
     int display_count = filter_active ? filtered_count : (row_count - (use_headers ? 1 : 0));
 
+    /* check if any bookmark is set (for gutter display) */
+    int any_bm = 0;
+    for (int bi = 0; bi < 26; bi++) if (bookmarks[bi] >= 0) { any_bm = 1; break; }
+
     for (int i = 0; i < visible_rows && top_display_row + i < display_count; i++)
     {
         int display_pos = top_display_row + i;
@@ -191,19 +195,44 @@ void draw_table_body(int top, int offset __attribute__((unused)), int visible_ro
 
         // Подсветка номера строки
         int is_cur = (display_pos == cur_display_row);
-        if (is_cur) {
-            attron(COLOR_PAIR(3) | A_BOLD);
+
+        if (any_bm) {
+            /* find bookmark letter for this real row */
+            char bm_letter = ' ';
+            for (int bi = 0; bi < 26; bi++) {
+                if (bookmarks[bi] == real_row) { bm_letter = 'a' + bi; break; }
+            }
+            /* gutter: bookmark letter at col 1 */
+            if (bm_letter != ' ') {
+                attron(COLOR_PAIR(3) | A_BOLD);
+            } else {
+                attron(COLOR_PAIR(6));
+            }
+            mvprintw(top + 2 + i, 1, "%c", bm_letter);
+            attroff(COLOR_PAIR(3) | COLOR_PAIR(6) | A_BOLD);
+            /* row number shifted right by 1, one char narrower */
+            if (is_cur) attron(COLOR_PAIR(3) | A_BOLD);
+            else        attron(COLOR_PAIR(6));
+            if (relative_line_numbers && !is_cur) {
+                int rel = display_pos - cur_display_row;
+                if (rel < 0) rel = -rel;
+                mvprintw(top + 2 + i, 2, "%*d", ROW_NUMBER_WIDTH - 3, rel);
+            } else {
+                mvprintw(top + 2 + i, 2, "%*d", ROW_NUMBER_WIDTH - 3, display_pos + 1);
+            }
+            attroff(COLOR_PAIR(3) | COLOR_PAIR(6) | A_BOLD);
         } else {
-            attron(COLOR_PAIR(6));
+            if (is_cur) attron(COLOR_PAIR(3) | A_BOLD);
+            else        attron(COLOR_PAIR(6));
+            if (relative_line_numbers && !is_cur) {
+                int rel = display_pos - cur_display_row;
+                if (rel < 0) rel = -rel;
+                mvprintw(top + 2 + i, 1, "%*d", ROW_NUMBER_WIDTH - 2, rel);
+            } else {
+                mvprintw(top + 2 + i, 1, "%*d", ROW_NUMBER_WIDTH - 2, display_pos + 1);
+            }
+            attroff(COLOR_PAIR(3) | COLOR_PAIR(6) | A_BOLD);
         }
-        if (relative_line_numbers && !is_cur) {
-            int rel = display_pos - cur_display_row;
-            if (rel < 0) rel = -rel;
-            mvprintw(top + 2 + i, 1, "%*d", ROW_NUMBER_WIDTH - 2, rel);
-        } else {
-            mvprintw(top + 2 + i, 1, "%*d", ROW_NUMBER_WIDTH - 2, display_pos + 1);
-        }
-        attroff(COLOR_PAIR(3) | COLOR_PAIR(6) | A_BOLD);
 
         // Ленивая загрузка строки
         if (!rows[real_row].line_cache)
