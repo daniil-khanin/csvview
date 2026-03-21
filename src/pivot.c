@@ -71,6 +71,8 @@ typedef struct {
     Agg *row_totals;   /* unique_rows */
     Agg *col_totals;   /* unique_cols */
     Agg  grand;
+    volatile int rows_done; /* progress counter, updated by thread */
+    volatile int done;      /* set to 1 when thread finishes */
 } PivotPass2Worker;
 
 static void *pivot_pass2_thread(void *arg)
@@ -127,7 +129,9 @@ static void *pivot_pass2_thread(void *arg)
             update_agg(&w->col_totals[cidx], vval_buf, w->value_type);
             update_agg(&w->grand, vval_buf, w->value_type);
         }
+        w->rows_done = (d - w->start_d) + 1;
     }
+    w->done = 1;
     return NULL;
 }
 
@@ -1279,6 +1283,24 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
             p2w[t].col_type     = col_type;
             p2w[t].value_type   = value_type;
             pthread_create(&p2t[t], NULL, pivot_pass2_thread, &p2w[t]);
+        }
+        /* Wait for threads, updating progress bar every 100ms */
+        while (1) {
+            struct timespec ts = {0, 100000000L}; /* 100ms */
+            nanosleep(&ts, NULL);
+            long total_done = 0;
+            int  all_done   = 1;
+            for (int t = 0; t < nthreads; t++) {
+                total_done += p2w[t].rows_done;
+                if (!p2w[t].done) all_done = 0;
+            }
+            int pct = display_count > 0 ? (int)(100LL * total_done / display_count) : 100;
+            draw_status_bar(height - 1, 1, csv_filename, row_count, file_size_str);
+            attron(COLOR_PAIR(3));
+            printw(" | Aggregating... %3d%%                       ", pct);
+            attroff(COLOR_PAIR(3));
+            refresh();
+            if (all_done) break;
         }
         for (int t = 0; t < nthreads; t++) pthread_join(p2t[t], NULL);
 
