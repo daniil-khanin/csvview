@@ -305,12 +305,13 @@ static char *show_history_picker(void)
 
     int sel = 0;
     char *result = NULL;
+    char err_msg[512] = "";   /* shown on bottom line until next keypress */
 
     while (1) {
         clear();
 
         attron(COLOR_PAIR(5) | A_BOLD);
-        mvprintw(0, 2, "Recent files  (↑↓/jk — select | Enter — open | q/Esc — quit)");
+        mvprintw(0, 2, "Recent files  (↑↓/jk — select | Enter — open | d — delete | q/Esc — quit)");
         attroff(COLOR_PAIR(5) | A_BOLD);
 
         for (int i = 0; i < count; i++) {
@@ -325,20 +326,63 @@ static char *show_history_picker(void)
             }
         }
 
-        attron(COLOR_PAIR(6));
-        mvprintw(LINES - 1, 2, "No history file? Pass a filename directly: csvview <file.csv>");
-        attroff(COLOR_PAIR(6));
+        if (err_msg[0]) {
+            attron(COLOR_PAIR(11) | A_BOLD);
+            mvprintw(LINES - 1, 2, "%s", err_msg);
+            attroff(COLOR_PAIR(11) | A_BOLD);
+        } else {
+            attron(COLOR_PAIR(6));
+            mvprintw(LINES - 1, 2, "No history file? Pass a filename directly: csvview <file.csv>");
+            attroff(COLOR_PAIR(6));
+        }
 
         refresh();
 
         int ch = getch();
+        err_msg[0] = '\0';   /* clear error on next keypress */
+
         if (ch == KEY_UP   || ch == 'k') { if (sel > 0) sel--; }
         else if (ch == KEY_DOWN || ch == 'j') { if (sel < count - 1) sel++; }
         else if (ch == KEY_HOME) { sel = 0; }
         else if (ch == KEY_END)  { sel = count - 1; }
-        else if (ch == '\n' || ch == KEY_ENTER) {
-            result = strdup(entries[sel]);
-            break;
+        else if (ch == '\n' || ch == KEY_ENTER || ch == '\r') {
+            /* Check file exists before opening */
+            if (access(entries[sel], F_OK) != 0) {
+                snprintf(err_msg, sizeof(err_msg),
+                         "File not found: %s  (removed from history)", entries[sel]);
+                /* Remove entry from in-memory list */
+                free(entries[sel]);
+                for (int i = sel; i < count - 1; i++)
+                    entries[i] = entries[i + 1];
+                count--;
+                if (count == 0) break;           /* list empty — exit */
+                if (sel >= count) sel = count - 1;
+                /* Rewrite history file without the missing entry */
+                FILE *fw = fopen(hist_path, "w");
+                if (fw) {
+                    for (int i = 0; i < count; i++)
+                        fprintf(fw, "%s\n", entries[i]);
+                    fclose(fw);
+                }
+            } else {
+                result = strdup(entries[sel]);
+                break;
+            }
+        }
+        else if (ch == 'd') {
+            /* Manually delete entry from history */
+            free(entries[sel]);
+            for (int i = sel; i < count - 1; i++)
+                entries[i] = entries[i + 1];
+            count--;
+            if (count == 0) break;
+            if (sel >= count) sel = count - 1;
+            FILE *fw = fopen(hist_path, "w");
+            if (fw) {
+                for (int i = 0; i < count; i++)
+                    fprintf(fw, "%s\n", entries[i]);
+                fclose(fw);
+            }
         }
         else if (ch == 27 || ch == 'q' || ch == 'Q') {
             break;
