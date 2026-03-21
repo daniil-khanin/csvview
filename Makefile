@@ -13,6 +13,7 @@ MANDIR   = $(PREFIX)/share/man/man1
 
 OBJDIR   = obj
 SOURCES  = $(wildcard src/*.c)
+HEADERS  = $(wildcard src/*.h)
 OBJECTS  = $(patsubst src/%.c,$(OBJDIR)/%.o,$(SOURCES))
 
 # ── build ──────────────────────────────────────────────
@@ -21,7 +22,7 @@ all: $(TARGET)
 $(TARGET): $(OBJECTS)
 	$(CC) $(OBJECTS) -o $@ $(LDFLAGS)
 
-$(OBJDIR)/%.o: src/%.c | $(OBJDIR)
+$(OBJDIR)/%.o: src/%.c $(HEADERS) | $(OBJDIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(OBJDIR):
