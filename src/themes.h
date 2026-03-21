@@ -36,6 +36,7 @@ const Theme *theme_by_name(const char *name);
 void         theme_apply(const Theme *t);
 void         theme_load_config(void);
 void         theme_save_config(const char *name);
+void         config_save_rn(int val);
 const char  *theme_list_names(void);   /* comma-separated list of names */
 
 #endif /* THEMES_H */

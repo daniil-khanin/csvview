@@ -1905,6 +1905,7 @@ int main(int argc, char *argv[]) {
                 left_col = freeze_cols;
             } else if (strcmp(cmd, "rn") == 0) {
                 relative_line_numbers = !relative_line_numbers;
+                config_save_rn(relative_line_numbers);
                 draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
                 attron(COLOR_PAIR(3));
                 printw(" | Line numbers: %s", relative_line_numbers ? "relative" : "absolute");

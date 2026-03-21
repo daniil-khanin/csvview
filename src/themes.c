@@ -1,5 +1,5 @@
 #include "themes.h"
-#include "csvview_defs.h"   /* GRAPH_COLOR_BASE */
+#include "csvview_defs.h"   /* GRAPH_COLOR_BASE, relative_line_numbers */
 
 #include <ncurses.h>
 #include <stdio.h>
@@ -187,19 +187,20 @@ void theme_load_config(void)
 
     char line[256];
     while (fgets(line, sizeof(line), f)) {
-        /* trim newline */
         line[strcspn(line, "\r\n")] = '\0';
         if (strncmp(line, "theme=", 6) == 0) {
             const Theme *t = theme_by_name(line + 6);
             if (t) current_theme = t;
+        } else if (strncmp(line, "rn=", 3) == 0) {
+            relative_line_numbers = atoi(line + 3);
         }
     }
     fclose(f);
 }
 
-/* ── save ───────────────────────────────────────────────────────────────── */
+/* ── generic key save (rewrite one key, preserve the rest) ─────────────── */
 
-void theme_save_config(const char *name)
+static void config_save_key(const char *key, const char *value)
 {
     char path[1024];
     get_config_path(path, sizeof(path));
@@ -210,24 +211,19 @@ void theme_save_config(const char *name)
     char *slash = strrchr(dir, '/');
     if (slash) {
         *slash = '\0';
-        /* create each level */
         for (char *p = dir + 1; *p; p++) {
-            if (*p == '/') {
-                *p = '\0';
-                mkdir(dir, 0755);
-                *p = '/';
-            }
+            if (*p == '/') { *p = '\0'; mkdir(dir, 0755); *p = '/'; }
         }
         mkdir(dir, 0755);
     }
 
-    /* read existing config to preserve other keys */
+    size_t klen = strlen(key);
     char tmp[4096] = "";
     FILE *f = fopen(path, "r");
     if (f) {
         char line[256];
         while (fgets(line, sizeof(line), f)) {
-            if (strncmp(line, "theme=", 6) == 0) continue;  /* will rewrite */
+            if (strncmp(line, key, klen) == 0 && line[klen] == '=') continue;
             strncat(tmp, line, sizeof(tmp) - strlen(tmp) - 1);
         }
         fclose(f);
@@ -235,9 +231,21 @@ void theme_save_config(const char *name)
 
     f = fopen(path, "w");
     if (!f) return;
-    fprintf(f, "theme=%s\n", name);
+    fprintf(f, "%s=%s\n", key, value);
     if (tmp[0]) fputs(tmp, f);
     fclose(f);
+}
+
+/* ── save ───────────────────────────────────────────────────────────────── */
+
+void theme_save_config(const char *name)
+{
+    config_save_key("theme", name);
+}
+
+void config_save_rn(int val)
+{
+    config_save_key("rn", val ? "1" : "0");
 }
 
 /* ── list ───────────────────────────────────────────────────────────────── */
