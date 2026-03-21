@@ -13,12 +13,82 @@
 #include "filtering.h"
 #include "column_format.h"
 
+#include "csv_mmap.h"
+
 #include <ncurses.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
 #include <wchar.h>           // wcrtomb для Braille
+#include <pthread.h>
+
+/* Inline field extractor — no malloc */
+static void get_field_graph(const char *line, int idx, char *buf, int buf_size)
+{
+    buf[0] = '\0';
+    if (!line || idx < 0) return;
+    int field = 0;
+    const char *p = line;
+    int in_quote = 0;
+    while (*p && field < idx) {
+        if (*p == '"') { in_quote = !in_quote; p++; continue; }
+        if (!in_quote && *p == csv_delimiter) field++;
+        p++;
+    }
+    if (!*p || field != idx) return;
+    char *out = buf, *out_end = buf + buf_size - 1;
+    in_quote = (*p == '"');
+    if (in_quote) p++;
+    while (*p && out < out_end) {
+        if (in_quote) {
+            if (*p == '"') {
+                if (*(p+1) == '"') { *out++ = '"'; p += 2; continue; }
+                break;
+            }
+        } else {
+            if (*p == csv_delimiter || *p == '\n' || *p == '\r') break;
+        }
+        *out++ = *p++;
+    }
+    *out = '\0';
+}
+
+/* Parallel worker for non-aggregate value extraction */
+typedef struct {
+    int  start_i;   /* display index start (including start_row offset) */
+    int  count;
+    int  start_row;
+    int  col;
+    int  row_count;
+    double *values; /* write slice: values[start_i - start_row .. +count] */
+} GraphWorker;
+
+static void *graph_worker_thread(void *arg)
+{
+    GraphWorker *w = arg;
+    char line_buf[MAX_LINE_LEN];
+    char field_buf[256];
+    double *out = w->values + (w->start_i - w->start_row);
+
+    for (int i = 0; i < w->count; i++) {
+        int r = get_real_row(w->start_i + i);
+        if (r < 0 || r >= w->row_count) { out[i] = 0.0; continue; }
+
+        const char *lp;
+        if (g_mmap_base) {
+            lp = csv_mmap_get_line(rows[r].offset, line_buf, sizeof(line_buf));
+            if (!lp) { out[i] = 0.0; continue; }
+        } else if (rows[r].line_cache) {
+            lp = rows[r].line_cache;
+        } else {
+            out[i] = 0.0; continue;
+        }
+        get_field_graph(lp, w->col, field_buf, sizeof(field_buf));
+        out[i] = parse_double(field_buf, NULL);
+    }
+    return NULL;
+}
 
 // ────────────────────────────────────────────────
 // Вспомогательные функции
@@ -151,27 +221,34 @@ double *extract_plot_values(
         double cur_sum = 0.0;
         int agg_idx = -1;
 
+        char agg_line_buf[MAX_LINE_LEN];
+        char agg_date_buf[64], agg_val_buf[64];
         for (int i = start_row; i < display_count + start_row; i++) {
             int r = get_real_row(i);
             if (r < 0 || r >= row_count) continue;
 
-            fseek(f, rows[r].offset, SEEK_SET);
-            char line[MAX_LINE_LEN];
-            if (!fgets(line, sizeof(line), f)) continue;
-            line[strcspn(line, "\n")] = '\0';
-
-            char *date_str = get_column_value(line, column_names[date_col] ? column_names[date_col] : "", use_headers);
-            char *val_str  = get_column_value(line, column_names[col]     ? column_names[col]     : "", use_headers);
-
-            char ym[8] = "";
-            if (date_str && strlen(date_str) >= 7) {
-                strncpy(ym, date_str, 7); ym[7] = '\0';
+            const char *lp;
+            if (g_mmap_base) {
+                lp = csv_mmap_get_line(rows[r].offset, agg_line_buf, sizeof(agg_line_buf));
+                if (!lp) continue;
+            } else if (rows[r].line_cache) {
+                lp = rows[r].line_cache;
+            } else {
+                fseek(f, rows[r].offset, SEEK_SET);
+                if (!fgets(agg_line_buf, sizeof(agg_line_buf), f)) continue;
+                agg_line_buf[strcspn(agg_line_buf, "\n")] = '\0';
+                lp = agg_line_buf;
             }
 
-            double val = parse_double(val_str ? val_str : "0", NULL);
+            get_field_graph(lp, date_col, agg_date_buf, sizeof(agg_date_buf));
+            get_field_graph(lp, col,      agg_val_buf,  sizeof(agg_val_buf));
 
-            free(date_str);
-            free(val_str);
+            char ym[8] = "";
+            if (agg_date_buf[0] && strlen(agg_date_buf) >= 7) {
+                strncpy(ym, agg_date_buf, 7); ym[7] = '\0';
+            }
+
+            double val = parse_double(agg_val_buf, NULL);
 
             if (!ym[0]) continue;
 
@@ -201,21 +278,25 @@ double *extract_plot_values(
         values = malloc(display_count * sizeof(double));
         if (!values) return NULL;
 
-        int collected = 0;
-        for (int i = start_row; i < display_count + start_row && collected < display_count; i++) {
-            int r = get_real_row(i);
-            if (r < 0 || r >= row_count) continue;
-
-            fseek(f, rows[r].offset, SEEK_SET);
-            char line[MAX_LINE_LEN];
-            if (!fgets(line, sizeof(line), f)) continue;
-            line[strcspn(line, "\n")] = '\0';
-
-            char *cell = get_column_value(line, column_names[col] ? column_names[col] : "", use_headers);
-            values[collected++] = parse_double(cell ? cell : "0", NULL);
-            free(cell);
+        int nthreads = (g_mmap_base) ? csv_num_threads() : 1;
+        int chunk = (display_count + nthreads - 1) / nthreads;
+        GraphWorker *gw = calloc(nthreads, sizeof(GraphWorker));
+        pthread_t   *gt = malloc(nthreads * sizeof(pthread_t));
+        for (int t = 0; t < nthreads; t++) {
+            gw[t].start_i   = start_row + t * chunk;
+            gw[t].count     = chunk;
+            if (gw[t].start_i + gw[t].count > start_row + display_count)
+                gw[t].count = start_row + display_count - gw[t].start_i;
+            if (gw[t].count < 0) gw[t].count = 0;
+            gw[t].start_row = start_row;
+            gw[t].col       = col;
+            gw[t].row_count = row_count;
+            gw[t].values    = values;
+            pthread_create(&gt[t], NULL, graph_worker_thread, &gw[t]);
         }
-        point_count = collected;
+        for (int t = 0; t < nthreads; t++) pthread_join(gt[t], NULL);
+        free(gw); free(gt);
+        point_count = display_count;
     }
 
     *out_point_count = point_count;
