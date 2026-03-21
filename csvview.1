@@ -1,4 +1,4 @@
-.TH CSVVIEW 1 "2026-03-12" "csvview 12" "User Commands"
+.TH CSVVIEW 1 "2026-03-21" "csvview 14" "User Commands"
 .SH NAME
 csvview \- fast terminal CSV viewer and editor
 .SH SYNOPSIS
@@ -20,13 +20,23 @@ csvview \- fast terminal CSV viewer and editor
 .B csvview
 is a terminal-based CSV viewer and editor built with ncurses.
 It supports filtering, sorting, pivot tables, graphs, computed columns,
-column statistics, and more \(em with no external dependencies beyond ncurses.
+column statistics, colour themes, and more \(em with no external dependencies
+beyond ncurses.
+Handles files up to 50 million rows using
+.BR mmap (2)
+and parallel processing (up to 8 threads).
 .SH OPTIONS
 .TP
 .BI \-\-sep= CHAR
 Use \fICHAR\fR as the field delimiter. Examples: \fB\-\-sep=\\t\fR (TSV),
 \fB\-\-sep=;\fR, \fB\-\-sep=|\fR.
 File extension is auto-detected: \fI.csv\fR\(->comma, \fI.tsv\fR\(->tab, \fI.psv\fR\(->pipe.
+.TP
+.BI \-\-theme= NAME
+Start with the named colour theme. Available themes:
+.BR dark ", " light ", " tokyonight ", " nord ", " catppuccin .
+The choice is saved to \fI~/.config/csvview/config\fR and remembered for
+future sessions.
 .TP
 .B \-\-cat
 Concatenate multiple CSV files into one, adding a column with the source filename.
@@ -70,19 +80,22 @@ Start simple search
 Next / previous search result
 .TP
 .B f
-Quick filter
+Quick filter (Tab autocompletes column names)
 .TP
 .B Shift+F
-Advanced filter
+Advanced filter (Tab autocompletes column names)
 .TP
 .B Enter
 Edit current cell
+.TP
+.B u
+Undo last cell edit (up to 20 steps)
 .TP
 .B s
 Save file
 .TP
 .B t
-Column settings
+Column settings (type, format, width, hide/show)
 .TP
 .B w / W
 Increase / decrease column width
@@ -91,7 +104,7 @@ Increase / decrease column width
 Auto-fit current column width
 .TP
 .B [ / ]
-Sort ascending / descending
+Sort ascending / descending by current column
 .TP
 .B r / R
 Reset sorting
@@ -99,17 +112,23 @@ Reset sorting
 .B Ctrl+R
 Reload file (keeps filters and sort)
 .TP
+.B Ctrl+G
+Go to row by number (prompts)
+.TP
 .B z
 Freeze / unfreeze columns up to current
 .TP
+.B X
+Hide / show current column (in column settings)
+.TP
 .B d / D
-Column statistics
+Column statistics (sum, mean, median, histogram \(em numeric and date)
 .TP
 .B p / P
-Pivot table
+Pivot table (\fBp\fR reuses saved settings, \fBP\fR always opens settings window)
 .TP
 .B g / G
-Graph for current column
+Graph for current column (line / bar / dot)
 .TP
 .B q / Esc
 Quit
@@ -118,35 +137,94 @@ Quit
 Show help
 .SS Command mode (press \fB:\fR)
 .TP
+.BI : N
+Go to row N (1-based). Example: \fB:1000\fR
+.TP
+.BI :+ N " / " :- N
+Relative jump: N rows down / up from the current row.
+Pairs with \fB:rn\fR relative line numbers to count the offset visually.
+.TP
 .BI :e " [file]"
-Export current view to CSV
+Export current view (with active filter / sort) to CSV.
+Default filename: \fIfiltered.csv\fR / \fIsorted.csv\fR / \fItable.csv\fR.
 .TP
 .BI :dr " N"
-Delete row N (1-based)
+Delete row N (visible 1-based row number).
 .TP
 .BI :cr " name"
-Rename current column
+Rename current column.
 .TP
 .BI :cal " [name]"
-Add column to the left
+Add column to the left of current column.
 .TP
 .BI :car " [name]"
-Add column to the right
+Add column to the right of current column.
 .TP
 .BI :cf " formula"
-Fill / compute column by formula
+Fill / compute column by formula (see
+.B COMPUTED COLUMNS
+below).
 .TP
 .BI :cd " name"
-Delete column
+Delete column (cursor must be on that column).
+.TP
+.BI :cs " [file]"
+Export current column to CSV.
 .TP
 .BI :fz " N"
-Freeze first N columns
+Freeze first N columns (\fB:fz 0\fR unfreezes all).
 .TP
 .B :fs
-Save current filter
+Save current filter to \fIfile.csvf\fR.
 .TP
 .B :fl
-Open saved filters list
+Open saved filters list.
+.TP
+.B :fq
+Quick filter: current column = current cell value (AND).
+.TP
+.B :fqn
+Quick filter: current column != current cell value (AND).
+.TP
+.B :fqo
+Quick filter: current column = current cell value (OR).
+.TP
+.B :fqu
+Reset filter and apply: current column = current cell value.
+.TP
+.B :rn
+Toggle relative line numbers (shows distance from cursor row instead of
+absolute row number). The current row always shows its absolute number.
+.TP
+.BI :theme " [name]"
+Switch colour theme. Without an argument, lists available themes and the
+currently active one. The selection is saved to \fI~/.config/csvview/config\fR.
+.TP
+.B :open
+Close current file and reopen the recent-file picker.
+.SS Graph commands (press \fB:\fR inside graph view)
+.TP
+.BI :gt " type"
+Graph type: \fBbar\fR, \fBline\fR, or \fBdot\fR.
+.TP
+.BI :gt " scale"
+Y-axis scale: \fBlog\fR or \fBlin\fR.
+.TP
+.BI :gc " colour"
+Graph colour: \fBred\fR, \fBgreen\fR, \fBblue\fR, \fByellow\fR, \fBcyan\fR, \fBmagenta\fR, \fBwhite\fR.
+.TP
+.BI :gy " scale"
+Y-axis scale: \fBlog\fR or \fBlinear\fR.
+.TP
+.BI :ga " on\fR|\fBoff"
+Anomaly highlighting (values more than 3\(*s from the mean).
+.TP
+.BI :gx " column\fR|\fBoff"
+Use a date column as the X axis (Tab autocompletes column name).
+\fB:gx off\fR resets to row numbers.
+.TP
+.BI :gp " on\fR|\fBoff"
+Show / hide cursor on data points.
 .SH FILTER SYNTAX
 Filters support: \fB= != > >= < <=\fR, \fBAND\fR, \fBOR\fR, \fB!\fR (NOT).
 .PP
@@ -157,13 +235,26 @@ total > 500
 total >= 100 AND status = paid
 .br
 date >= 2026-01
+.br
+date >= 2025-Q1 AND date <= 2025-Q3
+.br
+! cohort = 2016-04
 .RE
 .PP
-For dates: \fB= 2026-01\fR matches all rows in January 2026.
+Date matching:
+.RS
+\fB= 2026-01\fR \(em all rows in January 2026
+.br
+\fB<= 2025-08\fR \(em up to and including August 2025
+.br
+\fB>= 2025-Q2\fR \(em Q2 2025 and later (quarter format \fBYYYY-Qn\fR)
+.RE
 .SH COMPUTED COLUMNS
 Activated with \fB:cf <expression>\fR on the current column.
 .PP
-Operators: \fB+ \- * / ( )\fR
+Operators: \fB+ \- * / ( )\fR, unary \fB\-\fR
+.br
+Comparisons (inside \fBif()\fR): \fB= != < <= > >=\fR
 .br
 Functions: \fBround\fR, \fBabs\fR, \fBfloor\fR, \fBceil\fR, \fBmod\fR, \fBpow\fR, \fBif\fR, \fBempty\fR
 .br
@@ -172,13 +263,52 @@ Aggregates (filtered rows): \fBcol_sum\fR, \fBcol_avg\fR, \fBcol_min\fR, \fBcol_
 \fBcol_rank\fR, \fBcol_pct\fR
 .br
 Aggregates (whole file): same names with \fB_all\fR suffix
+(e.g.\& \fBcol_sum_all\fR, \fBcol_rank_all\fR)
+.PP
+Examples:
+.RS
+:cf price * qty
+.br
+:cf round((revenue - cost) / revenue * 100, 2)
+.br
+:cf if(qty > 0, revenue / qty, 0)
+.br
+:cf col_pct(revenue)
+.br
+:cf col_rank_all(score)
+.RE
+.SH COLOUR THEMES
+Five built-in themes selectable with \fB:theme\fR or \fB\-\-theme\fR:
+.TP
+.B dark
+Default dark theme.
+.TP
+.B light
+Light theme: white background, black text, yellow highlights, blue cursor.
+.TP
+.B tokyonight
+Tokyo Night \(em dark blue background, blue cursor, yellow accent.
+.TP
+.B nord
+Nord \(em cold grey-blue background, Frost blue cursor, Aurora yellow accent.
+.TP
+.B catppuccin
+Catppuccin Mocha \(em dark background, mauve cursor, peach accent.
+.PP
+Falls back to 8 basic colours on terminals with fewer than 256 colours.
 .SH FILES
 .TP
 .I ~/.csvview_history
-Recent files list (max 20 entries). Opened automatically when csvview is run with no arguments.
+Recent files list (max 20 entries).
+Opened automatically when csvview is run with no arguments or via \fB:open\fR.
+.TP
+.I ~/.config/csvview/config
+User configuration. Currently stores \fBtheme=\fIname\fR.
+Respects \fB$XDG_CONFIG_HOME\fR if set.
 .TP
 .I file.csvf
-Per-file settings: column types, formats, widths, hidden columns, freeze count, saved filters.
+Per-file settings: column types, formats, widths, hidden columns,
+freeze count, saved filters.
 .TP
 .I file.pivot
 Saved pivot table settings for the file.
@@ -187,17 +317,25 @@ Saved pivot table settings for the file.
 Open a CSV file:
 .B csvview data.csv
 .TP
+Open with Tokyo Night theme:
+.B csvview \-\-theme=tokyonight data.csv
+.TP
 Open a TSV file:
 .B csvview data.tsv
 .TP
 Open with semicolon delimiter:
 .B csvview \-\-sep=; data.csv
 .TP
+Jump to row 5000 then 200 rows further down:
+.B :5000
+then
+.B :+200
+.TP
 Merge files with source column:
 .B csvview \-\-cat \-\-column=source \-\-output=merged.csv jan.csv feb.csv mar.csv
 .TP
 Split by region column:
-.B csvview \-\-split \-\-by=region \-\-output-dir=splits data.csv
+.B csvview \-\-split \-\-by=region \-\-output\-dir=splits data.csv
 .SH AUTHORS
 Daniil Khanin
 .SH LICENSE
