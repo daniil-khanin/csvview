@@ -1,4 +1,4 @@
-.TH CSVVIEW 1 "2026-03-21" "csvview 14" "User Commands"
+.TH CSVVIEW 1 "2026-03-21" "csvview 15" "User Commands"
 .SH NAME
 csvview \- fast terminal CSV viewer and editor
 .SH SYNOPSIS
@@ -13,6 +13,10 @@ csvview \- fast terminal CSV viewer and editor
 .BR \-\-split
 .B \-\-by=\fICOLUMN\fR
 [\fB\-\-output\-dir=\fIDIR\fR] [\fB\-\-drop\-col\fR] \fIfile\fR
+.br
+.B csvview
+.BR \-\-dedup
+[\fB\-\-by=\fIcol1,col2\fR] [\fB\-\-keep=\fIfirst\fR|\fIlast\fR] [\fB\-\-output=\fIFILE\fR] \fIfile\fR
 .br
 .B csvview
 (no arguments \(em opens recent file picker)
@@ -46,6 +50,13 @@ Column name for the source filename in \fB\-\-cat\fR mode (default: \fIsource_fi
 .TP
 .BI \-\-output= FILE
 Output filename for \fB\-\-cat\fR mode (default: \fImerged_YYYYMMDD_HHMMSS.csv\fR).
+.TP
+.B \-\-dedup
+Remove duplicate rows from a CSV file.
+By default keeps the first occurrence of each duplicate.
+.TP
+.BI \-\-keep= first | last
+Which occurrence to keep when deduplicating (default: \fBfirst\fR).
 .TP
 .B \-\-split
 Split a CSV file into multiple files, one per unique value of a column.
@@ -173,6 +184,12 @@ Export current column to CSV.
 .TP
 .BI :fz " N"
 Freeze first N columns (\fB:fz 0\fR unfreezes all).
+.TP
+.BI :dedup " [col1,col2] [--keep=last]"
+Hide duplicate rows, keeping only unique combinations of the specified columns
+(or all columns if none given).
+The result is applied as a filter; use \fB:e\fR to export deduplicated data.
+\fB\-\-keep=last\fR retains the last occurrence instead of the first.
 .TP
 .B :fs
 Save current filter to \fIfile.csvf\fR.
@@ -336,6 +353,18 @@ Merge files with source column:
 .TP
 Split by region column:
 .B csvview \-\-split \-\-by=region \-\-output\-dir=splits data.csv
+.TP
+Remove fully duplicate rows:
+.B csvview \-\-dedup data.csv
+.TP
+Deduplicate by email column, keep last occurrence:
+.B csvview \-\-dedup \-\-by=email \-\-keep=last \-\-output=clean.csv data.csv
+.TP
+Deduplicate interactively by two columns:
+.B :dedup country,city
+.TP
+Deduplicate interactively, keep last:
+.B :dedup id \-\-keep=last
 .SH AUTHORS
 Daniil Khanin
 .SH LICENSE

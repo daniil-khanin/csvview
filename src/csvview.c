@@ -25,6 +25,7 @@
 #include "help.h"
 #include "concat_files.h"
 #include "split_file.h"
+#include "dedup.h"
 #include "csv_mmap.h"
 #include "themes.h"
 
@@ -444,6 +445,9 @@ int main(int argc, char *argv[]) {
     int concat_mode = 0;
     int split_mode  = 0;
     int split_drop  = 0;
+    int dedup_mode  = 0;
+    int dedup_keep_last = 0;
+    char *dedup_by      = NULL;
     char *concat_column = NULL;
     char *split_by      = NULL;
     char *output_dir    = NULL;
@@ -456,10 +460,17 @@ int main(int argc, char *argv[]) {
             concat_mode = 1;
         } else if (strcmp(argv[i], "--split") == 0) {
             split_mode = 1;
+        } else if (strcmp(argv[i], "--dedup") == 0) {
+            dedup_mode = 1;
+        } else if (strcmp(argv[i], "--keep=last") == 0) {
+            dedup_keep_last = 1;
+        } else if (strcmp(argv[i], "--keep=first") == 0) {
+            dedup_keep_last = 0;
         } else if (strcmp(argv[i], "--drop-col") == 0) {
             split_drop = 1;
         } else if (strncmp(argv[i], "--by=", 5) == 0) {
-            split_by = argv[i] + 5;
+            split_by   = argv[i] + 5;
+            dedup_by   = argv[i] + 5;
         } else if (strncmp(argv[i], "--output-dir=", 13) == 0) {
             output_dir = argv[i] + 13;
         } else if (strncmp(argv[i], "--column=", 9) == 0) {
@@ -498,6 +509,25 @@ int main(int argc, char *argv[]) {
             return 1;
         }
         int ret = split_file(input_files[0], split_by, output_dir, split_drop);
+        free(input_files);
+        return ret;
+    }
+
+    if (dedup_mode) {
+        if (input_count == 0) {
+            fprintf(stderr, "Error: --dedup requires an input file\n");
+            fprintf(stderr, "Usage: csvview --dedup [--by=col1,col2] [--keep=last] [--output=file.csv] input.csv\n");
+            free(input_files);
+            return 1;
+        }
+        /* auto-detect delimiter from extension if not set via --sep */
+        const char *ext = strrchr(input_files[0], '.');
+        if (ext) {
+            if (strcmp(ext, ".tsv") == 0) csv_delimiter = '\t';
+            else if (strcmp(ext, ".psv") == 0) csv_delimiter = '|';
+        }
+        int ret = dedup_file(input_files[0], dedup_by, dedup_keep_last,
+                             user_output, csv_delimiter);
         free(input_files);
         return ret;
     }
@@ -1845,6 +1875,54 @@ int main(int argc, char *argv[]) {
                 fclose(f);
                 endwin();
                 return 0;
+            } else if (strcmp(cmd, "dedup") == 0) {
+                /* :dedup [col1,col2] [--keep=last]
+                 * Applies deduplication as a filter on the current view. */
+                const char *by_cols   = NULL;
+                int         keep_last = 0;
+                char        cols_buf[256] = "";
+
+                if (arg && *arg) {
+                    /* split arg into tokens: extract --keep= flag and column list */
+                    char tmp[256];
+                    strncpy(tmp, arg, sizeof(tmp)-1);
+                    tmp[sizeof(tmp)-1] = '\0';
+                    char *tok = strtok(tmp, " ");
+                    while (tok) {
+                        if (strcmp(tok, "--keep=last") == 0)       keep_last = 1;
+                        else if (strcmp(tok, "--keep=first") == 0) keep_last = 0;
+                        else {
+                            if (cols_buf[0]) strncat(cols_buf, ",", sizeof(cols_buf)-strlen(cols_buf)-1);
+                            strncat(cols_buf, tok, sizeof(cols_buf)-strlen(cols_buf)-1);
+                        }
+                        tok = strtok(NULL, " ");
+                    }
+                    if (cols_buf[0]) by_cols = cols_buf;
+                }
+
+                int new_count = 0, removed = 0;
+                int *new_filter = dedup_make_filter(by_cols, keep_last, &new_count, &removed);
+                if (!new_filter) {
+                    draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
+                    attron(COLOR_PAIR(11));
+                    printw(" | :dedup — column not found");
+                    attroff(COLOR_PAIR(11));
+                    refresh();
+                } else {
+                    free(filtered_rows);
+                    filtered_rows   = new_filter;
+                    filtered_count  = new_count;
+                    filter_active   = 1;
+                    cur_display_row = 0;
+                    top_display_row = 0;
+
+                    draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
+                    attron(COLOR_PAIR(3));
+                    printw(" | Dedup: %d rows kept, %d duplicates hidden (use :e to export)",
+                           new_count, removed);
+                    attroff(COLOR_PAIR(3));
+                    refresh();
+                }
             } else if (strcmp(cmd, "open") == 0) {
                 /* Close current file and reopen file history picker */
                 endwin();
