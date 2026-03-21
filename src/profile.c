@@ -1,5 +1,10 @@
 #include "profile.h"
+#include "csvview_defs.h"
+#include "csv_mmap.h"
+#include "sorting.h"
+#include "ui_draw.h"
 
+#include <ncurses.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -394,4 +399,315 @@ int profile_file(const char *input_path, char sep)
     free(outliers);
     free(linebuf);
     return 0;
+}
+
+/* ── TUI profile window ──────────────────────────────────────────────────── */
+
+void show_profile_window(void)
+{
+    if (col_count == 0) return;
+
+    int scr_h = getmaxy(stdscr);
+    int scr_w = getmaxx(stdscr);
+
+    /* ── compute stats from loaded data ── */
+
+    int display_count;
+    if (filter_active)      display_count = filtered_count;
+    else if (sort_col >= 0) display_count = sorted_count;
+    else                    display_count = row_count - (use_headers ? 1 : 0);
+
+    ColAcc *acc = calloc(col_count, sizeof(ColAcc));
+    for (int c = 0; c < col_count; c++) {
+        acc[c].num_min = INFINITY;
+        acc[c].num_max = -INFINITY;
+        acc[c].freq    = fmap_new();
+    }
+
+    /* pass 1 */
+    char linebuf[MAX_LINE_LEN];
+    char val[512];
+
+    attron(COLOR_PAIR(3));
+    mvprintw(scr_h - 1, 1, " Profile: scanning...   0%%  ");
+    attroff(COLOR_PAIR(3));
+    refresh();
+
+    for (int d = 0; d < display_count; d++) {
+        int real_row = get_real_row(d);
+        const char *line = rows[real_row].line_cache;
+        if (!line && g_mmap_base) {
+            char *ml = csv_mmap_get_line(rows[real_row].offset, linebuf, sizeof(linebuf));
+            if (ml && !rows[real_row].line_cache)
+                rows[real_row].line_cache = strdup(linebuf);
+            line = ml ? linebuf : "";
+        }
+        if (!line) continue;
+
+        for (int c = 0; c < col_count; c++) {
+            get_field(line, c, csv_delimiter, val, sizeof(val));
+            if (!*val) { acc[c].nulls++; continue; }
+            acc[c].total++;
+            if (is_number(val)) {
+                acc[c].num_ok++;
+                double v = atof(val);
+                acc[c].num_count++;
+                double delta = v - acc[c].num_mean;
+                acc[c].num_mean += delta / acc[c].num_count;
+                acc[c].num_M2   += delta * (v - acc[c].num_mean);
+                if (v < acc[c].num_min) acc[c].num_min = v;
+                if (v > acc[c].num_max) acc[c].num_max = v;
+            } else if (is_date(val)) {
+                acc[c].date_ok++;
+            }
+            fmap_add(acc[c].freq, val);
+        }
+
+        if (d % 100000 == 0 && display_count > 0) {
+            int pct = (int)(100LL * d / display_count);
+            attron(COLOR_PAIR(3));
+            mvprintw(scr_h - 1, 1, " Profile: scanning... %3d%%  ", pct);
+            attroff(COLOR_PAIR(3));
+            refresh();
+        }
+    }
+
+    /* pass 2: outliers */
+    long *outliers = calloc(col_count, sizeof(long));
+    double tlo[MAX_COLS], thi[MAX_COLS];
+    int has_numeric = 0;
+
+    for (int c = 0; c < col_count; c++) {
+        long nz = acc[c].total;
+        if (nz == 0) continue;
+        if ((acc[c].num_ok * 100 / nz) < 80) continue;
+        has_numeric = 1;
+        double sd = acc[c].num_count > 1
+                    ? sqrt(acc[c].num_M2 / (acc[c].num_count - 1)) : 0.0;
+        tlo[c] = acc[c].num_mean - 3.0 * sd;
+        thi[c] = acc[c].num_mean + 3.0 * sd;
+    }
+
+    if (has_numeric) {
+        attron(COLOR_PAIR(3));
+        mvprintw(scr_h - 1, 1, " Profile: outliers...   0%%  ");
+        attroff(COLOR_PAIR(3));
+        refresh();
+
+        for (int d = 0; d < display_count; d++) {
+            int real_row = get_real_row(d);
+            const char *line = rows[real_row].line_cache;
+            if (!line && g_mmap_base) {
+                char *ml = csv_mmap_get_line(rows[real_row].offset, linebuf, sizeof(linebuf));
+                line = ml ? linebuf : "";
+            }
+            if (!line) continue;
+            for (int c = 0; c < col_count; c++) {
+                long nz = acc[c].total;
+                if (nz == 0 || (acc[c].num_ok * 100 / nz) < 80) continue;
+                get_field(line, c, csv_delimiter, val, sizeof(val));
+                if (!*val) continue;
+                double v = atof(val);
+                if (v < tlo[c] || v > thi[c]) outliers[c]++;
+            }
+            if (d % 100000 == 0 && display_count > 0) {
+                int pct = (int)(100LL * d / display_count);
+                attron(COLOR_PAIR(3));
+                mvprintw(scr_h - 1, 1, " Profile: outliers... %3d%%  ", pct);
+                attroff(COLOR_PAIR(3));
+                refresh();
+            }
+        }
+    }
+
+    /* ── pre-build display lines ── */
+
+    /* max column name length (capped at 20) */
+    int max_name = 6;
+    for (int c = 0; c < col_count; c++) {
+        int l = column_names[c] ? (int)strlen(column_names[c]) : 0;
+        if (l > max_name) max_name = l;
+    }
+    if (max_name > 20) max_name = 20;
+
+    /* stats column width = whatever is left */
+    int stats_col = scr_w - 4 - max_name - 2 - 7 - 2 - 8 - 4;
+    if (stats_col < 20) stats_col = 20;
+
+    /* header + separator + one line per column */
+    int total_lines = col_count + 2;
+    char **lines   = malloc(total_lines * sizeof(char *));
+    int   *colors  = malloc(total_lines * sizeof(int));   /* color pair per line */
+    int   *bolds   = malloc(total_lines * sizeof(int));
+
+    /* line 0: column header */
+    char hdr[256];
+    snprintf(hdr, sizeof(hdr), " %3s  %-*s  %-7s  %6s  %8s   %s",
+             "#", max_name, "Column", "Type", "Nulls%", "Unique", "Stats");
+    lines[0]  = strdup(hdr);
+    colors[0] = 5;  /* secondary accent */
+    bolds[0]  = 1;
+
+    /* line 1: separator */
+    char sep_line[256];
+    int sl = scr_w - 4;
+    if (sl > 255) sl = 255;
+    for (int i = 0; i < sl; i++) sep_line[i] = '-';
+    sep_line[sl] = '\0';
+    lines[1]  = strdup(sep_line);
+    colors[1] = 6;  /* dimmed */
+    bolds[1]  = 0;
+
+    for (int c = 0; c < col_count; c++) {
+        long nz  = acc[c].total;
+        long tot = nz + acc[c].nulls;
+        if (tot == 0) tot = 1;
+
+        const char *type_str;
+        if (nz == 0)                                  type_str = "empty";
+        else if ((acc[c].num_ok  * 100 / nz) >= 80)  type_str = "number";
+        else if ((acc[c].date_ok * 100 / nz) >= 80)  type_str = "date";
+        else                                           type_str = "string";
+
+        double null_pct = 100.0 * acc[c].nulls / tot;
+
+        char uniq_str[32];
+        if (acc[c].freq->capped)
+            snprintf(uniq_str, sizeof(uniq_str), "%dk+", FREQ_CAP / 1000);
+        else
+            fmt_count(acc[c].freq->entries, uniq_str, sizeof(uniq_str));
+
+        char name_trunc[21];
+        snprintf(name_trunc, sizeof(name_trunc), "%s",
+                 column_names[c] ? column_names[c] : "");
+
+        char stats_buf[256] = "";
+        if (strcmp(type_str, "number") == 0) {
+            double sd = acc[c].num_count > 1
+                        ? sqrt(acc[c].num_M2 / (acc[c].num_count - 1)) : 0.0;
+            char smin[20], smax[20], smean[20], sstd[20];
+            snprintf(smin,  sizeof(smin),  "%g", acc[c].num_min);
+            snprintf(smax,  sizeof(smax),  "%g", acc[c].num_max);
+            snprintf(smean, sizeof(smean), "%g", acc[c].num_mean);
+            snprintf(sstd,  sizeof(sstd),  "%g", sd);
+            if (outliers[c] > 0) {
+                char ob[16]; fmt_count(outliers[c], ob, sizeof(ob));
+                snprintf(stats_buf, sizeof(stats_buf),
+                         "min=%-9s max=%-9s mean=%-9s s=%-7s [%s >3s]",
+                         smin, smax, smean, sstd, ob);
+            } else {
+                snprintf(stats_buf, sizeof(stats_buf),
+                         "min=%-9s max=%-9s mean=%-9s s=%s",
+                         smin, smax, smean, sstd);
+            }
+        } else {
+            char *top_keys[TOP_N];
+            long  top_counts[TOP_N];
+            int   ntop = fmap_top(acc[c].freq, TOP_N, top_keys, top_counts);
+            int   pos  = 0;
+            for (int i = 0; i < ntop && pos < (int)sizeof(stats_buf) - 32; i++) {
+                char cb[12]; fmt_count(top_counts[i], cb, sizeof(cb));
+                char vt[17];
+                snprintf(vt, sizeof(vt), "%s", top_keys[i]);
+                int written = snprintf(stats_buf + pos, sizeof(stats_buf) - pos,
+                                       "%s%s(%s)", i > 0 ? "  " : "", vt, cb);
+                if (written > 0) pos += written;
+            }
+        }
+
+        char row_buf[512];
+        snprintf(row_buf, sizeof(row_buf),
+                 " %3d  %-*s  %-7s  %5.1f%%  %8s   %s",
+                 c + 1, max_name, name_trunc, type_str, null_pct, uniq_str, stats_buf);
+
+        lines[c + 2]  = strdup(row_buf);
+        /* color by type */
+        if (strcmp(type_str, "number") == 0)
+            colors[c + 2] = outliers[c] > 0 ? 11 : 3;   /* anomaly or accent */
+        else if (strcmp(type_str, "date") == 0)
+            colors[c + 2] = 5;   /* secondary accent */
+        else
+            colors[c + 2] = 1;   /* normal */
+        bolds[c + 2] = 0;
+    }
+
+    /* ── show window ── */
+
+    int win_h = scr_h - 2;
+    int win_w = scr_w - 2;
+    int win_y = 1, win_x = 1;
+
+    WINDOW *win = newwin(win_h, win_w, win_y, win_x);
+    wbkgd(win, COLOR_PAIR(1));
+    keypad(win, TRUE);
+
+    int visible = win_h - 3;   /* lines available for content */
+    int top     = 0;
+    char row_str[32];
+    fmt_count((long)display_count, row_str, sizeof(row_str));
+
+    while (1) {
+        werase(win);
+        box(win, 0, 0);
+
+        /* title */
+        wattron(win, COLOR_PAIR(3) | A_BOLD);
+        mvwprintw(win, 0, (win_w - 18) / 2, " Data Profile ");
+        wattroff(win, COLOR_PAIR(3) | A_BOLD);
+
+        /* subtitle: row count + filter info */
+        wattron(win, COLOR_PAIR(6));
+        if (filter_active)
+            mvwprintw(win, 0, 2, " %s rows (filtered) x %d cols ", row_str, col_count);
+        else
+            mvwprintw(win, 0, 2, " %s rows x %d cols ", row_str, col_count);
+        wattroff(win, COLOR_PAIR(6));
+
+        /* content */
+        for (int i = 0; i < visible && (top + i) < total_lines; i++) {
+            int li = top + i;
+            if (bolds[li]) wattron(win, COLOR_PAIR(colors[li]) | A_BOLD);
+            else            wattron(win, COLOR_PAIR(colors[li]));
+            mvwprintw(win, 1 + i, 1, "%-*s", win_w - 2, lines[li]);
+            if (bolds[li]) wattroff(win, COLOR_PAIR(colors[li]) | A_BOLD);
+            else            wattroff(win, COLOR_PAIR(colors[li]));
+        }
+
+        /* footer */
+        wattron(win, COLOR_PAIR(6));
+        mvwprintw(win, win_h - 1, 2,
+                  "j/k arrow — scroll  |  PgUp/PgDn — page  |  q/Esc — close");
+        wattroff(win, COLOR_PAIR(6));
+
+        /* scroll indicator */
+        if (total_lines > visible) {
+            int pct = (int)(100LL * top / (total_lines - visible));
+            wattron(win, COLOR_PAIR(6));
+            mvwprintw(win, win_h - 1, win_w - 8, " %3d%% ", pct);
+            wattroff(win, COLOR_PAIR(6));
+        }
+
+        wrefresh(win);
+
+        int ch = wgetch(win);
+        if (ch == 'q' || ch == 'Q' || ch == 27) break;
+        else if (ch == KEY_UP   || ch == 'k') { if (top > 0) top--; }
+        else if (ch == KEY_DOWN || ch == 'j') { if (top < total_lines - visible) top++; }
+        else if (ch == KEY_PPAGE) { top -= visible; if (top < 0) top = 0; }
+        else if (ch == KEY_NPAGE) { top += visible; if (top > total_lines - visible) top = total_lines - visible; if (top < 0) top = 0; }
+        else if (ch == KEY_HOME) top = 0;
+        else if (ch == KEY_END)  top = total_lines - visible; if (top < 0) top = 0;
+    }
+
+    delwin(win);
+    touchwin(stdscr);
+    refresh();
+
+    for (int i = 0; i < total_lines; i++) free(lines[i]);
+    free(lines);
+    free(colors);
+    free(bolds);
+    for (int c = 0; c < col_count; c++) fmap_free(acc[c].freq);
+    free(acc);
+    free(outliers);
 }

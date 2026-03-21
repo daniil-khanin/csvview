@@ -1869,6 +1869,9 @@ int main(int argc, char *argv[]) {
             // статистика столбца
             show_column_stats(cur_col);
         }
+        else if (ch == '\\') {  /* \ — data profile for all columns */
+            show_profile_window();
+        }
         else if (ch == 'm') {  /* set bookmark: m<a-z> */
             int label = getch();
             if (label >= 'a' && label <= 'z') {
@@ -2017,6 +2020,8 @@ int main(int argc, char *argv[]) {
                 /* execlp only returns on error */
                 fprintf(stderr, "Cannot reopen: %s\n", program_path);
                 return 1;
+            } else if (strcmp(cmd, "profile") == 0) {
+                show_profile_window();
             } else if (strcmp(cmd, "theme") == 0) {
                 if (arg && *arg) {
                     const Theme *t = theme_by_name(arg);
