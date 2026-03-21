@@ -1910,15 +1910,25 @@ int main(int argc, char *argv[]) {
         else if (ch == '\\') {  /* \ — data profile for all columns */
             show_profile_window();
         }
-        else if (ch == 'm') {  /* set bookmark: m<a-z> */
+        else if (ch == 'm') {  /* set/clear bookmark: m<a-z> */
             int label = getch();
             if (label >= 'a' && label <= 'z') {
-                bookmarks[label - 'a'] = get_real_row(cur_display_row);
-                save_column_settings(file_to_open);
+                int bi = label - 'a';
+                int cur_real = get_real_row(cur_display_row);
                 draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
-                attron(COLOR_PAIR(3));
-                printw(" | Bookmark '%c' set at row %d", label, cur_display_row + 1);
-                attroff(COLOR_PAIR(3));
+                if (bookmarks[bi] == cur_real) {
+                    /* toggle: already on this bookmark → clear it */
+                    bookmarks[bi] = -1;
+                    attron(COLOR_PAIR(6));
+                    printw(" | Bookmark '%c' cleared", label);
+                    attroff(COLOR_PAIR(6));
+                } else {
+                    bookmarks[bi] = cur_real;
+                    attron(COLOR_PAIR(3));
+                    printw(" | Bookmark '%c' set at row %d", label, cur_display_row + 1);
+                    attroff(COLOR_PAIR(3));
+                }
+                save_column_settings(file_to_open);
                 refresh();
             }
         }
@@ -2197,6 +2207,22 @@ int main(int argc, char *argv[]) {
                 delete_column(cur_col, arg, file_to_open);
                 cur_col = 0;
                 left_col = freeze_cols;
+            } else if (strcmp(cmd, "dm") == 0 && arg && arg[0] >= 'a' && arg[0] <= 'z') {
+                int bi = arg[0] - 'a';
+                if (bookmarks[bi] >= 0) {
+                    bookmarks[bi] = -1;
+                    save_column_settings(file_to_open);
+                    draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
+                    attron(COLOR_PAIR(3));
+                    printw(" | Bookmark '%c' deleted", arg[0]);
+                    attroff(COLOR_PAIR(3));
+                } else {
+                    draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
+                    attron(COLOR_PAIR(11));
+                    printw(" | No bookmark '%c'", arg[0]);
+                    attroff(COLOR_PAIR(11));
+                }
+                refresh();
             } else if (strcmp(cmd, "rn") == 0) {
                 relative_line_numbers = !relative_line_numbers;
                 config_save_rn(relative_line_numbers);

@@ -37,6 +37,8 @@ void show_help(int use_ncurses)
         "  csvview --help (or -h, -?, /h)  Show this help",
         "  csvview --cat [--column=NAME] [--output=FILE] file1 file2 ...",
         "  csvview --split --by=<column> [--output-dir=<dir>] [--drop-col] file",
+        "  csvview --profile file.csv      Data quality report (stdout)",
+        "  csvview --dedup [--by=col1,col2] [--keep=first|last] [--output=file] file.csv",
         "",
         "File format auto-detection:",
         "  .csv -> comma   .tsv -> tab   .psv -> pipe   other -> use --sep",
@@ -61,6 +63,7 @@ void show_help(int use_ncurses)
         "  Ctrl+G               Go to row by number (prompts for row number)",
         "  z                    Freeze / unfreeze columns up to current column",
         "  d / D                Show column statistics",
+        "  \\                    Show data profile (type, nulls, unique, stats per column)",
         "  p                    Pivot table (apply saved or open settings)",
         "  P                    Pivot table — always open settings window",
         "  g / G                Graph for current column",
@@ -86,6 +89,8 @@ void show_help(int use_ncurses)
         "  :fz N                Freeze first N columns (:fz 0 = unfreeze all)",
         "  :open                Open file history picker (replaces current file)",
         "  :rn                  Toggle relative line numbers (distance from cursor)",
+        "  :profile             Show data quality profile window (same as \\)",
+        "  :dedup [cols] [--keep=last]  Remove duplicate rows (by all or specified columns)",
         "",
         "Filter quick commands (: then command):",
         "  :fs                  Save current filter",
@@ -95,6 +100,16 @@ void show_help(int use_ncurses)
         "  :fqo                 column = \"current cell value\" (OR)",
         "  :fqno                column != \"current cell value\" (OR)",
         "  :fqu                 column = \"current cell value\" (reset previous filter)",
+        "",
+        "Bookmarks (vim-style):",
+        "  m<a-z>               Set bookmark at current row",
+        "                       Press same letter again on the bookmarked row → clears it",
+        "  '<a-z>               Jump to bookmark (if hidden by filter: prompts to clear)",
+        "  ]b                   Jump to next bookmark (by row order)",
+        "  [b                   Jump to previous bookmark",
+        "  :dm <letter>         Delete bookmark by letter (e.g.  :dm a)",
+        "  Bookmarks are saved in <yourfile.csv>.csvf (line: mark: a 1236)",
+        "  Gutter shows bookmark letter next to line number when any bookmark is set",
         "",
         "Theme:",
         "  :theme <name>        Switch colour theme (saved to ~/.config/csvview/config)",
@@ -298,6 +313,7 @@ void show_help(int use_ncurses)
                     strstr(text, "Split mode (--split):") ||
                     strstr(text, "Graph mode (g):") ||
                     strstr(text, "Concat mode (--cat):") ||
+                    strstr(text, "Bookmarks (vim-style):") ||
                     strstr(text, "File history (csvview with no arguments):") ||
                     strstr(text, "On first launch (no .csvf file):"))
                 {
