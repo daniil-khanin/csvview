@@ -397,7 +397,7 @@ static void hist_fmt_number(long n, char *buf, int size)
 
 /* ─── Preview helpers for history picker ─────── */
 #define PREV_ROWS  40
-#define PREV_LINE  512
+#define PREV_LINE  8192
 #define PREV_COLS  60
 
 typedef struct {
@@ -600,7 +600,7 @@ static char *show_history_picker(void)
     const int name_x = rows_x + 10 + 2;
 
     int sel = 0, top_idx = 0, prev_sel = -1;
-    PrevCache pc;
+    static PrevCache pc;
     memset(&pc, 0, sizeof(pc));
     char *result = NULL;
     char err_msg[512] = "";
