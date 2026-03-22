@@ -11,16 +11,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#include <sys/stat.h>
 
 /* ── ANSI helpers ───────────────────────────────────────────── */
 #define RST  "\033[0m"
 #define BOLD "\033[1m"
 #define DIM  "\033[2m"
+#define REV  "\033[7m"
 #define CYN  "\033[1;36m"
 #define YEL  "\033[1;33m"
-#define GRN  "\033[1;32m"
-#define WHT  "\033[1;37m"
-#define DWH  "\033[2;37m"
 
 /* one colour per letter C S V V I E W */
 static const char *LC[] = {
@@ -33,16 +32,35 @@ static const char *LC[] = {
     "\033[1;37m",   /* W — white   */
 };
 
-/* ── Variant A: bar chart ───────────────────────────────────── */
-static void show_barchart(void)
+/* format binary size into buf (e.g. "264 KB", "1.3 MB") */
+static void fmt_binary_size(const char *path, char *buf, int buflen)
 {
+    struct stat st;
+    if (!path || stat(path, &st) != 0) {
+        snprintf(buf, buflen, "?");
+        return;
+    }
+    long sz = (long)st.st_size;
+    if (sz < 1024)
+        snprintf(buf, buflen, "%ld B", sz);
+    else if (sz < 1024 * 1024)
+        snprintf(buf, buflen, "%ld KB", sz / 1024);
+    else
+        snprintf(buf, buflen, "%.1f MB", sz / (1024.0 * 1024.0));
+}
+
+/* ── Variant A: bar chart ───────────────────────────────────── */
+static void show_barchart(const char *binary_path)
+{
+    char sz[16];
+    fmt_binary_size(binary_path, sz, sizeof(sz));
+
     /* bar heights 1–10, one per letter */
     int  h[]  = { 5,   8,   10,  3,   6,   7,   9  };
-    /* labels above each bar — v?? is filled at runtime */
     char ver[8];
     snprintf(ver, sizeof(ver), "v%d", CSVVIEW_VERSION);
-    const char *lbl[] = { "702", "fast", "50M", ver, "MIT", ".csv", "264K" };
-    const char *let[] = { "C",   "S",   "V",   "V", "I",   "E",   "W"   };
+    const char *lbl[] = { "702", "fast", "50M", ver, "MIT", ".csv", sz };
+    const char *let[] = { "C",   "S",   "V",   "V", "I",   "E",   "W" };
     int n = 7, max_h = 10;
 
     printf("\n");
@@ -66,9 +84,7 @@ static void show_barchart(void)
     }
 
     /* baseline */
-    printf("   " DIM
-           "─────────────────────────────────────"
-           RST "\n");
+    printf("   " DIM "─────────────────────────────────────" RST "\n");
 
     /* letter labels */
     printf("   ");
@@ -100,18 +116,19 @@ static void show_scanner(void)
 
     printf("\n");
 
-    /* table header — bold default fg, readable on any theme */
+    /* header — bold, readable on any theme */
     printf("  " BOLD "│ %-12s │ %7s │ %-10s │ %-8s │" RST "\n",
            "file", "rows", "date", "size");
-    printf("  " DIM  "│──────────────│─────────│────────────│──────────│" RST "\n");
+    /* separator — default fg to match data rows */
+    printf("  │──────────────│─────────│────────────│──────────│\n");
 
     /* data rows */
     for (int r = 0; r < nrows; r++) {
         if (r == scan) {
-            /* reverse video: inverts fg/bg — always visible on any theme */
+            /* reverse video covers full row including │ borders */
             printf(YEL "▶▶" RST
-                   "\033[7m" BOLD
-                   " %-12s │ %7s │ %-10s │ %-8s "
+                   REV BOLD
+                   "│ %-12s │ %7s │ %-10s │ %-8s │"
                    RST YEL "◀◀" RST "\n",
                    file[r], rows[r], date[r], size[r]);
         } else {
@@ -134,11 +151,11 @@ static void show_scanner(void)
 }
 
 /* ── Public entry point ─────────────────────────────────────── */
-void show_version(void)
+void show_version(const char *binary_path)
 {
     srand((unsigned int)time(NULL));
     if (rand() % 2 == 0)
-        show_barchart();
+        show_barchart(binary_path);
     else
         show_scanner();
 }
