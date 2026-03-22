@@ -103,7 +103,7 @@ static void show_scanner(void)
     /* table header */
     printf("  " DWH "│ %-12s │ %7s │ %-10s │ %-8s │" RST "\n",
            "file", "rows", "date", "size");
-    printf("  " DWH "│─────────────│────────│────────────│──────────│" RST "\n");
+    printf("  " DWH "│──────────────│─────────│────────────│──────────│" RST "\n");
 
     /* data rows */
     for (int r = 0; r < nrows; r++) {
