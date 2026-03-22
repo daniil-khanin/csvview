@@ -111,7 +111,7 @@ void save_column_settings(const char *csv_filename);
  * @param csv_filename  Имя исходного CSV-файла
  * @return 1 — полный успех, 2 — частичный (col_count изменился, глобальные настройки применены), 0 — файл не найден
  */
-void preload_delimiter(const char *csv_filename);
+int  preload_delimiter(const char *csv_filename);  /* returns 1 if skip_comments was set explicitly */
 int load_column_settings(const char *csv_filename);
 
 /**

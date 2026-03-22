@@ -1133,7 +1133,18 @@ int main(int argc, char *argv[]) {
     }
 
     // Pre-load delimiter and skip_comments from .csvf before building row index
-    preload_delimiter(file_to_open);
+    int skip_comments_explicit = preload_delimiter(file_to_open);
+
+    // Auto-detect comment lines if not explicitly set in .csvf
+    if (!skip_comments_explicit && !skip_comments) {
+        fseek(f, 0, SEEK_SET);
+        char peek[512];
+        while (fgets(peek, sizeof(peek), f)) {
+            if (peek[0] == '#') { skip_comments = 1; break; }
+            if (peek[strspn(peek, " \t\r\n")] != '\0') break; /* first real data line */
+        }
+        fseek(f, 0, SEEK_SET);
+    }
 
     rows = build_row_index(f, &row_count);
     if (!rows) { perror("malloc"); return 1; }

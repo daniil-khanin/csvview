@@ -392,15 +392,15 @@ void save_column_settings(const char *csv_filename)
     fclose(fp);
 }
 
-void preload_delimiter(const char *csv_filename)
+/* returns 1 if skip_comments was explicitly set in .csvf, 0 otherwise */
+int preload_delimiter(const char *csv_filename)
 {
-    if (!csv_filename || !*csv_filename) return;
+    if (!csv_filename || !*csv_filename) return 0;
     char csvf_path[1024];
     snprintf(csvf_path, sizeof(csvf_path), "%s.csvf", csv_filename);
     FILE *fp = fopen(csvf_path, "r");
-    if (!fp) return;
+    if (!fp) return 0;
     char line[64];
-    // Нужно найти и delimiter и skip_comments — читаем весь файл
     int found_delim = 0, found_skip = 0;
     while (fgets(line, sizeof(line), fp) && !(found_delim && found_skip)) {
         if (!found_delim && strncmp(line, "delimiter:", 10) == 0) {
@@ -413,6 +413,7 @@ void preload_delimiter(const char *csv_filename)
         }
     }
     fclose(fp);
+    return found_skip;
 }
 
 int load_column_settings(const char *csv_filename)
