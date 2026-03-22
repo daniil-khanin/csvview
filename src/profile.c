@@ -19,6 +19,38 @@
 #define FREQ_CAP       20000   /* max unique values tracked per column  */
 #define TOP_N          5       /* top-N values to show                  */
 
+/* ── UTF-8 display-width helpers ─────────────────────────────────────────── */
+
+/* Count display columns in a UTF-8 string (each codepoint = 1 col). */
+static int utf8_cols(const char *s)
+{
+    int n = 0;
+    while (*s) {
+        if (((unsigned char)*s & 0xC0) != 0x80) n++;
+        s++;
+    }
+    return n;
+}
+
+/* Write s into dst padded/truncated to exactly max_cols display columns.
+   Returns number of bytes written (not counting null terminator). */
+static int utf8_pad_cols(const char *s, int max_cols, char *dst, int dst_size)
+{
+    int cols = 0, bytes = 0;
+    while (*s && cols < max_cols) {
+        unsigned char c = (unsigned char)*s;
+        int cb = (c < 0x80) ? 1 : (c < 0xE0) ? 2 : (c < 0xF0) ? 3 : 4;
+        if (bytes + cb >= dst_size - (max_cols - cols)) break;
+        memcpy(dst + bytes, s, cb);
+        bytes += cb; s += cb; cols++;
+    }
+    while (cols < max_cols && bytes < dst_size - 1) {
+        dst[bytes++] = ' '; cols++;
+    }
+    dst[bytes] = '\0';
+    return bytes;
+}
+
 /* ── helpers ─────────────────────────────────────────────────────────────── */
 
 /* Format a large count: 1234567 → "1.23M", 12345 → "12.3k", 123 → "123" */
@@ -335,7 +367,7 @@ int profile_file(const char *input_path, char sep)
     /* detect max col name length for formatting */
     int max_name = 6; /* "Column" */
     for (int c = 0; c < ncols; c++) {
-        int l = (int)strlen(col_names[c]);
+        int l = utf8_cols(col_names[c]);
         if (l > max_name) max_name = l;
     }
     if (max_name > 24) max_name = 24;
@@ -351,8 +383,10 @@ int profile_file(const char *input_path, char sep)
     printf("\nProfile: %s  \xe2\x94\x80  %s rows x %d columns\n\n", fname, row_str, ncols);
 
     /* header line */
-    printf(" %3s  %-*s  %-7s  %6s  %8s   %s\n",
-           "#", max_name, "Column", "Type", "Nulls%", "Unique", "Stats");
+    char hdr_name_f[100];
+    utf8_pad_cols("Column", max_name, hdr_name_f, sizeof(hdr_name_f));
+    printf(" %3s  %s  %-7s  %6s  %8s   %s\n",
+           "#", hdr_name_f, "Type", "Nulls%", "Unique", "Stats");
     int line_width = 4 + max_name + 2 + 7 + 2 + 6 + 2 + 8 + 3 + 60;
     for (int i = 0; i < line_width; i++) printf("\xe2\x94\x80");
     printf("\n");
@@ -380,12 +414,12 @@ int profile_file(const char *input_path, char sep)
             fmt_count(acc[c].freq->entries, uniq_str, sizeof(uniq_str));
         }
 
-        /* truncated column name */
-        char name_trunc[25];
-        snprintf(name_trunc, sizeof(name_trunc), "%s", col_names[c]);
+        /* truncated+padded column name (display-width aware) */
+        char name_field[100];
+        utf8_pad_cols(col_names[c], max_name, name_field, sizeof(name_field));
 
-        printf(" %3d  %-*s  %-7s  %5.1f%%  %8s   ",
-               c + 1, max_name, name_trunc, type_str, null_pct, uniq_str);
+        printf(" %3d  %s  %-7s  %5.1f%%  %8s   ",
+               c + 1, name_field, type_str, null_pct, uniq_str);
 
         /* stats */
         if (strcmp(type_str, "number") == 0) {
@@ -548,10 +582,10 @@ void show_profile_window(void)
 
     /* ── pre-build display lines ── */
 
-    /* max column name length (capped at 20) */
+    /* max column name width in display cols (capped at 20) */
     int max_name = 6;
     for (int c = 0; c < col_count; c++) {
-        int l = column_names[c] ? (int)strlen(column_names[c]) : 0;
+        int l = column_names[c] ? utf8_cols(column_names[c]) : 0;
         if (l > max_name) max_name = l;
     }
     if (max_name > 20) max_name = 20;
@@ -568,8 +602,11 @@ void show_profile_window(void)
 
     /* line 0: column header */
     char hdr[256];
-    snprintf(hdr, sizeof(hdr), " %3s  %-*s  %-7s  %6s  %8s   %s",
-             "#", max_name, "Column", "Type", "Nulls%", "Unique", "Stats");
+    {
+        char hf[100]; utf8_pad_cols("Column", max_name, hf, sizeof(hf));
+        snprintf(hdr, sizeof(hdr), " %3s  %s  %-7s  %6s  %8s   %s",
+                 "#", hf, "Type", "Nulls%", "Unique", "Stats");
+    }
     lines[0]  = strdup(hdr);
     colors[0] = 5;  /* secondary accent */
     bolds[0]  = 1;
@@ -603,9 +640,9 @@ void show_profile_window(void)
         else
             fmt_count(acc[c].freq->entries, uniq_str, sizeof(uniq_str));
 
-        char name_trunc[21];
-        snprintf(name_trunc, sizeof(name_trunc), "%s",
-                 column_names[c] ? column_names[c] : "");
+        char name_field[100];
+        utf8_pad_cols(column_names[c] ? column_names[c] : "", max_name,
+                      name_field, sizeof(name_field));
 
         char stats_buf[256] = "";
         int  has_outlier = 0;
@@ -645,8 +682,8 @@ void show_profile_window(void)
 
         char row_buf[512];
         snprintf(row_buf, sizeof(row_buf),
-                 " %3d  %-*s  %-7s  %5.1f%%  %8s   %s",
-                 c + 1, max_name, name_trunc, type_str, null_pct, uniq_str, stats_buf);
+                 " %3d  %s  %-7s  %5.1f%%  %8s   %s",
+                 c + 1, name_field, type_str, null_pct, uniq_str, stats_buf);
 
         lines[c + 2]  = strdup(row_buf);
         colors[c + 2] = has_outlier ? 11 : 1;   /* outlier → red, otherwise normal */

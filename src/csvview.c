@@ -292,7 +292,40 @@ static void reparse_column_names(void)
 #define HISTORY_FILE  "/.csvview_history"
 #define HISTORY_MAX   20
 
-static void history_add(const char *path)
+typedef struct {
+    char   path[4096];
+    time_t last_open;   /* 0 = unknown (old format) */
+    long   row_count;   /* 0 = unknown */
+} HistEntry;
+
+/* Parse a history line.
+   New format: "timestamp\trow_count\tpath"
+   Old format: plain path */
+static void history_parse_line(const char *line, HistEntry *e)
+{
+    memset(e, 0, sizeof(*e));
+    char *end;
+    long ts = strtol(line, &end, 10);
+    if (end != line && *end == '\t') {
+        e->last_open = (time_t)ts;
+        const char *p2 = end + 1;
+        long rc = strtol(p2, &end, 10);
+        if (end != p2 && *end == '\t') {
+            e->row_count = rc;
+            strncpy(e->path, end + 1, sizeof(e->path) - 1);
+            return;
+        }
+    }
+    /* Old format: plain path */
+    strncpy(e->path, line, sizeof(e->path) - 1);
+}
+
+static void history_write_entry(FILE *fh, const HistEntry *e)
+{
+    fprintf(fh, "%ld\t%ld\t%s\n", (long)e->last_open, e->row_count, e->path);
+}
+
+static void history_add(const char *path, long row_count)
 {
     char hist_path[512];
     const char *home = getenv("HOME");
@@ -302,38 +335,207 @@ static void history_add(const char *path)
     char real[4096];
     if (!realpath(path, real)) return;
 
-    // Read existing entries
-    char *entries[HISTORY_MAX];
-    int  count = 0;
+    /* Read existing entries, skipping duplicate of new path */
+    HistEntry entries[HISTORY_MAX];
+    int count = 0;
     FILE *fh = fopen(hist_path, "r");
     if (fh) {
-        char line[4096];
+        char line[4096 + 64];
         while (count < HISTORY_MAX && fgets(line, sizeof(line), fh)) {
             int len = strlen(line);
             while (len > 0 && (line[len-1] == '\n' || line[len-1] == '\r')) line[--len] = '\0';
             if (len == 0) continue;
-            if (strcmp(line, real) == 0) continue;   // deduplicate
-            entries[count++] = strdup(line);
+            HistEntry e;
+            history_parse_line(line, &e);
+            if (strcmp(e.path, real) != 0)
+                entries[count++] = e;
         }
         fclose(fh);
     }
 
-    // Write: new entry first, then old entries (max HISTORY_MAX total)
+    /* Write: new entry first, then old entries */
     fh = fopen(hist_path, "w");
-    if (!fh) {
-        for (int i = 0; i < count; i++) free(entries[i]);
-        return;
-    }
-    fprintf(fh, "%s\n", real);
+    if (!fh) return;
+    HistEntry cur;
+    memset(&cur, 0, sizeof(cur));
+    strncpy(cur.path, real, sizeof(cur.path) - 1);
+    cur.last_open = time(NULL);
+    cur.row_count = row_count;
+    history_write_entry(fh, &cur);
     int written = 1;
     for (int i = 0; i < count && written < HISTORY_MAX; i++, written++)
-        fprintf(fh, "%s\n", entries[i]);
+        history_write_entry(fh, &entries[i]);
     fclose(fh);
-    for (int i = 0; i < count; i++) free(entries[i]);
 }
 
-// Returns malloc'd path selected by user, or NULL if cancelled.
-// Runs its own ncurses session (caller hasn't called initscr yet).
+/* Format file size into buf */
+static void hist_fmt_size(off_t sz, char *buf, int size)
+{
+    if (sz < 0) { snprintf(buf, size, "—"); return; }
+    if (sz < 1024LL * 1024)
+        snprintf(buf, size, "%.0f KB", sz / 1024.0);
+    else if (sz < 1024LL * 1024 * 1024)
+        snprintf(buf, size, "%.1f MB", sz / (1024.0 * 1024.0));
+    else
+        snprintf(buf, size, "%.2f GB", sz / (1024.0 * 1024.0 * 1024.0));
+}
+
+/* Format a long integer with thousand separators */
+static void hist_fmt_number(long n, char *buf, int size)
+{
+    if (n <= 0) { snprintf(buf, size, "—"); return; }
+    char tmp[32];
+    snprintf(tmp, sizeof(tmp), "%ld", n);
+    int len = strlen(tmp);
+    int out = 0;
+    for (int i = 0; i < len && out < size - 2; i++) {
+        if (i > 0 && (len - i) % 3 == 0) buf[out++] = ',';
+        buf[out++] = tmp[i];
+    }
+    buf[out] = '\0';
+}
+
+/* ─── Preview helpers for history picker ─────── */
+#define PREV_ROWS  40
+#define PREV_LINE  512
+#define PREV_COLS  60
+
+typedef struct {
+    char path[4096];
+    char lines[PREV_ROWS][PREV_LINE];
+    int  row_count;
+    char delim;
+    int  col_count;
+    int  col_widths[PREV_COLS];
+    int  ok;           /* 1 = loaded (even if empty/unreadable) */
+} PrevCache;
+
+static char prev_detect_delim(const char *line, const char *fpath)
+{
+    const char *ext = strrchr(fpath, '.');
+    if (ext) {
+        if (strcasecmp(ext, ".tsv") == 0) return '\t';
+        if (strcasecmp(ext, ".psv") == 0) return '|';
+    }
+    int t = 0, pip = 0, com = 0, sem = 0;
+    for (const char *q = line; *q; q++) {
+        if      (*q == '\t') t++;
+        else if (*q == '|')  pip++;
+        else if (*q == ',')  com++;
+        else if (*q == ';')  sem++;
+    }
+    if (t   > 0 && t   >= pip && t   >= com && t   >= sem) return '\t';
+    if (pip > 0 && pip >= com && pip >= sem)                return '|';
+    if (sem > 0 && sem >= com)                              return ';';
+    return ',';
+}
+
+static void prev_load(PrevCache *pc, const char *path)
+{
+    if (pc->ok && strcmp(pc->path, path) == 0) return;
+    memset(pc, 0, sizeof(*pc));
+    strncpy(pc->path, path, sizeof(pc->path) - 1);
+
+    FILE *pf = fopen(path, "r");
+    if (!pf) { pc->ok = 1; return; }
+
+    int n = 0;
+    while (n < PREV_ROWS && fgets(pc->lines[n], PREV_LINE, pf)) {
+        int len = strlen(pc->lines[n]);
+        while (len > 0 && (pc->lines[n][len-1] == '\n' || pc->lines[n][len-1] == '\r'))
+            pc->lines[n][--len] = '\0';
+        if (pc->lines[n][0] == '#') continue;  /* skip comment lines */
+        n++;
+    }
+    fclose(pf);
+    pc->row_count = n;
+    if (n == 0) { pc->ok = 1; return; }
+
+    pc->delim = prev_detect_delim(pc->lines[0], path);
+
+    /* Compute per-column max widths by scanning all loaded rows */
+    for (int r = 0; r < n; r++) {
+        const char *p = pc->lines[r];
+        int c = 0;
+        while (*p && c < PREV_COLS) {
+            int w = 0;
+            if (*p == '"') {
+                p++;
+                while (*p) {
+                    if (*p == '"' && *(p+1) == '"') { w++; p += 2; }
+                    else if (*p == '"')             { p++; break; }
+                    else                            { w++; p++; }
+                }
+                if (*p == pc->delim) p++;
+            } else {
+                while (*p && *p != pc->delim) { w++; p++; }
+                if (*p == pc->delim) p++;
+            }
+            if (w > pc->col_widths[c]) pc->col_widths[c] = w;
+            c++;
+        }
+        if (c > pc->col_count) pc->col_count = c;
+    }
+    for (int c = 0; c < pc->col_count; c++) {
+        if (pc->col_widths[c] > 25) pc->col_widths[c] = 25;
+        if (pc->col_widths[c] < 1)  pc->col_widths[c] = 1;
+    }
+    pc->ok = 1;
+}
+
+/* Draw one preview row at screen y, parsing fields from line on the fly.
+   is_hdr=1 → bold+COLOR_PAIR(5), data → COLOR_PAIR(1). */
+static void prev_draw_row(int y, const char *line, char delim,
+                           const int *widths, int vis_cols, int is_hdr, int max_x)
+{
+    int x = 1;
+    const char *p = line;
+    for (int c = 0; c < vis_cols && x < max_x; c++) {
+        /* Extract field into tmp (capped at 128 chars) */
+        char tmp[128];
+        int tn = 0;
+        if (*p == '"') {
+            p++;
+            while (*p) {
+                if (*p == '"' && *(p+1) == '"') { if (tn < 127) tmp[tn++] = '"'; p += 2; }
+                else if (*p == '"')             { p++; break; }
+                else                            { if (tn < 127) tmp[tn++] = *p++; else p++; }
+            }
+            if (*p == delim) p++;
+        } else {
+            while (*p && *p != delim) { if (tn < 127) tmp[tn++] = *p; p++; }
+            if (*p == delim) p++;
+        }
+        tmp[tn] = '\0';
+
+        int w = widths[c];
+        if (x + w > max_x) w = max_x - x;
+        if (w <= 0) break;
+
+        if (is_hdr) attron(A_BOLD | COLOR_PAIR(5));
+        else        attron(COLOR_PAIR(1));
+        mvprintw(y, x, "%-*.*s", w, w, tmp);
+        if (is_hdr) attroff(A_BOLD | COLOR_PAIR(5));
+        else        attroff(COLOR_PAIR(1));
+        x += w;
+
+        /* Column separator */
+        if (c < vis_cols - 1 && x + 3 <= max_x) {
+            attron(COLOR_PAIR(6));
+            mvaddch(y, x,   ' ');
+            mvaddch(y, x+1, ACS_VLINE);
+            mvaddch(y, x+2, ' ');
+            attroff(COLOR_PAIR(6));
+            x += 3;
+        }
+        if (!*p) break;
+    }
+}
+
+/* ────────────────────────────────────────────── */
+
+/* Returns malloc'd path selected by user, or NULL if cancelled.
+   Runs its own ncurses session (caller hasn't called initscr yet). */
 static char *show_history_picker(void)
 {
     char hist_path[512];
@@ -341,21 +543,24 @@ static char *show_history_picker(void)
     if (!home) return NULL;
     snprintf(hist_path, sizeof(hist_path), "%s%s", home, HISTORY_FILE);
 
-    // Read history
-    char *entries[HISTORY_MAX];
-    int   count = 0;
+    /* Read history */
+    HistEntry entries[HISTORY_MAX];
+    int count = 0;
     FILE *fh = fopen(hist_path, "r");
     if (fh) {
-        char line[4096];
+        char line[4096 + 64];
         while (count < HISTORY_MAX && fgets(line, sizeof(line), fh)) {
             int len = strlen(line);
             while (len > 0 && (line[len-1] == '\n' || line[len-1] == '\r')) line[--len] = '\0';
-            if (len > 0) entries[count++] = strdup(line);
+            if (len > 0) {
+                history_parse_line(line, &entries[count]);
+                count++;
+            }
         }
         fclose(fh);
     }
 
-    if (count == 0) return NULL;   // no history → fall through to error
+    if (count == 0) return NULL;
 
     setlocale(LC_ALL, "");
     initscr();
@@ -369,84 +574,230 @@ static char *show_history_picker(void)
         bkgd(COLOR_PAIR(1));
     }
 
-    int sel = 0;
+    /* Pre-compute formatted strings (avoid stat() on every keypress) */
+    char date_strs[HISTORY_MAX][20];
+    char size_strs[HISTORY_MAX][16];
+    char rows_strs[HISTORY_MAX][16];
+    for (int i = 0; i < count; i++) {
+        if (entries[i].last_open > 0) {
+            struct tm *tm = localtime(&entries[i].last_open);
+            strftime(date_strs[i], sizeof(date_strs[i]), "%Y-%m-%d %H:%M", tm);
+        } else {
+            strcpy(date_strs[i], "\xe2\x80\x94");  /* — */
+        }
+        struct stat st;
+        if (stat(entries[i].path, &st) == 0)
+            hist_fmt_size(st.st_size, size_strs[i], sizeof(size_strs[i]));
+        else
+            strcpy(size_strs[i], "\xe2\x80\x94");
+        hist_fmt_number(entries[i].row_count, rows_strs[i], sizeof(rows_strs[i]));
+    }
+
+    /* Column layout: 2  [date 16]  2  [size 8]  2  [rows 10]  2  [path...] */
+    const int date_x = 2;
+    const int size_x = date_x + 16 + 2;
+    const int rows_x = size_x +  8 + 2;
+    const int name_x = rows_x + 10 + 2;
+
+    int sel = 0, top_idx = 0, prev_sel = -1;
+    PrevCache pc;
+    memset(&pc, 0, sizeof(pc));
     char *result = NULL;
-    char err_msg[512] = "";   /* shown on bottom line until next keypress */
+    char err_msg[512] = "";
 
     while (1) {
+        /* Layout: recalculate each frame to handle potential resize */
+        int split     = LINES / 2;          /* row of preview top border */
+        int list_rows = split - 2;          /* rows 2..(split-1) for file list */
+        if (list_rows < 1) list_rows = 1;
+        int prev_top  = split + 1;          /* first preview content row */
+        int prev_bot  = LINES - 2;          /* bottom border row */
+        int prev_rows = prev_bot - prev_top; /* number of content rows */
+        if (prev_rows < 0) prev_rows = 0;
+
+        /* Scroll list to keep sel in view */
+        if (sel < top_idx) top_idx = sel;
+        if (sel >= top_idx + list_rows) top_idx = sel - list_rows + 1;
+
+        /* Load preview for selected file (cached — only reads when sel changes) */
+        if (sel != prev_sel) {
+            prev_load(&pc, entries[sel].path);
+            prev_sel = sel;
+        }
+
         clear();
 
+        /* ── Title bar ── */
         attron(COLOR_PAIR(5) | A_BOLD);
         mvprintw(0, 2, "Recent files  (↑↓/jk — select | Enter — open | d — delete | q/Esc — quit)");
+        char counter[16];
+        snprintf(counter, sizeof(counter), "[%d/%d]", sel + 1, count);
+        mvprintw(0, COLS - (int)strlen(counter) - 2, "%s", counter);
         attroff(COLOR_PAIR(5) | A_BOLD);
 
-        for (int i = 0; i < count; i++) {
-            if (i == sel) {
+        /* ── Column headers ── */
+        attron(COLOR_PAIR(6));
+        mvprintw(1, date_x, "%-16s", "Last opened");
+        mvprintw(1, size_x, "%8s",   "Size");
+        mvprintw(1, rows_x, "%10s",  "Rows");
+        if (name_x < COLS - 4) mvprintw(1, name_x, "File");
+        attroff(COLOR_PAIR(6));
+
+        /* ── File list (scrollable) ── */
+        for (int i = 0; i < list_rows && (top_idx + i) < count; i++) {
+            int idx = top_idx + i;
+            int row = 2 + i;
+            int name_w = COLS - name_x - 1;
+            if (name_w < 4) name_w = 4;
+            const char *name = entries[idx].path;
+            int nlen = strlen(name);
+            int trunc = (nlen > name_w);
+            if (trunc) name = name + nlen - (name_w - 3);
+
+            if (idx == sel) {
                 attron(COLOR_PAIR(2) | A_BOLD);
-                mvprintw(2 + i, 2, "  %-*s", COLS - 6, entries[i]);
+                mvhline(row, 0, ' ', COLS);
+                mvprintw(row, date_x, "%-16s", date_strs[idx]);
+                mvprintw(row, size_x, "%8s",   size_strs[idx]);
+                mvprintw(row, rows_x, "%10s",  rows_strs[idx]);
+                if (name_x < COLS - 1)
+                    mvprintw(row, name_x, trunc ? "...%.*s" : "%.*s",
+                             name_w - (trunc ? 3 : 0), name);
                 attroff(COLOR_PAIR(2) | A_BOLD);
             } else {
                 attron(COLOR_PAIR(1));
-                mvprintw(2 + i, 2, "  %-*s", COLS - 6, entries[i]);
+                mvprintw(row, date_x, "%-16s", date_strs[idx]);
+                attroff(COLOR_PAIR(1));
+                attron(COLOR_PAIR(6));
+                mvprintw(row, size_x, "%8s",   size_strs[idx]);
+                mvprintw(row, rows_x, "%10s",  rows_strs[idx]);
+                attroff(COLOR_PAIR(6));
+                attron(COLOR_PAIR(1));
+                if (name_x < COLS - 1)
+                    mvprintw(row, name_x, trunc ? "...%.*s" : "%.*s",
+                             name_w - (trunc ? 3 : 0), name);
                 attroff(COLOR_PAIR(1));
             }
         }
 
+        /* Scroll hints */
+        if (top_idx > 0) {
+            attron(COLOR_PAIR(3));
+            mvprintw(2, COLS - 11, " \xe2\x86\x91 %d more", top_idx);
+            attroff(COLOR_PAIR(3));
+        }
+        if (top_idx + list_rows < count) {
+            attron(COLOR_PAIR(3));
+            mvprintw(split - 1, COLS - 11, " \xe2\x86\x93 %d more", count - top_idx - list_rows);
+            attroff(COLOR_PAIR(3));
+        }
+
+        /* ── Preview top border ── */
+        attron(COLOR_PAIR(6));
+        mvhline(split, 0, ACS_HLINE, COLS);
+        const char *bname = strrchr(entries[sel].path, '/');
+        bname = bname ? bname + 1 : entries[sel].path;
+        char plabel[80];
+        snprintf(plabel, sizeof(plabel), " Preview: %.*s ", 56, bname);
+        mvprintw(split, 2, "%s", plabel);
+        attroff(COLOR_PAIR(6));
+
+        /* ── Preview content ── */
+        if (prev_rows > 0) {
+            if (!pc.ok || pc.row_count == 0) {
+                attron(COLOR_PAIR(6));
+                mvprintw(prev_top, 2, access(entries[sel].path, R_OK) == 0
+                                      ? "(empty file)" : "(cannot read file)");
+                attroff(COLOR_PAIR(6));
+            } else {
+                /* Determine how many columns fit horizontally */
+                int vis_cols = 0, total_w = 1;
+                for (int c = 0; c < pc.col_count; c++) {
+                    int add = pc.col_widths[c] + (c < pc.col_count - 1 ? 3 : 0);
+                    if (total_w + add > COLS - 1) break;
+                    total_w += add;
+                    vis_cols++;
+                }
+                if (vis_cols == 0 && pc.col_count > 0) vis_cols = 1;
+
+                int shown = pc.row_count < prev_rows ? pc.row_count : prev_rows;
+                for (int r = 0; r < shown; r++) {
+                    int y = prev_top + r;
+                    /* Header row background */
+                    if (r == 0) {
+                        attron(COLOR_PAIR(5));
+                        mvhline(y, 0, ' ', COLS);
+                        attroff(COLOR_PAIR(5));
+                    }
+                    prev_draw_row(y, pc.lines[r], pc.delim,
+                                  pc.col_widths, vis_cols, r == 0, COLS - 1);
+                }
+            }
+        }
+
+        /* ── Preview bottom border ── */
+        attron(COLOR_PAIR(6));
+        mvhline(prev_bot, 0, ACS_HLINE, COLS);
+        attroff(COLOR_PAIR(6));
+
+        /* ── Status / hint bar ── */
         if (err_msg[0]) {
             attron(COLOR_PAIR(11) | A_BOLD);
             mvprintw(LINES - 1, 2, "%s", err_msg);
             attroff(COLOR_PAIR(11) | A_BOLD);
         } else {
             attron(COLOR_PAIR(6));
-            mvprintw(LINES - 1, 2, "No history file? Pass a filename directly: csvview <file.csv>");
+            mvprintw(LINES - 1, 2, "No history? Pass a filename directly: csvview <file.csv>");
             attroff(COLOR_PAIR(6));
         }
 
         refresh();
 
         int ch = getch();
-        err_msg[0] = '\0';   /* clear error on next keypress */
+        err_msg[0] = '\0';
 
-        if (ch == KEY_UP   || ch == 'k') { if (sel > 0) sel--; }
+        if      (ch == KEY_UP   || ch == 'k') { if (sel > 0) sel--; }
         else if (ch == KEY_DOWN || ch == 'j') { if (sel < count - 1) sel++; }
-        else if (ch == KEY_HOME) { sel = 0; }
-        else if (ch == KEY_END)  { sel = count - 1; }
+        else if (ch == KEY_HOME)              { sel = 0; }
+        else if (ch == KEY_END)               { sel = count - 1; }
         else if (ch == '\n' || ch == KEY_ENTER || ch == '\r') {
-            /* Check file exists before opening */
-            if (access(entries[sel], F_OK) != 0) {
+            if (access(entries[sel].path, F_OK) != 0) {
                 snprintf(err_msg, sizeof(err_msg),
-                         "File not found: %s  (removed from history)", entries[sel]);
-                /* Remove entry from in-memory list */
-                free(entries[sel]);
-                for (int i = sel; i < count - 1; i++)
+                         "File not found: %s  (removed from history)", entries[sel].path);
+                for (int i = sel; i < count - 1; i++) {
                     entries[i] = entries[i + 1];
+                    memcpy(date_strs[i], date_strs[i+1], sizeof(date_strs[i]));
+                    memcpy(size_strs[i], size_strs[i+1], sizeof(size_strs[i]));
+                    memcpy(rows_strs[i], rows_strs[i+1], sizeof(rows_strs[i]));
+                }
                 count--;
-                if (count == 0) break;           /* list empty — exit */
+                if (count == 0) break;
                 if (sel >= count) sel = count - 1;
-                /* Rewrite history file without the missing entry */
+                prev_sel = -1;  /* force preview reload */
                 FILE *fw = fopen(hist_path, "w");
                 if (fw) {
-                    for (int i = 0; i < count; i++)
-                        fprintf(fw, "%s\n", entries[i]);
+                    for (int i = 0; i < count; i++) history_write_entry(fw, &entries[i]);
                     fclose(fw);
                 }
             } else {
-                result = strdup(entries[sel]);
+                result = strdup(entries[sel].path);
                 break;
             }
         }
         else if (ch == 'd') {
-            /* Manually delete entry from history */
-            free(entries[sel]);
-            for (int i = sel; i < count - 1; i++)
+            for (int i = sel; i < count - 1; i++) {
                 entries[i] = entries[i + 1];
+                memcpy(date_strs[i], date_strs[i+1], sizeof(date_strs[i]));
+                memcpy(size_strs[i], size_strs[i+1], sizeof(size_strs[i]));
+                memcpy(rows_strs[i], rows_strs[i+1], sizeof(rows_strs[i]));
+            }
             count--;
             if (count == 0) break;
             if (sel >= count) sel = count - 1;
+            prev_sel = -1;
             FILE *fw = fopen(hist_path, "w");
             if (fw) {
-                for (int i = 0; i < count; i++)
-                    fprintf(fw, "%s\n", entries[i]);
+                for (int i = 0; i < count; i++) history_write_entry(fw, &entries[i]);
                 fclose(fw);
             }
         }
@@ -456,7 +807,6 @@ static char *show_history_picker(void)
     }
 
     endwin();
-    for (int i = 0; i < count; i++) free(entries[i]);
     return result;
 }
 
@@ -768,7 +1118,6 @@ int main(int argc, char *argv[]) {
     f = fopen(file_to_open, "r");
     if (!f) { perror("fopen"); return 1; }
     csv_mmap_open(file_to_open);
-    history_add(file_to_open);
 
     struct stat st;
     if (fstat(fileno(f), &st) == 0) {
@@ -784,6 +1133,7 @@ int main(int argc, char *argv[]) {
     rows = build_row_index(f, &row_count);
     if (!rows) { perror("malloc"); return 1; }
     if (!alloc_row_arrays(row_count)) { perror("malloc"); return 1; }
+    history_add(file_to_open, row_count);
 
     setlocale(LC_ALL, "");
     setlocale(LC_NUMERIC, "C");
@@ -882,7 +1232,7 @@ int main(int argc, char *argv[]) {
     while (left_col < col_count && col_hidden[left_col]) left_col++;
 
     char current_cell_content[256] = "(пусто)";
-    char col_name[32];
+    char col_name[256];
 
     while (1) {
         clear();
@@ -945,8 +1295,8 @@ int main(int argc, char *argv[]) {
             free(cell_content);
         }
         if (use_headers && column_names[cur_col]) {
-            strncpy(col_name, column_names[cur_col], 31);
-            col_name[31] = '\0';
+            strncpy(col_name, column_names[cur_col], sizeof(col_name) - 1);
+            col_name[sizeof(col_name) - 1] = '\0';
         } else {
             col_letter(cur_col, col_name);
         }

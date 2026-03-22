@@ -58,15 +58,54 @@ void draw_cell_view(int y, const char *col_name, int row_num, const char *raw_co
     // Форматируем значение
     char *display_content = format_cell_value(raw_content, cur_col);
 
-    attron(COLOR_PAIR(5));
     if (in_search_mode) {
+        attron(COLOR_PAIR(5));
         mvprintw(y, 2, "/%s", search_query);
+        attroff(COLOR_PAIR(5));
     } else if (in_filter_mode) {
+        attron(COLOR_PAIR(5));
         mvprintw(y, 2, "F:%s", filter_query);
+        attroff(COLOR_PAIR(5));
     } else {
-        mvprintw(y, 2, "%s%d: %.*s", col_name, row_num, width - 6, display_content);
+        /* Truncate col_name to at most 12 display columns (UTF-8 aware) */
+        #define COL_LABEL_MAX 12
+        char col_trunc[64];
+        {
+            int cols = 0, bytes = 0;
+            const char *s = col_name;
+            int truncated = 0;
+            while (*s && cols < COL_LABEL_MAX && bytes < (int)sizeof(col_trunc) - 4) {
+                unsigned char c = (unsigned char)*s;
+                int cb = (c < 0x80) ? 1 : (c < 0xE0) ? 2 : (c < 0xF0) ? 3 : 4;
+                if (bytes + cb >= (int)sizeof(col_trunc) - 4) break;
+                memcpy(col_trunc + bytes, s, cb);
+                bytes += cb; s += cb; cols++;
+            }
+            truncated = (*s != '\0' && cols == COL_LABEL_MAX);
+            if (truncated) {
+                /* append UTF-8 ellipsis U+2026 */
+                memcpy(col_trunc + bytes, "\xe2\x80\xa6", 3);
+                bytes += 3;
+            }
+            col_trunc[bytes] = '\0';
+        }
+        #undef COL_LABEL_MAX
+
+        /* Label (col name + row number) in dim color, content in bright */
+        char label[80];
+        snprintf(label, sizeof(label), "%s %d: ", col_trunc, row_num);
+        attron(COLOR_PAIR(6));
+        mvprintw(y, 2, "%s", label);
+        attroff(COLOR_PAIR(6));
+        /* Use actual cursor position — correct for any multibyte encoding */
+        int content_x = getcurx(stdscr);
+        int content_w = width - content_x - 2;
+        if (content_w > 0) {
+            attron(COLOR_PAIR(5) | A_BOLD);
+            mvprintw(y, content_x, "%.*s", content_w, display_content);
+            attroff(COLOR_PAIR(5) | A_BOLD);
+        }
     }
-    attroff(COLOR_PAIR(5));
 
     free(display_content);
 }
@@ -598,7 +637,7 @@ char *get_cell_content(const char *line, int target_col)
             continue;
         }
 
-        if (*p == ',' && !in_quotes)
+        if (*p == csv_delimiter && !in_quotes)
         {
             // Конец текущего поля
             if (col == target_col)
