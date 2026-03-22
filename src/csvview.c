@@ -1714,8 +1714,43 @@ int main(int argc, char *argv[]) {
             continue;
         }
 
-        if (ch == 'g' || ch == 'G') {
-            if (ch == 'g') {
+        if (ch == 'G') {
+            // G → jump to last row
+            cur_display_row = display_count - 1;
+            top_display_row = cur_display_row - visible_rows + 1;
+            if (top_display_row < 0) top_display_row = 0;
+        }
+        else if (ch == 'g') {
+            int ch2 = getch();
+            if (ch2 == 'g') {
+                // gg → first row
+                cur_display_row = 0;
+                top_display_row = 0;
+            } else if (ch2 == '_') {
+                // g_ → auto-width all visible columns
+                int sample_rows = filtered_count > 0 ? filtered_count : row_count;
+                if (sample_rows > 100) sample_rows = 100;
+                int *rows_to_check = filtered_count > 0 ? filtered_rows : NULL;
+                for (int c = 0; c < col_count; c++) {
+                    if (col_hidden[c]) continue;
+                    int max_len = 8;
+                    for (int r = 0; r < sample_rows; r++) {
+                        int real_row = rows_to_check ? rows_to_check[r] : r + (use_headers ? 1 : 0);
+                        char *line = rows[real_row].line_cache;
+                        if (!line) continue;
+                        char *val = get_column_value(line, column_names[c] ? column_names[c] : "", use_headers);
+                        if (val) {
+                            int len = strlen(val);
+                            if (len > max_len) max_len = len;
+                            free(val);
+                        }
+                    }
+                    col_widths[c] = max_len + 7;
+                    if (col_widths[c] > 80) col_widths[c] = 80;
+                }
+                save_column_settings(file_to_open);
+            } else {
+                // g + other key → graph current column
                 if (col_types[cur_col] != COL_NUM) {
                     draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
                     attron(COLOR_PAIR(1));
@@ -1727,69 +1762,67 @@ int main(int argc, char *argv[]) {
                 }
                 graph_col_list[0] = cur_col;
                 graph_col_count = 1;
-            } 
-            current_graph = 0;
-            graph_start = 0;
-            using_date_x = 0;
-            date_col = -1;
-            for (int c = 0; c < col_count; c++) {
-                if (col_types[c] == COL_DATE) {
-                    date_col = c;
-                    break;
+                current_graph = 0;
+                graph_start = 0;
+                using_date_x = 0;
+                date_col = -1;
+                for (int c = 0; c < col_count; c++) {
+                    if (col_types[c] == COL_DATE) {
+                        date_col = c;
+                        break;
+                    }
                 }
-            }
-            if (date_col >= 0) {
-                draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
-                attron(COLOR_PAIR(3));
-                char col_buf[16];
-                if (column_names[date_col]) {
-                    strncpy(col_buf, column_names[date_col], sizeof(col_buf) - 1);
-                    col_buf[sizeof(col_buf) - 1] = '\0';
-                } else {
-                    col_letter(date_col, col_buf);
-                }
-                printw(" | Use date column %s as X-axis? (y/n) ", col_buf);
-                attroff(COLOR_PAIR(3));
-                refresh();
-                int yn = getch();
-                if (yn == 'y' || yn == 'Y') {
-                    using_date_x = 1;
-                    save_sort_col = sort_col; save_sort_level_count = sort_level_count;
-                    save_sort_order = sort_order;
-                    int temp_sort_col = sort_col;
-                    int temp_sort_order = sort_order;
-                    sort_col = date_col;
-                    sort_order = 1;
-
+                if (date_col >= 0) {
                     draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
                     attron(COLOR_PAIR(3));
-                    printw(" | Sorting...                                              ");
+                    char col_buf[16];
+                    if (column_names[date_col]) {
+                        strncpy(col_buf, column_names[date_col], sizeof(col_buf) - 1);
+                        col_buf[sizeof(col_buf) - 1] = '\0';
+                    } else {
+                        col_letter(date_col, col_buf);
+                    }
+                    printw(" | Use date column %s as X-axis? (y/n) ", col_buf);
                     attroff(COLOR_PAIR(3));
                     refresh();
+                    int yn = getch();
+                    if (yn == 'y' || yn == 'Y') {
+                        using_date_x = 1;
+                        save_sort_col = sort_col; save_sort_level_count = sort_level_count;
+                        save_sort_order = sort_order;
+                        int temp_sort_col = sort_col;
+                        int temp_sort_order = sort_order;
+                        sort_col = date_col;
+                        sort_order = 1;
 
-                    if (filter_active) {
-                        save_filtered_count = filtered_count;
-                        save_filtered_rows = malloc(sizeof(int) * save_filtered_count);
-                        if (save_filtered_rows) {
-                            memcpy(save_filtered_rows, filtered_rows, sizeof(int) * save_filtered_count);
+                        draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
+                        attron(COLOR_PAIR(3));
+                        printw(" | Sorting...                                              ");
+                        attroff(COLOR_PAIR(3));
+                        refresh();
+
+                        if (filter_active) {
+                            save_filtered_count = filtered_count;
+                            save_filtered_rows = malloc(sizeof(int) * save_filtered_count);
+                            if (save_filtered_rows) {
+                                memcpy(save_filtered_rows, filtered_rows, sizeof(int) * save_filtered_count);
+                            }
+                            qsort(filtered_rows, filtered_count, sizeof(int), compare_rows_by_column);
+                        } else {
+                            save_sorted_count = sorted_count;
+                            save_sorted_rows = malloc(sizeof(int) * sorted_count);
+                            if (save_sorted_rows) {
+                                memcpy(save_sorted_rows, sorted_rows, sizeof(int) * save_sorted_count);
+                            }
+                            build_sorted_index();
                         }
-
-                        qsort(filtered_rows, filtered_count, sizeof(int), compare_rows_by_column);
-                    } else {
-                        save_sorted_count = sorted_count;
-                        save_sorted_rows = malloc(sizeof(int) * sorted_count);
-                        if (save_sorted_rows) {
-                            memcpy(save_sorted_rows, sorted_rows, sizeof(int) * save_sorted_count);
-                        }
-
-                        build_sorted_index();
+                        sort_col = temp_sort_col;
+                        sort_order = temp_sort_order;
                     }
-                    sort_col = temp_sort_col;
-                    sort_order = temp_sort_order;
                 }
+                in_graph_mode = 1;
+                continue;
             }
-            in_graph_mode = 1;
-            continue;
         }
 
         if (ch == 'q' || ch == 27) {
@@ -1891,7 +1924,7 @@ int main(int argc, char *argv[]) {
             refresh();
         }        
 
-        if (ch == '\n' || ch == KEY_ENTER) {
+        if (ch == '\n' || ch == KEY_ENTER || ch == 'e') {
             if (cur_real_row >= row_count) continue;
 
             // Защита от NULL
@@ -2254,19 +2287,19 @@ int main(int argc, char *argv[]) {
                 refresh();
             }
         }
-        else if (ch == 'w') {
+        else if (ch == 'w' || ch == '>') {
             if (cur_col < col_count) {
-                col_widths[cur_col] += 1;  // увеличить на 5
-                if (col_widths[cur_col] > 100) col_widths[cur_col] = 100;  // лимит
+                col_widths[cur_col] += 1;
+                if (col_widths[cur_col] > 100) col_widths[cur_col] = 100;
             }
             save_column_settings(file_to_open);
-        } else if (ch == 'W') {  // Shift+w
+        } else if (ch == 'W' || ch == '<') {
             if (cur_col < col_count) {
                 col_widths[cur_col] -= 1;
-                if (col_widths[cur_col] < 5) col_widths[cur_col] = 5;  // минимум
+                if (col_widths[cur_col] < 5) col_widths[cur_col] = 5;
             }
             save_column_settings(file_to_open);
-        } else if (ch == 'a' || ch == 'A') {
+        } else if (ch == 'a' || ch == 'A' || ch == '_') {
             // Авто-подгонка ширины текущего столбца
             if (cur_col < col_count) {
                 int max_len = 8;  // минимум для имени столбца
@@ -2456,8 +2489,24 @@ int main(int argc, char *argv[]) {
             // статистика столбца
             show_column_stats(cur_col);
         }
-        else if (ch == '\\') {  /* \ — data profile for all columns */
+        else if (ch == '\\' || ch == 'I') {  /* \ or I — data profile for all columns */
             show_profile_window();
+        }
+        else if (ch == '-') {  /* - — toggle hide/show current column */
+            if (cur_col >= 0 && cur_col < col_count) {
+                col_hidden[cur_col] = !col_hidden[cur_col];
+                if (col_hidden[cur_col]) {
+                    /* move cursor to next visible column */
+                    int nc = cur_col + 1;
+                    while (nc < col_count && col_hidden[nc]) nc++;
+                    if (nc >= col_count) {
+                        nc = cur_col - 1;
+                        while (nc > 0 && col_hidden[nc]) nc--;
+                    }
+                    if (nc >= 0 && nc < col_count) cur_col = nc;
+                }
+                save_column_settings(file_to_open);
+            }
         }
         else if (ch == '#') {
             if (comment_count > 0) {
@@ -2529,31 +2578,6 @@ int main(int argc, char *argv[]) {
                 }
             }
         }
-        else if (ch == ('G' & 0x1f)) {  // Ctrl+G — перейти к строке по номеру
-            draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
-            attron(COLOR_PAIR(3));
-            printw(" | Go to row: ");
-            attroff(COLOR_PAIR(3));
-            refresh();
-            char num_buf[16] = {0};
-            echo();
-            wgetnstr(stdscr, num_buf, sizeof(num_buf) - 1);
-            noecho();
-            int target = atoi(num_buf) - 1;
-            if (target < 0) target = 0;
-            if (target >= display_count) target = display_count - 1;
-            cur_display_row = target;
-            if (cur_display_row < top_display_row)
-                top_display_row = cur_display_row;
-            else if (cur_display_row >= top_display_row + visible_rows)
-                top_display_row = cur_display_row - visible_rows + 1;
-            if (top_display_row < 0) top_display_row = 0;
-            clrtoeol();
-            refresh();
-        }
-
-        // После ввода фильтра (Shift+F или f) — когда ты уже в режиме ввода
-        // Но чтобы :fs/:fl работали глобально — лучше обрабатывать в основном цикле
         else if (ch == ':') {  // Вход в режим команд
             char cmd_buf[128] = {0};
 
