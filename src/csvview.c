@@ -1281,23 +1281,42 @@ int main(int argc, char *argv[]) {
 
         if (in_graph_mode) {
             if (graph_col_count > 1) {
-                // Multi-series: compute shared Y scale, then draw each series with a different color
+                // Multi-series: compute shared Y scale and, if m/M pressed, find global min/max X
                 double gmin = INFINITY, gmax = -INFINITY;
+                double mm_best = (min_max_show == 1) ? INFINITY : -INFINITY;
+                int    mm_idx  = 0;   // best raw index inside zoom window
+                int    mm_total = 0;  // zoom window length (for cursor conversion)
                 for (int s = 0; s < graph_col_count; s++) {
+                    if (graph_series_hidden[s]) continue;
                     int pc = 0; bool agg = false; char dfmt[32];
                     double *vals = extract_plot_values(graph_col_list[s], rows, f, row_count, &pc, &agg, dfmt);
-                    if (vals) {
-                        for (int i = 0; i < pc; i++) {
-                            if (vals[i] < gmin) gmin = vals[i];
-                            if (vals[i] > gmax) gmax = vals[i];
-                        }
-                        free(vals);
+                    if (!vals) continue;
+                    // Mirror draw_graph's zoom slice
+                    int zs = (graph_zoom_start > 0) ? graph_zoom_start : 0;
+                    int ze = (graph_zoom_end > 0 && graph_zoom_end <= pc) ? graph_zoom_end : pc;
+                    if (zs >= ze) { zs = 0; ze = pc; }
+                    if (mm_total == 0) mm_total = ze - zs;
+                    for (int i = zs; i < ze; i++) {
+                        double v = vals[i];
+                        if (v < gmin) gmin = v;
+                        if (v > gmax) gmax = v;
+                        if (min_max_show == 1 && v < mm_best) { mm_best = v; mm_idx = i - zs; }
+                        if (min_max_show == 2 && v > mm_best) { mm_best = v; mm_idx = i - zs; }
                     }
+                    free(vals);
                 }
                 if (isinf(gmin) || isinf(gmax)) { gmin = 0; gmax = 1; }
                 if (gmin == gmax) { gmax += 1.0; gmin -= 1.0; }
                 graph_global_min = gmin;
                 graph_global_max = gmax;
+                // If m/M was pressed: move shared cursor to global min/max X, then draw normally
+                if (min_max_show != 0 && mm_total > 0) {
+                    int vp = graph_visible_points > 1 ? graph_visible_points - 1 : 1;
+                    graph_cursor_pos = (int)((double)mm_idx / mm_total * vp + 0.5);
+                    if (graph_cursor_pos >= graph_visible_points) graph_cursor_pos = graph_visible_points - 1;
+                    if (graph_cursor_pos < 0) graph_cursor_pos = 0;
+                    min_max_show = 0;  // all series will now draw at the shared X
+                }
                 double ms_cursor_ys[10];
                 char   ms_cursor_x[64] = "";
                 int    ms_cursor_n = 0;
