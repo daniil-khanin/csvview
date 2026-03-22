@@ -100,29 +100,28 @@ static void show_scanner(void)
 
     printf("\n");
 
-    /* table header */
-    printf("  " DWH "│ %-12s │ %7s │ %-10s │ %-8s │" RST "\n",
+    /* table header — bold default fg, readable on any theme */
+    printf("  " BOLD "│ %-12s │ %7s │ %-10s │ %-8s │" RST "\n",
            "file", "rows", "date", "size");
-    printf("  " DWH "│──────────────│─────────│────────────│──────────│" RST "\n");
+    printf("  " DIM  "│──────────────│─────────│────────────│──────────│" RST "\n");
 
     /* data rows */
     for (int r = 0; r < nrows; r++) {
         if (r == scan) {
+            /* reverse video: inverts fg/bg — always visible on any theme */
             printf(YEL "▶▶" RST
-                   GRN "│" WHT " %-12s " GRN
-                   "│" WHT " %7s " GRN
-                   "│" WHT " %-10s " GRN
-                   "│" WHT " %-8s " GRN "│" RST
-                   YEL "◀◀" RST "\n",
+                   "\033[7m" BOLD
+                   " %-12s │ %7s │ %-10s │ %-8s "
+                   RST YEL "◀◀" RST "\n",
                    file[r], rows[r], date[r], size[r]);
         } else {
-            printf("  " DWH "│ %-12s │ %7s │ %-10s │ %-8s │" RST "\n",
+            printf("  │ %-12s │ %7s │ %-10s │ %-8s │\n",
                    file[r], rows[r], date[r], size[r]);
         }
     }
 
     printf("\n");
-    printf("     " GRN "[ scanning... ]" RST "\n\n");
+    printf("     " BOLD "[ scanning... ]" RST "\n\n");
 
     /* C S V V I E W spread with per-letter colours */
     const char *lets[] = { "C", "S", "V", "V", "I", "E", "W" };
