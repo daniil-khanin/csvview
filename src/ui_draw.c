@@ -168,10 +168,11 @@ static void draw_one_header(int top, int current_x, int col_idx, int cur_col)
     const char *fmt = (col_types[col_idx] == COL_NUM) ? "%*s" : "%-*s";
     char *disp = truncate_for_display(name, col_widths[col_idx] - 2);
 
+    int marked = graph_marked[col_idx];
     if (col_idx == cur_col)
-        attron(COLOR_PAIR(3) | A_BOLD);
+        attron(COLOR_PAIR(3) | A_BOLD | (marked ? A_UNDERLINE : 0));
     else
-        attron(COLOR_PAIR(6) | A_BOLD);
+        attron(COLOR_PAIR(6) | A_BOLD | (marked ? A_UNDERLINE : 0));
 
     mvprintw(top + 1, current_x, fmt, col_widths[col_idx] - 2, disp);
 
@@ -182,7 +183,7 @@ static void draw_one_header(int top, int current_x, int col_idx, int cur_col)
         if (arrow_pair) attroff(COLOR_PAIR(arrow_pair) | A_BOLD);
     }
 
-    attroff(COLOR_PAIR(3) | COLOR_PAIR(6) | A_BOLD);
+    attroff(COLOR_PAIR(3) | COLOR_PAIR(6) | A_BOLD | A_UNDERLINE);
 }
 
 void draw_table_headers(int top, int offset __attribute__((unused)), int visible_cols, int left_col, int cur_col)

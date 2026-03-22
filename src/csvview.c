@@ -87,6 +87,7 @@ FILE     *f         = NULL;
 int       in_graph_mode           = 0;
 int       graph_col_list[10]      = {0};
 int       graph_col_count         = 0;
+int       graph_marked[MAX_COLS]  = {0};
 int       current_graph           = 0;
 int       graph_start             = 0;
 int       graph_scroll_step       = 1;
@@ -1769,18 +1770,53 @@ int main(int argc, char *argv[]) {
             /* unknown g+key: ignore */
         }
 
-        if (ch == ('G' & 0x1f)) {  // Ctrl+G — graph current column
-            if (col_types[cur_col] != COL_NUM) {
+        if (ch == 'M') {  /* M — toggle mark current column for multi-series graph */
+            if (cur_col >= 0 && cur_col < col_count) {
+                if (col_types[cur_col] != COL_NUM) {
+                    draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
+                    attron(COLOR_PAIR(1));
+                    printw(" | Not a numeric column");
+                    attroff(COLOR_PAIR(1));
+                    refresh();
+                } else {
+                    graph_marked[cur_col] = !graph_marked[cur_col];
+                    /* count total marked */
+                    int mc = 0;
+                    for (int c = 0; c < col_count; c++) if (graph_marked[c]) mc++;
+                    draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
+                    attron(COLOR_PAIR(3));
+                    if (graph_marked[cur_col])
+                        printw(" | Marked for graph (%d total) — press Ctrl+G to draw", mc);
+                    else
+                        printw(" | Unmarked (%d remaining)", mc);
+                    attroff(COLOR_PAIR(3));
+                    refresh();
+                }
+            }
+        }
+
+        if (ch == ('G' & 0x1f)) {  // Ctrl+G — graph marked columns + current
+            /* build col list: all marked + current (no dups) */
+            graph_col_count = 0;
+            for (int c = 0; c < col_count && graph_col_count < 10; c++)
+                if (graph_marked[c]) graph_col_list[graph_col_count++] = c;
+            /* add current if numeric and not already in list */
+            if (col_types[cur_col] == COL_NUM) {
+                int dup = 0;
+                for (int i = 0; i < graph_col_count; i++)
+                    if (graph_col_list[i] == cur_col) { dup = 1; break; }
+                if (!dup && graph_col_count < 10)
+                    graph_col_list[graph_col_count++] = cur_col;
+            }
+            if (graph_col_count == 0) {
                 draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
                 attron(COLOR_PAIR(1));
-                printw(" | Not a numeric column");
+                printw(" | No numeric columns selected (mark with M or move to numeric column)");
                 attroff(COLOR_PAIR(1));
                 refresh();
                 getch();
                 continue;
             }
-            graph_col_list[0] = cur_col;
-            graph_col_count = 1;
             current_graph = 0;
             graph_start = 0;
             using_date_x = 0;

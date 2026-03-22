@@ -209,6 +209,7 @@ extern FILE *f;
 extern int in_graph_mode;
 extern int graph_col_list[10];
 extern int graph_col_count;
+extern int graph_marked[MAX_COLS];  /* columns marked with M for multi-series graph */
 extern int current_graph;
 extern int graph_start;
 extern int graph_scroll_step;
