@@ -7,6 +7,10 @@ No Python. No Electron. No dependencies — just C and ncurses.
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)](#install)
 [![Language](https://img.shields.io/badge/language-C-orange)](#build-from-source)
 
+![Multi-series graph with dual Y axis](assets/screenshot-graph.png)
+
+![SVG export — print-ready white-background chart](assets/screenshot-exportsvg.png)
+
 ![Pivot table](assets/screenshot-pivot-1.png)
 
 ![Pivot table settings](assets/screenshot-pivot-2.png)
@@ -138,20 +142,54 @@ Aggregates (whole file): same with `_all` suffix
 - Parallel aggregation — up to 8 threads; real-time progress bar on large files
 
 ### Graphs
-- Line, bar, and dot chart types; linear and log scale
-- **Multi-series overlay**: press `M` to mark columns, `Ctrl+G` to draw all on a shared Y axis — each series in its own color
-- **Series toggle**: press `1`–`9` in graph mode to hide/show individual series; legend shows `[N]-name`
-- **Zoom**: `+`/`=` zoom in ~4× around cursor, `-` zoom out, `0` reset to full view
-- **Pan**: moving the cursor past the zoom boundary scrolls the window — navigate the entire dataset while zoomed
-- **Cursor mode** (`:gp on`): shows value at cursor; in multi-series — one shared `X:` label + `Y:` per series in its color
-- Jump to min/max with `m`/`M`; 4 Y-axis labels (top, 1/3, 2/3, bottom)
-- **Grid lines**: `:grid y|x|yx|off` — dim horizontal/vertical grid drawn under data
-- **Dual Y axis** (`:g2y on/off`): series 1 uses left axis, series 2+ use right axis — each group gets its own scale; labels drawn in series color
-- **Scatter plot** (`:gsc x_col [y_col]`): braille dot cloud of one column vs another; shows Pearson r in corner; `←`/`→` cursor shows nearest point (X, Y); `:gsc off` to exit
-- **SVG export** (`:gsvg [file] [WxH]`): export current graph view to SVG — respects zoom, grid, hidden series, dual Y axis, scatter mode. White background, print-ready. Default size 900×500; example: `:gsvg report.svg 1200x700`
-- Anomaly highlighting (values > 3σ)
+
+Rendered with Unicode braille characters — each terminal cell carries a 2×4 pixel grid, giving smooth curves in a plain SSH session with no GUI required.
+
+**Chart types and scale**
+- Line, bar, and dot charts (`:gt line|bar|dot`)
+- Linear and log Y scale (`:gy log|linear`)
+- 4 Y-axis labels (top, 1/3, 2/3, bottom); anomaly highlighting for values > 3σ
 - Date column as X axis (`:gx <column>` — Tab autocomplete)
-- **Pivot graph**: `G` in pivot mode splits screen — table on left, chart on right
+
+**Multi-series overlay**
+- Press `M` to mark any numeric columns, then `Ctrl+G` to draw all of them on one graph — each series in its own color with a `[N]-name` legend
+- Press `1`–`9` in graph mode to hide/show individual series on the fly
+
+**Dual Y axis** (`:g2y on/off`)
+- Series 1 uses the left axis; series 2+ share the right axis — each group is independently auto-scaled
+- Useful when series have very different magnitudes (e.g. revenue vs. conversion rate)
+- Axis labels are drawn in the corresponding series color
+
+**Zoom and pan**
+- `+`/`=` zoom in ~4× around the cursor position, `-` zoom out, `0` reset to full view
+- Moving the cursor past the zoom boundary **pans** the window automatically — the full dataset is reachable while zoomed in
+
+**Cursor and tooltips** (`:gp on`)
+- Single series: shows `X: value  Y: value` at cursor position
+- Multi-series: shared `X:` label once, then `1: Y1  2: Y2 …` per series in each series' color
+- `m`/`M` jumps to the global min/max; in multi-series each series places its own `@` marker with an `X/Y` label near the point
+
+**Grid lines** (`:grid y|x|yx|off`)
+- Dim horizontal and/or vertical grid drawn under data so curves stay readable
+
+**Scatter plot** (`:gsc x_col [y_col]`)
+- Plots one column against another as a braille dot cloud
+- Pearson r shown in the corner (in series color) — spot correlations at a glance
+- `←`/`→` cursor finds the nearest data point and shows `X: value  Y: value`
+- Multi-series: mark Y columns with `M`, then `:gsc x_col` — each Y series in its own color
+- `:gsc off` exits scatter mode; error shown if X = Y column
+
+**SVG export** (`:gsvg [file] [WxH]`)
+- Exports the current graph view to a print-ready SVG with a white background
+- Respects zoom window, hidden series, grid lines, dual Y axis, and scatter mode
+- Line graphs → `<polyline>`, dots/scatter → compact `<path M x,y h0>` (small file even for large datasets)
+- Pearson r and axis column names included in scatter SVG; color legend for multi-series
+- Default size 900×500; custom size via `:gsvg report.svg 1200x700`
+
+**Pivot graph**
+- `G` in pivot mode splits the screen — pivot table on the left, live chart on the right
+
+**Performance**
 - Parallel value extraction — fast rendering on files with 10M+ rows
 
 ### Column statistics (`d`)
