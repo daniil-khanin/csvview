@@ -89,5 +89,7 @@ extern double graph_global_max;
 extern int    graph_overlay_mode;
 extern int    graph_draw_cursor_overlay; /* 1 = show cursor even in overlay passes */
 extern int    graph_grid;               /* 0=off, 1=y-lines, 2=x-lines, 3=both */
+extern double graph_last_cursor_y;      /* Y value at cursor after last draw_graph */
+extern char   graph_last_cursor_x[64]; /* X label at cursor after last draw_graph */
 
 #endif /* GRAPH_H */

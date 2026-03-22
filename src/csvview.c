@@ -1297,16 +1297,45 @@ int main(int argc, char *argv[]) {
                 if (gmin == gmax) { gmax += 1.0; gmin -= 1.0; }
                 graph_global_min = gmin;
                 graph_global_max = gmax;
+                double ms_cursor_ys[10];
+                char   ms_cursor_x[64] = "";
+                int    ms_cursor_n = 0;
                 for (int s = 0; s < graph_col_count; s++) {
                     current_graph_color_pair = GRAPH_COLOR_BASE + (s % 7);
                     graph_overlay_mode = (s == 0) ? 1 : 2;
-                    graph_draw_cursor_overlay = (s == current_graph % graph_col_count) ? 1 : 0;
+                    graph_draw_cursor_overlay = show_graph_cursor ? 1 : 0;
+                    graph_last_cursor_y = NAN;
                     draw_graph(graph_col_list[s], height, width, rows, f, row_count, graph_cursor_pos, min_max_show);
+                    if (!isnan(graph_last_cursor_y) && ms_cursor_n < 10) {
+                        ms_cursor_ys[ms_cursor_n++] = graph_last_cursor_y;
+                        if (ms_cursor_x[0] == '\0')
+                            strncpy(ms_cursor_x, graph_last_cursor_x, sizeof(ms_cursor_x) - 1);
+                    }
                 }
                 graph_overlay_mode = 0;
                 graph_draw_cursor_overlay = 0;
                 graph_global_min = NAN;
                 graph_global_max = NAN;
+                // Multi-series tooltip: X once, then Y per series in its color
+                if (show_graph_cursor && ms_cursor_n > 0) {
+                    int tx = ROW_DATA_OFFSET + 2;
+                    attron(COLOR_PAIR(1));
+                    mvprintw(3, tx, "X: %s  ", ms_cursor_x);
+                    attroff(COLOR_PAIR(1));
+                    tx += (int)strlen(ms_cursor_x) + 6;
+                    for (int s = 0; s < ms_cursor_n; s++) {
+                        int cp = GRAPH_COLOR_BASE + (s % 7);
+                        char cn[16] = "";
+                        if (use_headers && column_names[graph_col_list[s]])
+                            snprintf(cn, sizeof(cn), "%.12s", column_names[graph_col_list[s]]);
+                        else
+                            col_letter(graph_col_list[s], cn);
+                        attron(COLOR_PAIR(cp) | A_BOLD);
+                        mvprintw(3, tx, "%s:%.4g  ", cn, ms_cursor_ys[s]);
+                        attroff(COLOR_PAIR(cp) | A_BOLD);
+                        tx += (int)strlen(cn) + 10;
+                    }
+                }
                 // Draw color legend
                 int lx = ROW_DATA_OFFSET + 2;
                 for (int s = 0; s < graph_col_count; s++) {

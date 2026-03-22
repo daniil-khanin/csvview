@@ -29,6 +29,8 @@ double graph_global_max = NAN;
 int    graph_overlay_mode = 0;  /* 0=single, 1=first pass (draw axes), 2=subsequent pass */
 int    graph_draw_cursor_overlay = 0; /* 1 = draw cursor even in overlay mode */
 int    graph_grid = 0;          /* 0=off, 1=y-lines, 2=x-lines, 3=both */
+double graph_last_cursor_y = NAN;    /* Y value at cursor, set after each draw_graph */
+char   graph_last_cursor_x[64];      /* X label at cursor, set after each draw_graph */
 
 /* Inline field extractor — no malloc */
 static void get_field_graph(const char *line, int idx, char *buf, int buf_size)
@@ -597,72 +599,67 @@ void draw_graph(int col, int height, int width, RowIndex *rows, FILE *f, int row
     // ─── Курсор и значение под ним ──────────────────────────────────────────────
     if ((graph_overlay_mode == 0 || graph_draw_cursor_overlay) && show_graph_cursor)
     {
-        int full_idx = cursor_pos * step;  // текущий полный индекс (если не прыгаем)
-
-        // Если нажата m/M — переносим на реальный экстремум
+        int full_idx = cursor_pos * step;
         if (min_max_show != 0) {
             full_idx = (min_max_show == 1) ? min_y_x_pos : max_y_x_pos;
         }
-
-        // Переводим полный индекс в видимую позицию по X
         int visible_cursor_pos = full_idx / step;
         if (visible_cursor_pos >= visible_points) visible_cursor_pos = visible_points - 1;
         if (visible_cursor_pos < 0) visible_cursor_pos = 0;
 
-        // Реальное значение Y (из полного массива) — для точной позиции по вертикали
         double real_y = values[full_idx];
-
-        // Нормализуем по реальному значению, чтобы курсор висел на настоящей высоте
         double norm = norm_y(real_y, min_y, max_y, graph_scale);
-
         int cell_y = (int)round((1.0 - norm) * (plot_height - 1));
         int cell_x = plot_start_x + (visible_cursor_pos * plot_width) / (visible_points - 1);
 
-        if (cell_y >= 0 && cell_y < plot_height && cell_x >= 0 && cell_x < width)
-        {
-            if (has_colors()) {
-                attron(COLOR_PAIR(11) | A_BOLD);
-            }
-            mvaddch(plot_start_y + cell_y, cell_x, '@');
-            if (has_colors()) {
-                attroff(COLOR_PAIR(11) | A_BOLD);
-            }
-
-            // Форматируем реальное значение
-            char val_str[64];
-            snprintf(val_str, sizeof(val_str), "%.4f", real_y);
-
-            char x_str[64] = "";
-            if (using_date_x) {
-                int row_idx = start_row + full_idx;
-                int real_row = get_real_row(row_idx);
-                if (real_row >= 0 && real_row < row_count) {
-                    char *date_raw = get_column_value(rows[real_row].line_cache,
-                                                      column_names[date_col] ? column_names[date_col] : "",
-                                                      use_headers);
-                    if (date_raw) {
-                        char *formatted = format_date(date_raw, target_date_fmt);
-                        strncpy(x_str, formatted, sizeof(x_str) - 1);
-                        free(formatted);
-                        free(date_raw);
-                    }
+        // Строим x_str (нужен и для одиночного, и для передачи наружу)
+        char x_str[64] = "";
+        if (using_date_x) {
+            int row_idx = start_row + full_idx;
+            int real_row = get_real_row(row_idx);
+            if (real_row >= 0 && real_row < row_count) {
+                char *date_raw = get_column_value(rows[real_row].line_cache,
+                                                  column_names[date_col] ? column_names[date_col] : "",
+                                                  use_headers);
+                if (date_raw) {
+                    char *formatted = format_date(date_raw, target_date_fmt);
+                    strncpy(x_str, formatted, sizeof(x_str) - 1);
+                    free(formatted);
+                    free(date_raw);
                 }
             }
-            if (x_str[0] == '\0') {
-                snprintf(x_str, sizeof(x_str), "%d", full_idx + 1);
-            }
-
-            char info[128];
-            snprintf(info, sizeof(info), "X: %s | Y: %s", x_str, val_str);
-
-            int text_y = plot_start_y + cell_y - 1;
-            if (text_y < plot_start_y) text_y = plot_start_y + cell_y + 1;
-
-            attron(COLOR_PAIR(1));
-            mvprintw(text_y, cell_x - 10, "%s", info);
-            attroff(COLOR_PAIR(1));
         }
-    }  
+        if (x_str[0] == '\0') {
+            snprintf(x_str, sizeof(x_str), "%d", full_idx + 1);
+        }
+
+        // Сохраняем для caller-а (multi-series tooltip)
+        graph_last_cursor_y = real_y;
+        strncpy(graph_last_cursor_x, x_str, sizeof(graph_last_cursor_x) - 1);
+        graph_last_cursor_x[sizeof(graph_last_cursor_x) - 1] = '\0';
+
+        if (cell_y >= 0 && cell_y < plot_height && cell_x >= 0 && cell_x < width)
+        {
+            // Маркер @ в цвете серии (в multi-series режиме) или в красном (single)
+            int marker_pair = (graph_overlay_mode == 0) ? 11 : current_graph_color_pair;
+            if (has_colors()) attron(COLOR_PAIR(marker_pair) | A_BOLD);
+            mvaddch(plot_start_y + cell_y, cell_x, '@');
+            if (has_colors()) attroff(COLOR_PAIR(marker_pair) | A_BOLD);
+
+            // Текстовый тултип — только в single-series режиме
+            if (graph_overlay_mode == 0) {
+                char val_str[64];
+                snprintf(val_str, sizeof(val_str), "%.4f", real_y);
+                char info[128];
+                snprintf(info, sizeof(info), "X: %s | Y: %s", x_str, val_str);
+                int text_y = plot_start_y + cell_y - 1;
+                if (text_y < plot_start_y) text_y = plot_start_y + cell_y + 1;
+                attron(COLOR_PAIR(1));
+                mvprintw(text_y, cell_x - 10, "%s", info);
+                attroff(COLOR_PAIR(1));
+            }
+        }
+    }
 
     free(dots);
 cleanup_free_plot:
