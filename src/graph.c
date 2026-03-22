@@ -535,6 +535,8 @@ void draw_graph(int col, int height, int width, RowIndex *rows, FILE *f, int row
                     }
                 }
             }
+            // In overlay passes, skip empty cells to preserve earlier series
+            if (graph_overlay_mode == 2 && code == 0) continue;
             char braille_utf8[5] = {0};
             wcrtomb(braille_utf8, 0x2800 + code, NULL);
             mvaddstr(plot_start_y + cy, plot_start_x + cx, braille_utf8);
