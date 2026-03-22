@@ -30,6 +30,7 @@
 #include "bookmarks.h"
 #include "csv_mmap.h"
 #include "themes.h"
+#include "splash.h"
 
 // ────────────────────────────────────────────────
 // Глобальные переменные — определения (инициализация)
@@ -949,7 +950,11 @@ int main(int argc, char *argv[]) {
     program_path = argv[0];
     for (int i = 0; i < 26; i++) bookmarks[i] = -1;
     if (argc == 2 && (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "-?") == 0 || strcmp(argv[1], "/h") == 0)) {
-        show_help(0);  // консольный вывод
+        show_help(0);
+        return 0;
+    }
+    if (argc == 2 && (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-v") == 0)) {
+        show_version();
         return 0;
     }
 
