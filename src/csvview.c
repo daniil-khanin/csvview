@@ -1464,11 +1464,48 @@ int main(int argc, char *argv[]) {
                 graph_col_count = 0;
                 continue;
             } else if (ch == KEY_LEFT || ch == 'h') {
-                if (graph_cursor_pos > 0) graph_cursor_pos--;
                 min_max_show = 0;
+                if (graph_cursor_pos > 0) {
+                    graph_cursor_pos--;
+                } else {
+                    // Курсор на левом краю — пытаемся скроллить окно влево
+                    int total = graph_total_points;
+                    int cur_s = graph_zoom_start;
+                    int cur_e = (graph_zoom_end > 0 && graph_zoom_end <= total) ? graph_zoom_end : total;
+                    if (cur_s > 0) {
+                        int vp = graph_visible_points > 0 ? graph_visible_points : 1;
+                        int scroll = (cur_e - cur_s + vp - 1) / vp;
+                        if (scroll < 1) scroll = 1;
+                        cur_s -= scroll;
+                        cur_e -= scroll;
+                        if (cur_s < 0) { cur_e -= cur_s; cur_s = 0; }
+                        graph_zoom_start = cur_s;
+                        graph_zoom_end   = (cur_e >= total) ? -1 : cur_e;
+                    }
+                    // cursor_pos остаётся 0 (левый край)
+                }
             } else if (ch == KEY_RIGHT || ch == 'l') {
-                if (graph_cursor_pos < graph_visible_points - 1) graph_cursor_pos++;
                 min_max_show = 0;
+                if (graph_cursor_pos < graph_visible_points - 1) {
+                    graph_cursor_pos++;
+                } else {
+                    // Курсор на правом краю — пытаемся скроллить окно вправо
+                    int total = graph_total_points;
+                    int cur_s = graph_zoom_start;
+                    int cur_e = (graph_zoom_end > 0 && graph_zoom_end <= total) ? graph_zoom_end : total;
+                    if (cur_e < total) {
+                        int vp = graph_visible_points > 0 ? graph_visible_points : 1;
+                        int scroll = (cur_e - cur_s + vp - 1) / vp;
+                        if (scroll < 1) scroll = 1;
+                        cur_s += scroll;
+                        cur_e += scroll;
+                        if (cur_e > total) { cur_s -= (cur_e - total); cur_e = total; }
+                        if (cur_s < 0) cur_s = 0;
+                        graph_zoom_start = cur_s;
+                        graph_zoom_end   = (cur_e >= total) ? -1 : cur_e;
+                    }
+                    // cursor_pos остаётся graph_visible_points - 1 (правый край)
+                }
             } else if (ch == 'r') {
                 // Redraw (no-op, loop will redraw)
             } else if (ch == ':') {  // Вход в режим команд
