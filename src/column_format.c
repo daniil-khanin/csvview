@@ -333,6 +333,7 @@ void save_column_settings(const char *csv_filename)
     fprintf(fp, "col_count:%d\n", col_count);
     fprintf(fp, "freeze:%d\n", freeze_cols);
     fprintf(fp, "delimiter:%d\n", (int)(unsigned char)csv_delimiter);
+    fprintf(fp, "skip_comments:%d\n", skip_comments);
 
     // Настройки каждого столбца
     for (int i = 0; i < col_count; i++)
@@ -388,6 +389,29 @@ void save_column_settings(const char *csv_filename)
             fprintf(fp, "mark: %c %d\n", 'a' + i, bookmarks[i]);
     }
 
+    fclose(fp);
+}
+
+void preload_delimiter(const char *csv_filename)
+{
+    if (!csv_filename || !*csv_filename) return;
+    char csvf_path[1024];
+    snprintf(csvf_path, sizeof(csvf_path), "%s.csvf", csv_filename);
+    FILE *fp = fopen(csvf_path, "r");
+    if (!fp) return;
+    char line[64];
+    // Нужно найти и delimiter и skip_comments — читаем весь файл
+    int found_delim = 0, found_skip = 0;
+    while (fgets(line, sizeof(line), fp) && !(found_delim && found_skip)) {
+        if (!found_delim && strncmp(line, "delimiter:", 10) == 0) {
+            int d = atoi(line + 10);
+            if (d > 0 && d < 256) csv_delimiter = (char)d;
+            found_delim = 1;
+        } else if (!found_skip && strncmp(line, "skip_comments:", 14) == 0) {
+            skip_comments = atoi(line + 14) ? 1 : 0;
+            found_skip = 1;
+        }
+    }
     fclose(fp);
 }
 
@@ -462,6 +486,10 @@ int load_column_settings(const char *csv_filename)
             int n = atoi(line + 7);
             if (n >= 0) freeze_cols = n;
         }
+        else if (strncmp(line, "skip_comments:", 14) == 0)
+        {
+            skip_comments = atoi(line + 14) ? 1 : 0;
+        }
         else if (strncmp(line, "hidden:", 7) == 0)
         {
             char *p = line + 7;
@@ -475,11 +503,9 @@ int load_column_settings(const char *csv_filename)
         else if (strncmp(line, "col_count:", 10) == 0)
         {
             loaded_count = atoi(line + 10);
-            if (loaded_count != col_count)
-            {
-                fclose(fp);
-                return 0; // количество столбцов не совпадает — игнорируем
-            }
+            // Не прерываемся — продолжаем читать глобальные настройки
+            // (use_headers, freeze, delimiter, skip_comments). Несовпадение
+            // col_count означает только что per-column форматы неприменимы.
         }
         else
         {
@@ -505,14 +531,16 @@ int load_column_settings(const char *csv_filename)
 
     fclose(fp);
 
-    // Применяем загруженные настройки только если всё совпало
-    if (loaded_count == col_count)
-    {
-        use_headers = temp_use_headers;
-        return 1; // успех
-    }
+    // Глобальные настройки (use_headers) применяем всегда — даже при несовпадении col_count
+    use_headers = temp_use_headers;
 
-    return 0;
+    if (loaded_count == col_count)
+        return 1;   // полный успех: и глобальные, и per-column настройки применены
+
+    // col_count изменился (например из-за skip_comments) — per-column форматы уже
+    // загружены выше в цикле, но могут быть частично применены.
+    // Возвращаем 2 = "частичная загрузка": popup не нужен, но auto_detect стоит запустить.
+    return loaded_count == 0 ? 0 : 2;
 }
 
 /*

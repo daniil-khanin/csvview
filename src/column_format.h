@@ -109,8 +109,9 @@ void save_column_settings(const char *csv_filename);
  * Успешно загружает только если col_count совпадает с текущим.
  *
  * @param csv_filename  Имя исходного CSV-файла
- * @return 1 — успешно загружено, 0 — файл не найден / ошибка формата
+ * @return 1 — полный успех, 2 — частичный (col_count изменился, глобальные настройки применены), 0 — файл не найден
  */
+void preload_delimiter(const char *csv_filename);
 int load_column_settings(const char *csv_filename);
 
 /**

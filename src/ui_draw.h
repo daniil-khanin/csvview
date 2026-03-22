@@ -150,4 +150,12 @@ void spinner_tick(void);
  */
 void spinner_clear(void);
 
+/**
+ * @brief Показывает окно просмотра строк-комментариев (строки начинающиеся с '#')
+ *
+ * Доступно когда skip_comments=1 и comment_count>0.
+ * Вызывается по клавише '#' в главном виде.
+ */
+void show_comments_window(void);
+
 #endif /* UI_DRAW_H */

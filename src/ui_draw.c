@@ -380,7 +380,14 @@ void draw_status_bar(int y, int x, const char *filename, int row_count, const ch
 
     attron(COLOR_PAIR(6));
     mvprintw(y - 1, 2, "[ %s ]", size_str);
-    mvprintw(y - 1, 2 + strlen(size_str) + 6, "[ %s ]", row_buf);
+    int meta_x = 2 + (int)strlen(size_str) + 6;
+    mvprintw(y - 1, meta_x, "[ %s ]", row_buf);
+    meta_x += (int)strlen(row_buf) + 4;
+    if (comment_count > 0) {
+        mvaddch(y - 1, meta_x,     ACS_HLINE);
+        mvaddch(y - 1, meta_x + 1, ACS_HLINE);
+        mvprintw(y - 1, meta_x + 2, "[ # %d ]", comment_count);
+    }
     attroff(COLOR_PAIR(6));
 
     attron(COLOR_PAIR(6));
@@ -653,4 +660,143 @@ void spinner_clear(void)
     mvprintw(LINES - 2, COLS - 7, "     ");
     refresh();
     spinner_state = 0;
+}
+
+// ────────────────────────────────────────────────
+// Окно просмотра строк-комментариев (#)
+// ────────────────────────────────────────────────
+
+void show_comments_window(void)
+{
+    if (comment_count == 0) return;
+
+    int height = LINES - 4;
+    int width  = COLS  - 4;
+    if (width  < 40) width  = 40;
+    if (height < 5)  height = 5;
+    int start_y = 2;
+    int start_x = 2;
+
+    WINDOW *win = newwin(height, width, start_y, start_x);
+    wbkgd(win, COLOR_PAIR(1));
+
+    int visible = height - 3;   // строки данных (за вычетом рамки + footer)
+    int top     = 0;
+    int cur     = 0;
+    int ch;
+
+    // Ширина поля номера строки
+    char num_fmt[16];
+    int  num_w = 1;
+    { int tmp = comment_count; while (tmp >= 10) { num_w++; tmp /= 10; } }
+    snprintf(num_fmt, sizeof(num_fmt), "%%%dd", num_w);
+
+    // Ширина текста: width - border(2) - num_w - " # "(3) - pad(1)
+    int text_w = width - 2 - num_w - 4;
+    if (text_w < 10) text_w = 10;
+
+    while (1) {
+        // ── Рамка ──
+        werase(win);
+        wattron(win, COLOR_PAIR(6));
+        box(win, 0, 0);
+        wattroff(win, COLOR_PAIR(6));
+
+        // ── Заголовок ──
+        char title[64];
+        snprintf(title, sizeof(title), " # File Comments (%d) ", comment_count);
+        int tx = (width - (int)strlen(title)) / 2;
+        if (tx < 1) tx = 1;
+        wattron(win, COLOR_PAIR(3) | A_BOLD);
+        mvwprintw(win, 0, tx, "%s", title);
+        wattroff(win, COLOR_PAIR(3) | A_BOLD);
+
+        // ── Строки ──
+        for (int i = 0; i < visible; i++) {
+            int idx = top + i;
+            if (idx >= comment_count) break;
+
+            const char *raw = comment_lines[idx];
+            // Пропускаем ведущий '#' для красивого отображения
+            const char *text = raw;
+            if (text[0] == '#') text++;
+            // Убираем пробел сразу после '#' если есть
+            if (text[0] == ' ') text++;
+
+            int row_y = 1 + i;
+            int col_x = 1;
+
+            if (idx == cur) wattron(win, COLOR_PAIR(2));
+
+            // Номер строки
+            if (idx != cur) wattron(win, COLOR_PAIR(6));
+            mvwprintw(win, row_y, col_x, num_fmt, idx + 1);
+            if (idx != cur) wattroff(win, COLOR_PAIR(6));
+
+            col_x += num_w + 1;
+
+            // Символ '#'
+            if (idx != cur) wattron(win, COLOR_PAIR(3) | A_BOLD);
+            mvwprintw(win, row_y, col_x, "#");
+            if (idx != cur) wattroff(win, COLOR_PAIR(3) | A_BOLD);
+
+            col_x += 2;
+
+            // Текст комментария
+            if (idx != cur) wattron(win, COLOR_PAIR(1));
+            mvwprintw(win, row_y, col_x, "%-.*s", text_w, text);
+            if (idx != cur) wattroff(win, COLOR_PAIR(1));
+
+            if (idx == cur) wattroff(win, COLOR_PAIR(2));
+        }
+
+        // ── Полоса прокрутки (правый край) ──
+        if (comment_count > visible) {
+            int bar_h = visible * visible / comment_count;
+            if (bar_h < 1) bar_h = 1;
+            int bar_y = 1 + top * visible / comment_count;
+            wattron(win, COLOR_PAIR(6));
+            for (int i = 0; i < visible; i++)
+                mvwaddch(win, 1 + i, width - 2, i >= bar_y && i < bar_y + bar_h ? ACS_BLOCK : ACS_VLINE);
+            wattroff(win, COLOR_PAIR(6));
+        }
+
+        // ── Footer ──
+        wattron(win, COLOR_PAIR(6));
+        mvwprintw(win, height - 1, 2,
+                  "[ ↑↓/jk: navigate   PgUp/PgDn: page   q/Esc: close ]");
+        wattroff(win, COLOR_PAIR(6));
+
+        wrefresh(win);
+
+        ch = getch();
+
+        if (ch == 'q' || ch == 27 || ch == KEY_F(1)) {
+            break;
+        } else if (ch == KEY_UP || ch == 'k') {
+            if (cur > 0) cur--;
+            if (cur < top) top = cur;
+        } else if (ch == KEY_DOWN || ch == 'j') {
+            if (cur < comment_count - 1) cur++;
+            if (cur >= top + visible) top = cur - visible + 1;
+        } else if (ch == KEY_PPAGE) {
+            cur -= visible;
+            if (cur < 0) cur = 0;
+            top = cur;
+        } else if (ch == KEY_NPAGE) {
+            cur += visible;
+            if (cur >= comment_count) cur = comment_count - 1;
+            if (cur >= top + visible) top = cur - visible + 1;
+        } else if (ch == KEY_HOME || ch == 'g') {
+            cur = 0; top = 0;
+        } else if (ch == KEY_END || ch == 'G') {
+            cur = comment_count - 1;
+            top = cur - visible + 1;
+            if (top < 0) top = 0;
+        }
+    }
+
+    delwin(win);
+    touchwin(stdscr);
+    refresh();
 }

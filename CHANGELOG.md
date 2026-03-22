@@ -1,5 +1,28 @@
 # Changelog
 
+## v15 — 2026-03-22
+
+### New features
+- **Comment lines support**: files with `#`-prefixed header lines (VCF, GFF, scientific data)
+  are now handled correctly. `:comments on/off` skips `#` lines and blank preamble from the
+  main table; skipped lines are collected and viewable in a dedicated window (`#` key).
+  Setting is saved in `.csvf` and restored on reopen.
+- **Multi-column sort**: `{`/`}` adds current column as the next sort level (ascending/descending);
+  headers show `↑1`/`↓2` level indicators. `:sort col asc, col2 desc` for named sort.
+- **Separator cycling** in column settings (`C`): cycles `, → ; → tab → |`; triggers file reload;
+  saved in `.csvf` so custom delimiter is restored on reopen.
+- **File history picker improvements**: missing files show an error and are removed from history
+  automatically; `d` key for manual removal; list stays open if entries remain.
+- **Relative line numbers** (`:rn`): toggle distance-from-cursor numbering (vim-style).
+
+### Bug fixes
+- Fixed: saved delimiter not applied when reopening a file — now preloaded before row indexing
+- Fixed: `r` resets sort only; `R` resets filter (were both resetting sort)
+- Fixed: graph cursor used `j`/`k` conflicting with table navigation — removed, left `h`/`l` + arrows
+- Fixed: pivot Y-scale command unified as `:gy log|lin`
+
+---
+
 ## v14 — 2026-03-21
 
 ### New features

@@ -158,6 +158,9 @@ Aggregates (whole file): same with `_all` suffix
 - CSV (`,`), TSV (`.tsv` → auto-detected), PSV (`.psv` → auto-detected)
 - Custom delimiter: `--sep=<char>` (e.g. `--sep=\;`)
 - European decimal separator (`,`) handled everywhere
+- **Comment lines** (`#`): VCF, GFF, GTF, scientific `.dat` files — `:comments on` skips `#`-prefixed
+  lines from the table and collects them; press `#` to view in a scrollable popup.
+  Status bar shows `[ # N ]` when comments are present. Setting saved in `.csvf`.
 
 ---
 
@@ -173,7 +176,9 @@ Aggregates (whole file): same with `_all` suffix
 :cf <formula>   Fill column by formula
 :cd name        Delete current column
 :cs [file]      Export current column to CSV
-:fz N           Freeze first N columns
+:freeze N       Freeze first N columns
+:comments on    Skip lines starting with # (collected, view with # key)
+:comments off   Show # lines as regular data rows
 :fs             Save current filter
 :fl             Show saved filters
 :fq             Quick filter: current cell = value (AND)

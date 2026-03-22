@@ -253,4 +253,10 @@ extern int bookmarks[26];
 // Пустая строка = нет drill-down, заполненная = надо применить фильтр
 extern char pivot_drilldown_filter[512];
 
+// Комментарии: строки файла начинающиеся с '#'
+#define MAX_COMMENT_LINES   10000
+extern int   skip_comments;
+extern char *comment_lines[MAX_COMMENT_LINES];
+extern int   comment_count;
+
 #endif

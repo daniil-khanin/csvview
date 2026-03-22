@@ -128,6 +128,11 @@ int bookmarks[26];
 // 12. Drill-down из pivot: фильтр для возврата в основную таблицу
 char pivot_drilldown_filter[512] = "";
 
+// 13b. Комментарии: строки с '#' собираются при индексировании если skip_comments=1
+int   skip_comments                     = 0;
+char *comment_lines[MAX_COMMENT_LINES]  = {NULL};
+int   comment_count                     = 0;
+
 // 13. Undo-стек для редактирования ячеек
 #define UNDO_MAX 20
 typedef struct {
@@ -167,18 +172,37 @@ static int undo_pop(int *real_row_out, char **old_line_out)
 
 static RowIndex *build_row_index(FILE *fp, int *out_count)
 {
+    // Сбрасываем старые комментарии
+    for (int i = 0; i < comment_count; i++) { free(comment_lines[i]); comment_lines[i] = NULL; }
+    comment_count = 0;
+
     size_t cap = 4096;
     RowIndex *r = malloc(cap * sizeof(RowIndex));
     if (!r) return NULL;
 
-    r[0].offset     = 0;
-    r[0].line_cache = NULL;
-    int cnt  = 1;
+    int  cnt = 0;
     long pos = 0;
-    char buf[1024];
+    char buf[MAX_LINE_LEN];
+    int  in_preamble = 1;   // ещё не встретили ни одной строки данных
 
     while (fgets(buf, sizeof(buf), fp)) {
+        long line_start = pos;
         pos += (long)strlen(buf);
+
+        // Собираем строки-комментарии (начинаются с '#')
+        if (skip_comments && buf[0] == '#') {
+            buf[strcspn(buf, "\r\n")] = '\0';
+            if (comment_count < MAX_COMMENT_LINES)
+                comment_lines[comment_count++] = strdup(buf);
+            continue;
+        }
+
+        // Пропускаем пустые строки в преамбуле (между комментариями и данными)
+        if (skip_comments && in_preamble && buf[strspn(buf, " \t\r\n")] == '\0')
+            continue;
+
+        in_preamble = 0;
+
         if (cnt >= MAX_ROWS) break;
         if ((size_t)cnt >= cap) {
             cap *= 2;
@@ -187,13 +211,12 @@ static RowIndex *build_row_index(FILE *fp, int *out_count)
             if (!tmp) { free(r); return NULL; }
             r = tmp;
         }
-        r[cnt].offset     = pos;
+        r[cnt].offset     = line_start;
         r[cnt].line_cache = NULL;
         cnt++;
     }
-    cnt--;  // последняя запись — смещение за концом файла, не нужна
 
-    // Уменьшаем до точного размера
+    // +1 запас: table_edit.c обращается к rows[row_count] при добавлении строк
     RowIndex *tmp = realloc(r, ((size_t)cnt + 1) * sizeof(RowIndex));
     if (tmp) r = tmp;
 
@@ -218,6 +241,49 @@ static int alloc_row_arrays(int count)
         return 0;
     }
     return 1;
+}
+
+// ────────────────────────────────────────────────
+// Пересбор имён столбцов из rows[0] (вызывается при reload)
+// ────────────────────────────────────────────────
+static void reparse_column_names(void)
+{
+    for (int i = 0; i < col_count; i++) { free(column_names[i]); column_names[i] = NULL; }
+    col_count = 0;
+
+    if (!rows[0].line_cache) {
+        fseek(f, rows[0].offset, SEEK_SET);
+        char line_buf[MAX_LINE_LEN];
+        if (fgets(line_buf, sizeof(line_buf), f)) {
+            line_buf[strcspn(line_buf, "\r\n")] = '\0';
+            char *end = line_buf + strlen(line_buf) - 1;
+            while (end >= line_buf &&
+                   (*end == ' ' || *end == '\t' || (unsigned char)*end == 0xA0))
+                *end-- = '\0';
+            rows[0].line_cache = strdup(line_buf);
+        } else {
+            rows[0].line_cache = strdup("");
+        }
+    }
+
+    int hdr_count = 0;
+    char **hdr_fields = parse_csv_line(rows[0].line_cache, &hdr_count);
+    if (hdr_fields) {
+        while (col_count < hdr_count && col_count < MAX_COLS) {
+            char *t = hdr_fields[col_count];
+            while (*t == ' ' || *t == '\t' || (unsigned char)*t == 0xA0) t++;
+            char *end = t + strlen(t) - 1;
+            while (end >= t &&
+                   (*end == ' ' || *end == '\t' || (unsigned char)*end == 0xA0))
+                *end-- = '\0';
+            column_names[col_count] = strdup(t);
+            if (!column_names[col_count]) column_names[col_count] = strdup("");
+            col_types[col_count] = COL_STR;
+            col_count++;
+        }
+        free_csv_fields(hdr_fields, hdr_count);
+    }
+    init_column_formats();
 }
 
 // ────────────────────────────────────────────────
@@ -712,6 +778,9 @@ int main(int argc, char *argv[]) {
         else snprintf(file_size_str, sizeof(file_size_str), "%.1f GB", size / (1024.0 * 1024.0 * 1024.0));
     }
 
+    // Pre-load delimiter and skip_comments from .csvf before building row index
+    preload_delimiter(file_to_open);
+
     rows = build_row_index(f, &row_count);
     if (!rows) { perror("malloc"); return 1; }
     if (!alloc_row_arrays(row_count)) { perror("malloc"); return 1; }
@@ -779,12 +848,20 @@ int main(int argc, char *argv[]) {
 
     int settings_loaded = load_column_settings(file_to_open);
 
-    if (!settings_loaded) {
+    if (settings_loaded == 0) {
+        // Файла настроек нет — первый запуск, показываем мастер настройки
         auto_detect_column_types();
         if (show_column_setup(file_to_open)) {
             endwin();
             return 0;
         }
+    } else if (settings_loaded == 2) {
+        // Частичная загрузка: col_count изменился из-за skip_comments.
+        // Глобальные настройки применены, но col_count был другим.
+        // Первая строка после комментариев — заголовок.
+        if (skip_comments) use_headers = 1;
+        auto_detect_column_types();
+        save_column_settings(file_to_open);
     }
 
     char cfg_path[1024];
@@ -2031,6 +2108,17 @@ int main(int argc, char *argv[]) {
         else if (ch == '\\') {  /* \ — data profile for all columns */
             show_profile_window();
         }
+        else if (ch == '#') {
+            if (comment_count > 0) {
+                show_comments_window();
+            } else {
+                draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
+                attron(COLOR_PAIR(6));
+                printw(" | No comment lines (enable with :comments on)");
+                attroff(COLOR_PAIR(6));
+                refresh();
+            }
+        }
         else if (ch == 'm') {  /* set/clear bookmark: m<a-z> */
             int label = getch();
             if (label >= 'a' && label <= 'z') {
@@ -2298,6 +2386,48 @@ int main(int argc, char *argv[]) {
                 draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
                 attron(COLOR_PAIR(3));
                 printw(" | Line numbers: %s", relative_line_numbers ? "relative" : "absolute");
+                attroff(COLOR_PAIR(3));
+                refresh();
+            } else if (strcmp(cmd, "comments") == 0) {
+                // :comments on/off — включить/выключить пропуск строк с '#'
+                int new_val = skip_comments;
+                if (arg && strcmp(arg, "on") == 0)  new_val = 1;
+                else if (arg && strcmp(arg, "off") == 0) new_val = 0;
+                else new_val = !skip_comments;
+
+                if (new_val != skip_comments) {
+                    skip_comments = new_val;
+                    // Перезагружаем файл чтобы применить/отменить фильтрацию '#' строк
+                    for (int i = 0; i < row_count; i++) { free(rows[i].line_cache); rows[i].line_cache = NULL; }
+                    csv_mmap_close();
+                    if (f) { fclose(f); f = NULL; }
+                    f = fopen(file_to_open, "r");
+                    if (f) csv_mmap_open(file_to_open);
+                    free(rows);
+                    rows = build_row_index(f, &row_count);
+                    if (!rows || !alloc_row_arrays(row_count)) { /* oom */ }
+                    // Перепарсируем заголовки (col_count мог измениться)
+                    reparse_column_names();
+                    int cmt_load = load_column_settings(file_to_open);
+                    // load_column_settings мог перезаписать skip_comments из старого файла —
+                    // восстанавливаем значение которое выбрал пользователь
+                    skip_comments = new_val;
+                    // Если col_count изменился (0 или 2) — настройки устарели,
+                    // первая строка после комментариев — заголовок
+                    if (cmt_load != 1) {
+                        use_headers = 1;
+                        auto_detect_column_types();
+                    }
+                    // Сохраняем с правильным col_count и правильным skip_comments
+                    save_column_settings(file_to_open);
+                    sort_col = -1; sort_order = 0; sort_level_count = 0; sorted_count = 0;
+                    filter_active = 0; filtered_count = 0; filter_query[0] = '\0';
+                    cur_display_row = 0; top_display_row = 0; cur_col = 0; left_col = 0;
+                }
+                draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
+                attron(COLOR_PAIR(3));
+                printw(" | Comment lines (#): %s  [%d collected]",
+                       skip_comments ? "skip" : "show as data", comment_count);
                 attroff(COLOR_PAIR(3));
                 refresh();
             } else if (strcmp(cmd, "freeze") == 0 || strcmp(cmd, "fz") == 0) {
