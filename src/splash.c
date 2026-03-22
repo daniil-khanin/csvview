@@ -10,6 +10,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 #include <sys/stat.h>
 
@@ -33,20 +34,45 @@ static const char *LC[] = {
 };
 
 /* format binary size into buf (e.g. "264 KB", "1.3 MB") */
-static void fmt_binary_size(const char *path, char *buf, int buflen)
+static void fmt_binary_size(const char *argv0, char *buf, int buflen)
 {
     struct stat st;
-    if (!path || stat(path, &st) != 0) {
-        snprintf(buf, buflen, "?");
-        return;
+
+    /* 1. try argv0 as-is (works for ./csvview or absolute path) */
+    if (argv0 && stat(argv0, &st) == 0)
+        goto found;
+
+    /* 2. if no '/' in argv0, search PATH (works for installed binary) */
+    if (argv0 && !strchr(argv0, '/')) {
+        const char *path_env = getenv("PATH");
+        if (path_env) {
+            char path_copy[4096];
+            strncpy(path_copy, path_env, sizeof(path_copy) - 1);
+            path_copy[sizeof(path_copy) - 1] = '\0';
+            char *dir = strtok(path_copy, ":");
+            while (dir) {
+                char candidate[4096];
+                snprintf(candidate, sizeof(candidate), "%s/%s", dir, argv0);
+                if (stat(candidate, &st) == 0)
+                    goto found;
+                dir = strtok(NULL, ":");
+            }
+        }
     }
-    long sz = (long)st.st_size;
-    if (sz < 1024)
-        snprintf(buf, buflen, "%ld B", sz);
-    else if (sz < 1024 * 1024)
-        snprintf(buf, buflen, "%ld KB", sz / 1024);
-    else
-        snprintf(buf, buflen, "%.1f MB", sz / (1024.0 * 1024.0));
+
+    snprintf(buf, buflen, "?");
+    return;
+
+found:
+    {
+        long sz = (long)st.st_size;
+        if (sz < 1024)
+            snprintf(buf, buflen, "%ld B", sz);
+        else if (sz < 1024 * 1024)
+            snprintf(buf, buflen, "%ld KB", sz / 1024);
+        else
+            snprintf(buf, buflen, "%.1f MB", sz / (1024.0 * 1024.0));
+    }
 }
 
 /* ── Variant A: bar chart ───────────────────────────────────── */
