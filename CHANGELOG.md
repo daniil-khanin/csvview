@@ -1,5 +1,39 @@
 # Changelog
 
+## v16 — 2026-03-22
+
+### New features
+
+- **Multi-series graph overlay**: press `M` to mark numeric columns (underlined in header),
+  then `Ctrl+G` to draw all marked + current column on one graph with a shared Y axis.
+  Each series gets its own color; a color legend is shown at the bottom with `[N]-name` labels.
+
+- **Series visibility toggle**: in graph mode, keys `1`–`9` hide/show individual series.
+  Hidden series are dimmed in the legend; all series reset to visible on each new `Ctrl+G`.
+
+- **Zoom and pan**:
+  - `+` / `=` — zoom in ~4× around cursor position
+  - `-` — zoom out ~2×
+  - `0` — reset to full view
+  - Moving the cursor past the zoom boundary **pans** the window automatically, so the entire
+    dataset is reachable while staying zoomed in.
+
+- **Multi-series cursor** (`:gp on`): each series shows its own `@` marker in its color;
+  a single shared tooltip at the top shows `X: <value>` once and `colname: Y` per series.
+
+- **Grid lines** (`:grid y|x|yx|off`): draws dim horizontal (Y) and/or vertical (X) lines
+  before the braille data so data overlays the grid cleanly.
+
+- **4 Y-axis labels**: top / 1/3 / 2/3 / bottom positions instead of just min/max.
+  Log scale uses log-spaced values; format uses `%.3g` for compact display.
+
+### Bug fixes
+- Fixed: multi-series overlay — series 2+ wrote empty braille `⠀` cells over series 1's
+  visible characters. Now braille rendering always skips `code==0` cells (canvas is cleared
+  with spaces beforehand, so this is safe and also preserves grid lines).
+
+---
+
 ## v15 — 2026-03-22
 
 ### New features

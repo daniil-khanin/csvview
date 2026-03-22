@@ -15,7 +15,7 @@
 void show_usage(void)
 {
     printf("CSV Viewer & Editor - Terminal Tool\n");
-    printf("Version %d dated March 22, 2026 by Daniil Khanin & Claude\n\n", CSVVIEW_VERSION);
+    printf("Version %d dated March 2026 by Daniil Khanin & Claude\n\n", CSVVIEW_VERSION);
 
     printf("Usage:\n");
     printf("  csvview <file>                  Open file (auto-detects .tsv/.psv)\n");
@@ -29,7 +29,7 @@ void show_help(int use_ncurses)
 {
     const char *help_text[] = {
         "CSV Viewer & Editor - Terminal Tool",
-        "Version 15 dated March 22, 2026 by Daniil Khanin & Claude",
+        "Version 16 dated March 2026 by Daniil Khanin & Claude",
         "",
         "Usage:",
         "  csvview <file>                  Open file (auto-detects .tsv / .psv)",
@@ -195,17 +195,32 @@ void show_help(int use_ncurses)
         "  :gy log|lin          Y-scale (log or linear)",
         "  Status bar shows:    [G: <type> <scale> <axis>]",
         "",
-        "Graph mode (g):",
+        "Graph mode:",
+        "  M                    Mark / unmark current column for multi-series graph",
+        "                         (marked columns shown with underline in header)",
+        "  Ctrl+G               Open graph: all M-marked columns + current column",
+        "                         If only one series → single-series mode (full features)",
+        "                         If multiple → overlay on shared Y axis, color per series",
+        "",
+        "  In graph mode:",
         "  ← → / h l            Move cursor left / right",
-        "  m / M                Jump to min/max value",
-        "  q / Esc              Exit",
+        "                         At zoom edge: pans the zoom window automatically",
+        "  m / M                Jump to min / max value",
+        "  1 – 9                Toggle visibility of series 1–9 (legend shows [N]-name)",
+        "  + / =                Zoom in  (~4× around cursor)",
+        "  -                    Zoom out (~2×)",
+        "  0                    Reset zoom to full view",
+        "  q / Esc              Exit graph mode",
+        "",
+        "  Graph commands (: in graph mode):",
         "  :gt bar|line|dot     Graph type",
         "  :gy log|linear       Y-scale (log or linear)",
-        "  :gc red|green|...    Color (red, green, blue, yellow, cyan, magenta, white)",
+        "  :gc red|green|...    Color for single-series (red green blue yellow cyan magenta white)",
         "  :ga on|off           Anomaly highlighting (>3σ)",
         "  :gx <column>         Use date column as X-axis  [Tab = autocomplete column]",
-        "  :gx off              Back to row numbers",
-        "  :gp on|off           Show cursor on points",
+        "  :gx off              Back to row numbers on X axis",
+        "  :gp on|off           Cursor on points; multi-series shows @ per series + shared tooltip",
+        "  :grid y|x|yx|off     Grid lines: y=horizontal, x=vertical, yx=both, off=none",
         "",
         "Computed columns (:cf <formula>):",
         "  Syntax:  :cf <expression>",
@@ -327,7 +342,9 @@ void show_help(int use_ncurses)
                     strstr(text, "Pivot table graph (G in pivot mode):") ||
                     strstr(text, "Computed columns (:cf <formula>):") ||
                     strstr(text, "Split mode (--split):") ||
-                    strstr(text, "Graph mode (g):") ||
+                    strstr(text, "Graph mode:") ||
+                    strstr(text, "In graph mode:") ||
+                    strstr(text, "Graph commands (: in graph mode):") ||
                     strstr(text, "Concat mode (--cat):") ||
                     strstr(text, "Bookmarks (vim-style):") ||
                     strstr(text, "Theme:") ||

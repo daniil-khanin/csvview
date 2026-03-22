@@ -72,7 +72,8 @@ csvview                   # recent files picker
 | `[` / `]` | Sort ascending / descending |
 | `d` | Column statistics (sum, mean, median, histogram) |
 | `p` | Pivot table |
-| `g` | Graph for current column |
+| `M` | Mark column for multi-series graph |
+| `Ctrl+G` | Graph marked columns (or just current column) |
 | `Enter` | Edit cell |
 | `:N` | Go to row N |
 | `?` | Full help |
@@ -137,12 +138,16 @@ Aggregates (whole file): same with `_all` suffix
 - Parallel aggregation — up to 8 threads; real-time progress bar on large files
 
 ### Graphs
-- Line, bar, and dot chart types
-- Linear and log scale
-- Cursor mode — scroll through data points with value display
-- Jump to min/max with `m`/`M`
+- Line, bar, and dot chart types; linear and log scale
+- **Multi-series overlay**: press `M` to mark columns, `Ctrl+G` to draw all on a shared Y axis — each series in its own color
+- **Series toggle**: press `1`–`9` in graph mode to hide/show individual series; legend shows `[N]-name`
+- **Zoom**: `+`/`=` zoom in ~4× around cursor, `-` zoom out, `0` reset to full view
+- **Pan**: moving the cursor past the zoom boundary scrolls the window — navigate the entire dataset while zoomed
+- **Cursor mode** (`:gp on`): shows value at cursor; in multi-series — one shared `X:` label + `Y:` per series in its color
+- Jump to min/max with `m`/`M`; 4 Y-axis labels (top, 1/3, 2/3, bottom)
+- **Grid lines**: `:grid y|x|yx|off` — dim horizontal/vertical grid drawn under data
 - Anomaly highlighting (values > 3σ)
-- Date column as X axis (`:gx <column>` — Tab autocomplete for column name)
+- Date column as X axis (`:gx <column>` — Tab autocomplete)
 - **Pivot graph**: `G` in pivot mode splits screen — table on left, chart on right
 - Parallel value extraction — fast rendering on files with 10M+ rows
 
@@ -185,6 +190,13 @@ Aggregates (whole file): same with `_all` suffix
 :fqn            Quick filter: current cell != value (AND)
 :fqo            Quick filter: current cell = value (OR)
 :fqu            Quick filter: reset and apply
+
+Graph commands (in graph mode):
+:grid y|x|yx|off  Grid lines (horizontal / vertical / both / off)
+:gp on|off        Cursor; multi-series shows per-series Y tooltip
+:gt bar|line|dot  Graph type
+:gy log|linear    Y-scale
+:gx <column>      Date column as X axis
 ```
 
 ---
@@ -195,7 +207,6 @@ Aggregates (whole file): same with `_all` suffix
 Arrows / hjkl       Move cursor
 PageUp/PageDown     Scroll one page
 Home/End            First/last row
-Ctrl+G              Go to row (prompts)
 /                   Search
 n / N               Next/previous result
 Shift+F             Advanced filter
@@ -207,13 +218,23 @@ t                   Column settings
 w / W               Increase/decrease column width
 A                   Auto-fit column width
 [ / ]               Sort ascending/descending
-r / R               Reset sort
+{ / }               Add sort level ascending/descending
+r / R               Reset sort / reset filter
 z                   Freeze/unfreeze up to current column
-X (in t)            Hide/show column
+-                   Hide/show current column
 d / D               Column statistics
-p                   Pivot table
-P                   Pivot table (always open settings)
-g / G               Graph for current column
+p / P               Pivot table (P = always open settings)
+M                   Mark column for multi-series graph
+Ctrl+G              Graph: marked columns + current column
+
+In graph mode:
+  ← → / h l        Move cursor (pans when zoomed to edge)
+  1–9               Toggle series visibility
+  + / =             Zoom in    - Zoom out    0 Reset zoom
+  m / M             Jump to min/max value
+  :grid y|x|yx|off  Grid lines
+  :gp on|off        Cursor on points (multi-series shows per-series Y values)
+
 ?                   Help
 q / Esc             Quit
 ```
