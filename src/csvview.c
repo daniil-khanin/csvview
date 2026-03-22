@@ -88,6 +88,7 @@ int       in_graph_mode           = 0;
 int       graph_col_list[10]      = {0};
 int       graph_col_count         = 0;
 int       graph_marked[MAX_COLS]  = {0};
+int       graph_series_hidden[10] = {0}; /* 1 = series N is hidden (toggled by 1-9 in graph mode) */
 int       current_graph           = 0;
 int       graph_start             = 0;
 int       graph_scroll_step       = 1;
@@ -1300,9 +1301,12 @@ int main(int argc, char *argv[]) {
                 double ms_cursor_ys[10];
                 char   ms_cursor_x[64] = "";
                 int    ms_cursor_n = 0;
+                int    first_visible = 1;
                 for (int s = 0; s < graph_col_count; s++) {
+                    if (graph_series_hidden[s]) continue;
                     current_graph_color_pair = GRAPH_COLOR_BASE + (s % 7);
-                    graph_overlay_mode = (s == 0) ? 1 : 2;
+                    graph_overlay_mode = first_visible ? 1 : 2;
+                    first_visible = 0;
                     graph_draw_cursor_overlay = show_graph_cursor ? 1 : 0;
                     graph_last_cursor_y = NAN;
                     draw_graph(graph_col_list[s], height, width, rows, f, row_count, graph_cursor_pos, min_max_show);
@@ -1336,19 +1340,25 @@ int main(int argc, char *argv[]) {
                         tx += (int)strlen(cn) + 10;
                     }
                 }
-                // Draw color legend
+                // Draw color legend (dim if hidden, key hint [N] to toggle)
                 int lx = ROW_DATA_OFFSET + 2;
                 for (int s = 0; s < graph_col_count; s++) {
                     int cp = GRAPH_COLOR_BASE + (s % 7);
                     char cn[20] = "";
                     if (use_headers && column_names[graph_col_list[s]])
-                        snprintf(cn, sizeof(cn), "%.15s", column_names[graph_col_list[s]]);
+                        snprintf(cn, sizeof(cn), "%.14s", column_names[graph_col_list[s]]);
                     else
                         col_letter(graph_col_list[s], cn);
-                    attron(COLOR_PAIR(cp) | A_BOLD);
-                    mvprintw(height - 3, lx, "- %s", cn);
-                    attroff(COLOR_PAIR(cp) | A_BOLD);
-                    lx += (int)strlen(cn) + 4;
+                    if (graph_series_hidden[s]) {
+                        attron(A_DIM);
+                        mvprintw(height - 3, lx, "[%d]-%s", s + 1, cn);
+                        attroff(A_DIM);
+                    } else {
+                        attron(COLOR_PAIR(cp) | A_BOLD);
+                        mvprintw(height - 3, lx, "[%d]-%s", s + 1, cn);
+                        attroff(COLOR_PAIR(cp) | A_BOLD);
+                    }
+                    lx += (int)strlen(cn) + 6;
                 }
             } else {
                 int col = graph_col_list[current_graph];
@@ -1816,17 +1826,60 @@ int main(int argc, char *argv[]) {
 
                 clrtoeol();
                 refresh();
-            } else if (ch == 'm' || ch == 'M') {  // m — минимум, M — максимум 
-                if (ch == 'm') {  // ищем минимум
-                    min_max_show = 1;
-                } else {           // ищем максимум
-                    min_max_show = 2;
+            } else if (ch == 'm' || ch == 'M') {
+                min_max_show = (ch == 'm') ? 1 : 2;
+            } else if (ch >= '1' && ch <= '9') {
+                // Toggle series visibility
+                int idx = ch - '1';
+                if (idx < graph_col_count)
+                    graph_series_hidden[idx] ^= 1;
+            } else if (ch == '+' || ch == '=') {
+                // Zoom in: halve visible range around cursor
+                int total = graph_total_points;
+                if (total > 0) {
+                    int cur_s = graph_zoom_start;
+                    int cur_e = (graph_zoom_end > 0 && graph_zoom_end <= total) ? graph_zoom_end : total;
+                    int cur_len = cur_e - cur_s;
+                    int half = cur_len / 4;
+                    if (half < 2) half = 2;
+                    int vp = graph_visible_points > 1 ? graph_visible_points - 1 : 1;
+                    int center = cur_s + (int)((double)graph_cursor_pos / vp * cur_len);
+                    int new_s = center - half;
+                    int new_e = center + half;
+                    if (new_s < 0) { new_e -= new_s; new_s = 0; }
+                    if (new_e > total) { new_s -= (new_e - total); new_e = total; }
+                    if (new_s < 0) new_s = 0;
+                    graph_zoom_start = new_s;
+                    graph_zoom_end   = new_e;
+                    graph_cursor_pos = (new_e - new_s) / 2;
                 }
-
-                // Перерисовываем график с новым курсором и позицией
-                draw_graph(current_graph, LINES - 2, COLS, rows, f, row_count, graph_cursor_pos, min_max_show);
+            } else if (ch == '-') {
+                // Zoom out: double visible range
+                int total = graph_total_points;
+                if (total > 0) {
+                    int cur_s = graph_zoom_start;
+                    int cur_e = (graph_zoom_end > 0 && graph_zoom_end <= total) ? graph_zoom_end : total;
+                    int cur_len = cur_e - cur_s;
+                    int half = cur_len;
+                    int center = (cur_s + cur_e) / 2;
+                    int new_s = center - half;
+                    int new_e = center + half;
+                    if (new_s < 0) new_s = 0;
+                    if (new_e > total) new_e = total;
+                    if (new_s == 0 && new_e >= total) {
+                        graph_zoom_start = 0; graph_zoom_end = -1; // full view
+                    } else {
+                        graph_zoom_start = new_s;
+                        graph_zoom_end   = new_e;
+                    }
+                    graph_cursor_pos = graph_visible_points / 2;
+                }
+            } else if (ch == '0') {
+                // Reset zoom to full view
+                graph_zoom_start = 0;
+                graph_zoom_end   = -1;
+                graph_cursor_pos = 0;
             }
-
 
             continue;
         }
@@ -1919,6 +1972,10 @@ int main(int argc, char *argv[]) {
             }
             current_graph = 0;
             graph_start = 0;
+            memset(graph_series_hidden, 0, sizeof(graph_series_hidden));
+            graph_zoom_start = 0;
+            graph_zoom_end   = -1;
+            graph_cursor_pos = 0;
             using_date_x = 0;
             date_col = -1;
             for (int c = 0; c < col_count; c++) {

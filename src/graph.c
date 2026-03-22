@@ -31,6 +31,9 @@ int    graph_draw_cursor_overlay = 0; /* 1 = draw cursor even in overlay mode */
 int    graph_grid = 0;          /* 0=off, 1=y-lines, 2=x-lines, 3=both */
 double graph_last_cursor_y = NAN;    /* Y value at cursor, set after each draw_graph */
 char   graph_last_cursor_x[64];      /* X label at cursor, set after each draw_graph */
+int    graph_zoom_start    = 0;      /* first visible data point (0 = from start) */
+int    graph_zoom_end      = -1;     /* last visible data point (-1 = all) */
+int    graph_total_points  = 0;      /* total data points before zoom, set by draw_graph */
 
 /* Inline field extractor — no malloc */
 static void get_field_graph(const char *line, int idx, char *buf, int buf_size)
@@ -344,6 +347,18 @@ void draw_graph(int col, int height, int width, RowIndex *rows, FILE *f, int row
     if (!values || point_count == 0) {
         free(values);
         return;
+    }
+    // ─── Zoom: запоминаем полный размер, сдвигаем указатель если нужно ─────────
+    graph_total_points = point_count;
+    double *values_base = values;  // оригинальный указатель для free()
+    {
+        int zs = (graph_zoom_start > 0) ? graph_zoom_start : 0;
+        int ze = (graph_zoom_end > 0 && graph_zoom_end <= point_count) ? graph_zoom_end : point_count;
+        if (zs < 0) zs = 0;
+        if (ze > point_count) ze = point_count;
+        if (zs > 0 || ze < point_count) {
+            if (zs < ze) { values = values_base + zs; point_count = ze - zs; }
+        }
     }
     // ─── min / max / среднее / stddev / аномалии ───────────────────────────────
     double min_y = INFINITY, max_y = -INFINITY;
@@ -665,5 +680,5 @@ void draw_graph(int col, int height, int width, RowIndex *rows, FILE *f, int row
 cleanup_free_plot:
     free(plot_values);
 cleanup:
-    free(values);
-} 
+    free(values_base);
+}
