@@ -22,6 +22,7 @@
 #include "table_edit.h"
 #include "pivot.h"
 #include "graph.h"
+#include "graph_svg.h"
 #include "help.h"
 #include "concat_files.h"
 #include "split_file.h"
@@ -89,6 +90,9 @@ int       graph_col_list[10]      = {0};
 int       graph_col_count         = 0;
 int       graph_marked[MAX_COLS]  = {0};
 int       graph_series_hidden[10] = {0}; /* 1 = series N is hidden (toggled by 1-9 in graph mode) */
+int       graph_dual_yaxis        = 0;   /* 1 = dual Y axis: series 0 left, rest right */
+int       graph_scatter_mode      = 0;   /* 1 = scatter plot active */
+int       graph_scatter_x_col     = -1; /* X column for scatter plot */
 int       current_graph           = 0;
 int       graph_start             = 0;
 int       graph_scroll_step       = 1;
@@ -1281,82 +1285,102 @@ int main(int argc, char *argv[]) {
 
         if (in_graph_mode) {
             if (graph_col_count > 1) {
-                // Multi-series: compute shared Y scale and, if m/M pressed, find global min/max X
+                // Multi-series: compute Y scale(s)
+                // In dual-yaxis mode: first visible → left axis, rest → right axis
+                // In normal mode: all series share one scale
                 double gmin = INFINITY, gmax = -INFINITY;
-                double mm_best = (min_max_show == 1) ? INFINITY : -INFINITY;
-                int    mm_idx  = 0;   // best raw index inside zoom window
-                int    mm_total = 0;  // zoom window length (for cursor conversion)
+                double rmin = INFINITY, rmax = -INFINITY;
+                int vis_idx = 0; // visible series index (0 = first visible)
                 for (int s = 0; s < graph_col_count; s++) {
                     if (graph_series_hidden[s]) continue;
                     int pc = 0; bool agg = false; char dfmt[32];
                     double *vals = extract_plot_values(graph_col_list[s], rows, f, row_count, &pc, &agg, dfmt);
-                    if (!vals) continue;
-                    // Mirror draw_graph's zoom slice
+                    if (!vals) { vis_idx++; continue; }
                     int zs = (graph_zoom_start > 0) ? graph_zoom_start : 0;
                     int ze = (graph_zoom_end > 0 && graph_zoom_end <= pc) ? graph_zoom_end : pc;
                     if (zs >= ze) { zs = 0; ze = pc; }
-                    if (mm_total == 0) mm_total = ze - zs;
+                    int is_right = (graph_dual_yaxis && vis_idx > 0) ? 1 : 0;
                     for (int i = zs; i < ze; i++) {
-                        double v = vals[i];
-                        if (v < gmin) gmin = v;
-                        if (v > gmax) gmax = v;
-                        if (min_max_show == 1 && v < mm_best) { mm_best = v; mm_idx = i - zs; }
-                        if (min_max_show == 2 && v > mm_best) { mm_best = v; mm_idx = i - zs; }
+                        if (is_right) {
+                            if (vals[i] < rmin) rmin = vals[i];
+                            if (vals[i] > rmax) rmax = vals[i];
+                        } else {
+                            if (vals[i] < gmin) gmin = vals[i];
+                            if (vals[i] > gmax) gmax = vals[i];
+                        }
+                        // in non-dual mode also fill gmin/gmax for all
+                        if (!graph_dual_yaxis) {
+                            // already handled above
+                        }
+                    }
+                    if (!graph_dual_yaxis) {
+                        // no-op, gmin/gmax already updated
                     }
                     free(vals);
+                    vis_idx++;
                 }
                 if (isinf(gmin) || isinf(gmax)) { gmin = 0; gmax = 1; }
                 if (gmin == gmax) { gmax += 1.0; gmin -= 1.0; }
                 graph_global_min = gmin;
                 graph_global_max = gmax;
-                // If m/M was pressed: move shared cursor to global min/max X, then draw normally
-                if (min_max_show != 0 && mm_total > 0) {
-                    int vp = graph_visible_points > 1 ? graph_visible_points - 1 : 1;
-                    graph_cursor_pos = (int)((double)mm_idx / mm_total * vp + 0.5);
-                    if (graph_cursor_pos >= graph_visible_points) graph_cursor_pos = graph_visible_points - 1;
-                    if (graph_cursor_pos < 0) graph_cursor_pos = 0;
-                    min_max_show = 0;  // all series will now draw at the shared X
+                // Right axis
+                if (graph_dual_yaxis && !isinf(rmin) && !isinf(rmax)) {
+                    if (rmin == rmax) { rmax += 1.0; rmin -= 1.0; }
+                    graph_right_min = rmin;
+                    graph_right_max = rmax;
+                } else {
+                    graph_right_min = NAN;
+                    graph_right_max = NAN;
                 }
+                graph_right_axis_drawn = 0;
+                // Note: when min_max_show != 0, each series jumps to its OWN min/max
+                // independently — we collect per-series (Y, X) pairs below for the tooltip
                 double ms_cursor_ys[10];
-                char   ms_cursor_x[64] = "";
+                char   ms_cursor_xs[10][64];
+                int    ms_series_idx[10];  /* which graph_col_list index */
                 int    ms_cursor_n = 0;
+                memset(ms_cursor_xs, 0, sizeof(ms_cursor_xs));
                 int    first_visible = 1;
+                int    vis_draw = 0;
                 for (int s = 0; s < graph_col_count; s++) {
                     if (graph_series_hidden[s]) continue;
                     current_graph_color_pair = GRAPH_COLOR_BASE + (s % 7);
                     graph_overlay_mode = first_visible ? 1 : 2;
+                    graph_use_right_axis = (graph_dual_yaxis && vis_draw > 0) ? 1 : 0;
                     first_visible = 0;
+                    vis_draw++;
                     graph_draw_cursor_overlay = show_graph_cursor ? 1 : 0;
                     graph_last_cursor_y = NAN;
                     draw_graph(graph_col_list[s], height, width, rows, f, row_count, graph_cursor_pos, min_max_show);
                     if (!isnan(graph_last_cursor_y) && ms_cursor_n < 10) {
-                        ms_cursor_ys[ms_cursor_n++] = graph_last_cursor_y;
-                        if (ms_cursor_x[0] == '\0')
-                            strncpy(ms_cursor_x, graph_last_cursor_x, sizeof(ms_cursor_x) - 1);
+                        ms_series_idx[ms_cursor_n] = s;
+                        ms_cursor_ys[ms_cursor_n] = graph_last_cursor_y;
+                        strncpy(ms_cursor_xs[ms_cursor_n], graph_last_cursor_x, 63);
+                        ms_cursor_n++;
                     }
                 }
                 graph_overlay_mode = 0;
                 graph_draw_cursor_overlay = 0;
+                graph_use_right_axis = 0;
                 graph_global_min = NAN;
                 graph_global_max = NAN;
-                // Multi-series tooltip: X once, then Y per series in its color
-                if (show_graph_cursor && ms_cursor_n > 0) {
+                graph_right_min = NAN;
+                graph_right_max = NAN;
+                // Multi-series tooltip (top line, cursor mode only)
+                // min/max mode: labels are drawn near each @ marker by draw_graph itself
+                if (show_graph_cursor && ms_cursor_n > 0 && min_max_show == 0) {
                     int tx = ROW_DATA_OFFSET + 2;
                     attron(COLOR_PAIR(1));
-                    mvprintw(3, tx, "X: %s  ", ms_cursor_x);
+                    mvprintw(3, tx, "X: %s  ", ms_cursor_xs[0]);
                     attroff(COLOR_PAIR(1));
-                    tx += (int)strlen(ms_cursor_x) + 6;
-                    for (int s = 0; s < ms_cursor_n; s++) {
+                    tx += (int)strlen(ms_cursor_xs[0]) + 6;
+                    for (int i = 0; i < ms_cursor_n; i++) {
+                        int s = ms_series_idx[i];
                         int cp = GRAPH_COLOR_BASE + (s % 7);
-                        char cn[16] = "";
-                        if (use_headers && column_names[graph_col_list[s]])
-                            snprintf(cn, sizeof(cn), "%.12s", column_names[graph_col_list[s]]);
-                        else
-                            col_letter(graph_col_list[s], cn);
                         attron(COLOR_PAIR(cp) | A_BOLD);
-                        mvprintw(3, tx, "%s:%.4g  ", cn, ms_cursor_ys[s]);
+                        mvprintw(3, tx, "%d:%.4g  ", s + 1, ms_cursor_ys[i]);
                         attroff(COLOR_PAIR(cp) | A_BOLD);
-                        tx += (int)strlen(cn) + 10;
+                        tx += 14;
                     }
                 }
                 // Draw color legend (dim if hidden, key hint [N] to toggle)
@@ -1378,6 +1402,60 @@ int main(int argc, char *argv[]) {
                         attroff(COLOR_PAIR(cp) | A_BOLD);
                     }
                     lx += (int)strlen(cn) + 6;
+                }
+            } else if (graph_scatter_mode && graph_scatter_x_col >= 0) {
+                // Scatter plot: single or multi-Y against the same X column
+                if (graph_col_count > 1) {
+                    // Multi-series: shared Y scale, each Y in own color
+                    double gmin = INFINITY, gmax = -INFINITY;
+                    for (int s = 0; s < graph_col_count; s++) {
+                        if (graph_series_hidden[s]) continue;
+                        int pc = 0; bool agg = false; char dfmt[32];
+                        double *vals = extract_plot_values(graph_col_list[s], rows, f, row_count, &pc, &agg, dfmt);
+                        if (!vals) continue;
+                        for (int i = 0; i < pc; i++) {
+                            if (vals[i] < gmin) gmin = vals[i];
+                            if (vals[i] > gmax) gmax = vals[i];
+                        }
+                        free(vals);
+                    }
+                    if (isinf(gmin) || isinf(gmax)) { gmin = 0; gmax = 1; }
+                    if (gmin == gmax) { gmax += 1; gmin -= 1; }
+                    graph_global_min = gmin; graph_global_max = gmax;
+                    graph_right_min = NAN; graph_right_max = NAN;
+                    graph_right_axis_drawn = 0;
+                    int first_vis = 1;
+                    for (int s = 0; s < graph_col_count; s++) {
+                        if (graph_series_hidden[s]) continue;
+                        current_graph_color_pair = GRAPH_COLOR_BASE + (s % 7);
+                        graph_overlay_mode = first_vis ? 1 : 2;
+                        graph_use_right_axis = 0;
+                        first_vis = 0;
+                        draw_scatter(graph_scatter_x_col, graph_col_list[s],
+                                     height, width, rows, f, row_count, graph_cursor_pos);
+                    }
+                    graph_overlay_mode = 0;
+                    graph_use_right_axis = 0;
+                    graph_global_min = NAN; graph_global_max = NAN;
+                    // Legend
+                    int lx = ROW_DATA_OFFSET + 2;
+                    for (int s = 0; s < graph_col_count; s++) {
+                        int cp = GRAPH_COLOR_BASE + (s % 7);
+                        char cn[20] = "";
+                        if (use_headers && column_names[graph_col_list[s]])
+                            snprintf(cn, sizeof(cn), "%.14s", column_names[graph_col_list[s]]);
+                        else col_letter(graph_col_list[s], cn);
+                        if (graph_series_hidden[s]) attron(A_DIM);
+                        else attron(COLOR_PAIR(cp) | A_BOLD);
+                        mvprintw(height - 3, lx, "[%d]-%s", s + 1, cn);
+                        if (graph_series_hidden[s]) attroff(A_DIM);
+                        else attroff(COLOR_PAIR(cp) | A_BOLD);
+                        lx += (int)strlen(cn) + 6;
+                    }
+                } else {
+                    current_graph_color_pair = GRAPH_COLOR_BASE;
+                    draw_scatter(graph_scatter_x_col, graph_col_list[current_graph],
+                                 height, width, rows, f, row_count, graph_cursor_pos);
                 }
             } else {
                 int col = graph_col_list[current_graph];
@@ -1465,6 +1543,8 @@ int main(int argc, char *argv[]) {
         if (in_graph_mode) {
             if (ch == 'q' || ch == 27) {  // Esc
                 in_graph_mode = 0;
+                graph_scatter_mode = 0;
+                graph_scatter_x_col = -1;
                 if (using_date_x) {
                     sort_col = save_sort_col; sort_level_count = save_sort_level_count;
                     sort_order = save_sort_order;
@@ -1851,6 +1931,148 @@ int main(int argc, char *argv[]) {
                         show_graph_cursor = false;
                     }
                     continue;
+                } else if (strcmp(cmd, "gsvg") == 0) {
+                    // :gsvg [filename] [WxH]
+                    // Defaults: <file>_graph.svg, 900x500
+                    char svg_path[512] = "";
+                    int  svg_w = 900, svg_h = 500;
+
+                    // Parse optional args: filename and/or WxH
+                    if (arg && *arg) {
+                        char abuf[512];
+                        strncpy(abuf, arg, sizeof(abuf) - 1);
+                        abuf[sizeof(abuf) - 1] = '\0';
+                        // Look for WxH token (contains 'x' between digits)
+                        char *tok = strtok(abuf, " \t");
+                        while (tok) {
+                            int tw = 0, th = 0;
+                            if (sscanf(tok, "%dx%d", &tw, &th) == 2 && tw > 0 && th > 0) {
+                                svg_w = tw; svg_h = th;
+                            } else {
+                                strncpy(svg_path, tok, sizeof(svg_path) - 1);
+                            }
+                            tok = strtok(NULL, " \t");
+                        }
+                    }
+                    if (!svg_path[0]) {
+                        // Build default name from open file
+                        const char *base = file_to_open ? file_to_open : "graph";
+                        const char *dot  = strrchr(base, '.');
+                        if (dot) {
+                            int len = (int)(dot - base);
+                            if (len > (int)sizeof(svg_path) - 10) len = (int)sizeof(svg_path) - 10;
+                            snprintf(svg_path, sizeof(svg_path), "%.*s_graph.svg", len, base);
+                        } else {
+                            snprintf(svg_path, sizeof(svg_path), "%s_graph.svg", base);
+                        }
+                    }
+                    int ret = export_graph_svg(svg_path, svg_w, svg_h,
+                                               rows, f, row_count);
+                    draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
+                    if (ret == 0) {
+                        attron(COLOR_PAIR(2));
+                        printw(" | Saved: %s (%dx%d)", svg_path, svg_w, svg_h);
+                        attroff(COLOR_PAIR(2));
+                    } else {
+                        attron(COLOR_PAIR(3));
+                        printw(" | Error: could not write %s", svg_path);
+                        attroff(COLOR_PAIR(3));
+                    }
+                    refresh(); getch(); clrtoeol();
+                    continue;
+                } else if (strcmp(cmd, "gsc") == 0) {
+                    // Scatter plot:
+                    //   :gsc x_col          — X = x_col, Y = current column
+                    //   :gsc x_col y_col    — X = x_col, Y = y_col (explicit)
+                    //   :gsc off            — exit scatter mode
+                    #define RESOLVE_COL(name, out) do { \
+                        (out) = -1; \
+                        for (int _ci = 0; _ci < col_count; _ci++) { \
+                            if (use_headers && column_names[_ci] && \
+                                strcasecmp(column_names[_ci], (name)) == 0) \
+                                { (out) = _ci; break; } \
+                        } \
+                        if ((out) < 0) { \
+                            int _v = 0; bool _ok = true; \
+                            for (int _ci = 0; (name)[_ci]; _ci++) { \
+                                char _c = (char)toupper((unsigned char)(name)[_ci]); \
+                                if (_c < 'A' || _c > 'Z') { _ok = false; break; } \
+                                _v = _v * 26 + (_c - 'A' + 1); \
+                            } \
+                            if (_ok && _v > 0 && _v - 1 < col_count) (out) = _v - 1; \
+                        } \
+                    } while(0)
+
+                    if (arg && strcasecmp(arg, "off") == 0) {
+                        graph_scatter_mode = 0;
+                        graph_scatter_x_col = -1;
+                    } else if (arg && *arg) {
+                        // Split arg into up to two tokens
+                        char gsc_buf[256];
+                        strncpy(gsc_buf, arg, sizeof(gsc_buf) - 1);
+                        gsc_buf[sizeof(gsc_buf) - 1] = '\0';
+                        char *tok1 = gsc_buf;
+                        char *tok2 = NULL;
+                        for (char *p = gsc_buf; *p; p++) {
+                            if (*p == ' ' || *p == '\t') {
+                                *p = '\0';
+                                tok2 = p + 1;
+                                while (*tok2 == ' ' || *tok2 == '\t') tok2++;
+                                if (!*tok2) tok2 = NULL;
+                                break;
+                            }
+                        }
+                        int xcol = -1, ycol = -1;
+                        RESOLVE_COL(tok1, xcol);
+                        if (tok2) {
+                            RESOLVE_COL(tok2, ycol);
+                        } else {
+                            ycol = cur_col;
+                        }
+                        if (xcol < 0) {
+                            draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
+                            attron(COLOR_PAIR(3));
+                            printw(" | X column '%s' not found", tok1);
+                            attroff(COLOR_PAIR(3));
+                            refresh(); getch(); clrtoeol();
+                        } else if (ycol < 0) {
+                            draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
+                            attron(COLOR_PAIR(3));
+                            printw(" | Y column '%s' not found", tok2 ? tok2 : "");
+                            attroff(COLOR_PAIR(3));
+                            refresh(); getch(); clrtoeol();
+                        } else if (xcol == ycol) {
+                            draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
+                            attron(COLOR_PAIR(3));
+                            printw(" | X and Y are the same column — use :gsc x_col y_col");
+                            attroff(COLOR_PAIR(3));
+                            refresh(); getch(); clrtoeol();
+                        } else {
+                            graph_scatter_x_col = xcol;
+                            graph_scatter_mode = 1;
+                            in_graph_mode = 1;
+                            graph_col_list[0] = ycol;
+                            graph_col_count = 1;
+                            graph_cursor_pos = 0;
+                            // Инициализируем visible_points чтобы key handler сразу
+                            // знал диапазон; точное значение придёт после первого render
+                            graph_visible_points = width - (ROW_DATA_OFFSET + 2) - 4;
+                            graph_total_points   = graph_visible_points;
+                        }
+                    } else {
+                        draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
+                        attron(COLOR_PAIR(3));
+                        printw(" | Usage: :gsc x_col [y_col]  |  :gsc off");
+                        attroff(COLOR_PAIR(3));
+                        refresh(); getch(); clrtoeol();
+                    }
+                    #undef RESOLVE_COL
+                    continue;
+                } else if (strcmp(cmd, "g2y") == 0) {
+                    if (arg && strcasecmp(arg, "on") == 0)       graph_dual_yaxis = 1;
+                    else if (arg && strcasecmp(arg, "off") == 0) graph_dual_yaxis = 0;
+                    else graph_dual_yaxis ^= 1;  // toggle if no arg
+                    continue;
                 } else if (strcmp(cmd, "grid") == 0) {
                     if (!arg || !*arg) {
                         draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
@@ -1935,6 +2157,8 @@ int main(int argc, char *argv[]) {
                 graph_zoom_start = 0;
                 graph_zoom_end   = -1;
                 graph_cursor_pos = 0;
+            } else if (ch == '?') {
+                show_help(1);
             }
 
             continue;

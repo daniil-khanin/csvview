@@ -34,6 +34,11 @@ char   graph_last_cursor_x[64];      /* X label at cursor, set after each draw_g
 int    graph_zoom_start    = 0;      /* first visible data point (0 = from start) */
 int    graph_zoom_end      = -1;     /* last visible data point (-1 = all) */
 int    graph_total_points  = 0;      /* total data points before zoom, set by draw_graph */
+/* Dual Y axis — set by caller */
+int    graph_use_right_axis  = 0;   /* 1 = this series uses right Y axis */
+double graph_right_min       = NAN; /* right axis min */
+double graph_right_max       = NAN; /* right axis max */
+int    graph_right_axis_drawn = 0;  /* set to 1 after first right-axis series draws labels */
 
 /* Inline field extractor — no malloc */
 static void get_field_graph(const char *line, int idx, char *buf, int buf_size)
@@ -323,7 +328,8 @@ void draw_graph(int col, int height, int width, RowIndex *rows, FILE *f, int row
     int plot_start_y = 4;
     int plot_start_x = ROW_DATA_OFFSET + 2; // отступ слева для Y-меток
     int plot_height = height - 8; // запас сверху/снизу
-    int plot_width = width - plot_start_x - 4; // запас справа
+    int right_axis_margin = (!isnan(graph_right_min)) ? 10 : 4;
+    int plot_width = width - plot_start_x - right_axis_margin; // запас справа
     if (plot_height < 5 || plot_width < 10) return; // слишком маленький экран
     // ─── Очистка области графика ───────────────────────────────────────────────
     if (graph_overlay_mode != 2) {
@@ -375,7 +381,10 @@ void draw_graph(int col, int height, int width, RowIndex *rows, FILE *f, int row
     }
     if (isinf(min_y) || isinf(max_y)) goto cleanup;
     // Override with caller-provided global scale in multi-series mode
-    if (!isnan(graph_global_min) && !isnan(graph_global_max)) {
+    if (graph_use_right_axis && !isnan(graph_right_min) && !isnan(graph_right_max)) {
+        min_y = graph_right_min;
+        max_y = graph_right_max;
+    } else if (!isnan(graph_global_min) && !isnan(graph_global_max)) {
         min_y = graph_global_min;
         max_y = graph_global_max;
     }
@@ -443,7 +452,9 @@ void draw_graph(int col, int height, int width, RowIndex *rows, FILE *f, int row
 
     // ─── Y-метки (4 штуки: top, 1/3, 2/3, bottom) ──────────────────────────────
     char buf[32];
-    if (graph_overlay_mode != 2) {
+    // Left axis: draw on first pass (overlay_mode != 2) and not a right-axis series
+    if (graph_overlay_mode != 2 && !graph_use_right_axis) {
+        int lcp = (graph_overlay_mode == 0) ? 1 : current_graph_color_pair;
         for (int yi = 0; yi < 4; yi++) {
             double frac = (double)yi / 3.0;
             int    lrow = plot_start_y + (int)round(frac * (plot_height - 1));
@@ -457,7 +468,32 @@ void draw_graph(int col, int height, int width, RowIndex *rows, FILE *f, int row
                 val = max_y - frac * (max_y - min_y);
                 snprintf(buf, sizeof(buf), "%.3g", val);
             }
+            attron(COLOR_PAIR(lcp));
             mvprintw(lrow, 1, "%8s", buf);
+            attroff(COLOR_PAIR(lcp));
+        }
+    }
+    // Right axis: draw once for the first right-axis series
+    if (graph_use_right_axis && !graph_right_axis_drawn) {
+        graph_right_axis_drawn = 1;
+        int rcp = current_graph_color_pair;
+        int rx = width - 9;  // right margin start
+        for (int yi = 0; yi < 4; yi++) {
+            double frac = (double)yi / 3.0;
+            int    lrow = plot_start_y + (int)round(frac * (plot_height - 1));
+            double val;
+            if (graph_scale == SCALE_LOG) {
+                double lmax = log10(max_y > 0 ? max_y : 1);
+                double lmin = log10(min_y > 0 ? min_y : 1);
+                val = pow(10.0, lmax - frac * (lmax - lmin));
+                snprintf(buf, sizeof(buf), "%.2e", val);
+            } else {
+                val = max_y - frac * (max_y - min_y);
+                snprintf(buf, sizeof(buf), "%.3g", val);
+            }
+            attron(COLOR_PAIR(rcp));
+            mvprintw(lrow, rx, "%-8s", buf);
+            attroff(COLOR_PAIR(rcp));
         }
     }
     // ─── X-метки (5–7 штук) ─────────────────────────────────────────────────────
@@ -661,17 +697,18 @@ void draw_graph(int col, int height, int width, RowIndex *rows, FILE *f, int row
             mvaddch(plot_start_y + cell_y, cell_x, '@');
             if (has_colors()) attroff(COLOR_PAIR(marker_pair) | A_BOLD);
 
-            // Текстовый тултип — только в single-series режиме
-            if (graph_overlay_mode == 0) {
+            // Текстовый тултип — в single-series режиме или для min/max в overlay
+            if (graph_overlay_mode == 0 || (graph_draw_cursor_overlay && min_max_show != 0)) {
                 char val_str[64];
                 snprintf(val_str, sizeof(val_str), "%.4f", real_y);
                 char info[128];
-                snprintf(info, sizeof(info), "X: %s | Y: %s", x_str, val_str);
+                snprintf(info, sizeof(info), "X:%s Y:%s", x_str, val_str);
                 int text_y = plot_start_y + cell_y - 1;
                 if (text_y < plot_start_y) text_y = plot_start_y + cell_y + 1;
-                attron(COLOR_PAIR(1));
-                mvprintw(text_y, cell_x - 10, "%s", info);
-                attroff(COLOR_PAIR(1));
+                int marker_color = (graph_overlay_mode == 0) ? 1 : current_graph_color_pair;
+                attron(COLOR_PAIR(marker_color) | A_BOLD);
+                mvprintw(text_y, cell_x - (int)strlen(info) / 2, "%s", info);
+                attroff(COLOR_PAIR(marker_color) | A_BOLD);
             }
         }
     }
@@ -681,4 +718,265 @@ cleanup_free_plot:
     free(plot_values);
 cleanup:
     free(values_base);
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Scatter plot: Y = y_col values vs X = x_col values, one dot per row
+// ────────────────────────────────────────────────────────────────────────────
+void draw_scatter(int x_col, int y_col, int height, int width,
+                  RowIndex *rows_arr, FILE *fp, int total_rows, int cursor_pos)
+{
+    (void)fp;
+    int plot_start_y = 4;
+    int plot_start_x = ROW_DATA_OFFSET + 2;
+    int plot_height  = height - 8;
+    int right_margin = (!isnan(graph_right_min)) ? 10 : 4;
+    int plot_width   = width - plot_start_x - right_margin;
+    if (plot_height < 5 || plot_width < 10) return;
+
+    // Сообщаем key handler-у диапазон курсора (0..plot_width-1)
+    graph_total_points   = plot_width;
+    graph_visible_points = plot_width;
+
+    // ─── Очистка (только первый проход) ────────────────────────────────────
+    if (graph_overlay_mode != 2) {
+        for (int y = plot_start_y; y < plot_start_y + plot_height + 2; y++)
+            for (int x = 1; x < width - 1; x++)
+                mvaddch(y, x, ' ');
+    }
+
+    // ─── Собираем точки (x, y) из всех строк ───────────────────────────────
+    int display_count = filter_active ? filtered_count
+                                       : (total_rows - (use_headers ? 1 : 0));
+    if (display_count <= 0) return;
+
+    double *xs = malloc(display_count * sizeof(double));
+    double *ys = malloc(display_count * sizeof(double));
+    if (!xs || !ys) { free(xs); free(ys); return; }
+
+    int n = 0;
+    char xbuf[64], ybuf[64], line_buf[MAX_LINE_LEN];
+    int start_row = use_headers ? 1 : 0;
+
+    for (int di = 0; di < display_count; di++) {
+        int r = get_real_row(di + start_row);
+        if (r < 0 || r >= total_rows) continue;
+        const char *lp = csv_mmap_get_line(rows_arr[r].offset, line_buf, sizeof(line_buf));
+        if (!lp) continue;
+        get_field_graph(lp, x_col, xbuf, sizeof(xbuf));
+        get_field_graph(lp, y_col, ybuf, sizeof(ybuf));
+        if (!xbuf[0] || !ybuf[0]) continue;
+        // Handle European decimal separator
+        for (char *p = xbuf; *p; p++) if (*p == ',') { *p = '.'; break; }
+        for (char *p = ybuf; *p; p++) if (*p == ',') { *p = '.'; break; }
+        char *ex = NULL, *ey = NULL;
+        double xv = strtod(xbuf, &ex);
+        double yv = strtod(ybuf, &ey);
+        if (ex == xbuf || ey == ybuf) continue;  // not a number
+        xs[n] = xv;
+        ys[n] = yv;
+        n++;
+    }
+    if (n == 0) { free(xs); free(ys); return; }
+
+    // ─── min/max + Pearson r ────────────────────────────────────────────────
+    double xmin = INFINITY, xmax = -INFINITY;
+    double ymin = INFINITY, ymax = -INFINITY;
+    double sx = 0, sy = 0, sxy = 0, sx2 = 0, sy2 = 0;
+    for (int i = 0; i < n; i++) {
+        if (xs[i] < xmin) xmin = xs[i];
+        if (xs[i] > xmax) xmax = xs[i];
+        if (ys[i] < ymin) ymin = ys[i];
+        if (ys[i] > ymax) ymax = ys[i];
+        sx  += xs[i];  sy  += ys[i];
+        sxy += xs[i] * ys[i];
+        sx2 += xs[i] * xs[i];
+        sy2 += ys[i] * ys[i];
+    }
+    if (xmin == xmax) { xmax += 1; xmin -= 1; }
+
+    // Y-ось: override для multi-series
+    if (graph_use_right_axis && !isnan(graph_right_min) && !isnan(graph_right_max)) {
+        ymin = graph_right_min; ymax = graph_right_max;
+    } else if (!isnan(graph_global_min) && !isnan(graph_global_max)) {
+        ymin = graph_global_min; ymax = graph_global_max;
+    }
+    if (ymin == ymax) { ymax += 1; ymin -= 1; }
+
+    double r_corr = NAN;
+    double denom = sqrt(((double)n * sx2 - sx * sx) * ((double)n * sy2 - sy * sy));
+    if (denom > 0) r_corr = ((double)n * sxy - sx * sy) / denom;
+
+    // ─── Y-метки (левая ось) ───────────────────────────────────────────────
+    char buf[32];
+    if (!graph_use_right_axis && graph_overlay_mode != 2) {
+        int lcp = (graph_overlay_mode == 0) ? 1 : current_graph_color_pair;
+        for (int yi = 0; yi < 4; yi++) {
+            double frac = (double)yi / 3.0;
+            int lrow = plot_start_y + (int)round(frac * (plot_height - 1));
+            double val = ymax - frac * (ymax - ymin);
+            snprintf(buf, sizeof(buf), "%.3g", val);
+            attron(COLOR_PAIR(lcp));
+            mvprintw(lrow, 1, "%8s", buf);
+            attroff(COLOR_PAIR(lcp));
+        }
+    }
+    // Правая ось
+    if (graph_use_right_axis && !graph_right_axis_drawn) {
+        graph_right_axis_drawn = 1;
+        int rx = width - 9;
+        for (int yi = 0; yi < 4; yi++) {
+            double frac = (double)yi / 3.0;
+            int lrow = plot_start_y + (int)round(frac * (plot_height - 1));
+            double val = ymax - frac * (ymax - ymin);
+            snprintf(buf, sizeof(buf), "%.3g", val);
+            attron(COLOR_PAIR(current_graph_color_pair));
+            mvprintw(lrow, rx, "%-8s", buf);
+            attroff(COLOR_PAIR(current_graph_color_pair));
+        }
+    }
+
+    // ─── X-метки (5 штук по оси X) + подписи осей ────────────────────────
+    if (graph_overlay_mode != 2) {
+        for (int xi = 0; xi < 5; xi++) {
+            double frac = (double)xi / 4.0;
+            double val  = xmin + frac * (xmax - xmin);
+            int x_pos   = plot_start_x + (int)(frac * (plot_width - 1));
+            snprintf(buf, sizeof(buf), "%g", val);
+            int len = (int)strlen(buf);
+            int draw_x = x_pos - len / 2;
+            if (draw_x < 1) draw_x = 1;
+            if (draw_x + len > width - 2) draw_x = width - 2 - len;
+            mvprintw(plot_start_y + plot_height, draw_x, "%s", buf);
+        }
+        // Подпись оси X снизу по центру
+        char x_name[32] = "";
+        if (use_headers && column_names[x_col])
+            snprintf(x_name, sizeof(x_name), "%.24s", column_names[x_col]);
+        else
+            col_letter(x_col, x_name);
+        attron(COLOR_PAIR(1) | A_BOLD);
+        mvprintw(plot_start_y + plot_height + 1,
+                 plot_start_x + plot_width / 2 - (int)strlen(x_name) / 2,
+                 "X: %s", x_name);
+        attroff(COLOR_PAIR(1) | A_BOLD);
+
+        // Подпись оси Y сверху слева
+        char y_name[32] = "";
+        if (use_headers && column_names[y_col])
+            snprintf(y_name, sizeof(y_name), "%.24s", column_names[y_col]);
+        else
+            col_letter(y_col, y_name);
+        attron(COLOR_PAIR(current_graph_color_pair) | A_BOLD);
+        mvprintw(plot_start_y, plot_start_x, "Y: %s", y_name);
+        attroff(COLOR_PAIR(current_graph_color_pair) | A_BOLD);
+    }
+
+    // ─── Сетка (до braille, только первый проход) ──────────────────────────
+    if (graph_overlay_mode != 2 && graph_grid) {
+        attron(A_DIM);
+        if (graph_grid & 1) {  // горизонтальные
+            for (int yi = 1; yi <= 2; yi++) {
+                int gy = plot_start_y + (int)round((double)yi / 3.0 * (plot_height - 1));
+                mvhline(gy, plot_start_x, ACS_HLINE, plot_width);
+            }
+        }
+        if (graph_grid & 2) {  // вертикальные
+            for (int xi = 1; xi <= 3; xi++) {
+                int gx = plot_start_x + (int)round((double)xi / 4.0 * (plot_width - 1));
+                mvvline(plot_start_y, gx, ACS_VLINE, plot_height);
+            }
+        }
+        attroff(A_DIM);
+    }
+
+    // ─── Braille canvas ────────────────────────────────────────────────────
+    int pixel_h = plot_height * 4;
+    int pixel_w = plot_width  * 2;
+    bool *dots  = calloc(pixel_h * pixel_w, sizeof(bool));
+    if (!dots) { free(xs); free(ys); return; }
+
+    // Оси
+    draw_bresenham(dots, pixel_w, pixel_h, 0, pixel_h - 1, pixel_w - 1, pixel_h - 1);  // X axis
+    draw_bresenham(dots, pixel_w, pixel_h, 0, pixel_h - 1, 0, 0);                       // Y axis
+
+    for (int i = 0; i < n; i++) {
+        double nx = (xs[i] - xmin) / (xmax - xmin);
+        double ny = (ys[i] - ymin) / (ymax - ymin);
+        if (nx < 0 || nx > 1 || ny < 0 || ny > 1) continue;
+        int px = (int)(nx * (pixel_w - 1));
+        int py = pixel_h - 1 - (int)(ny * (pixel_h - 1));
+        if (px >= 0 && px < pixel_w && py >= 0 && py < pixel_h)
+            dots[py * pixel_w + px] = true;
+    }
+
+    if (has_colors()) attron(COLOR_PAIR(current_graph_color_pair));
+    for (int cy = 0; cy < plot_height; cy++) {
+        for (int cx = 0; cx < plot_width; cx++) {
+            int code = 0;
+            for (int by = 0; by < 4; by++) {
+                for (int bx = 0; bx < 2; bx++) {
+                    int py = cy * 4 + by, px = cx * 2 + bx;
+                    if (px < pixel_w && py < pixel_h && dots[py * pixel_w + px]) {
+                        int bit = (bx == 0) ? by : by + 3;
+                        if (by == 3) bit = (bx == 0) ? 6 : 7;
+                        code |= (1 << bit);
+                    }
+                }
+            }
+            if (code == 0) continue;
+            char utf8[5] = {0};
+            wcrtomb(utf8, 0x2800 + code, NULL);
+            mvaddstr(plot_start_y + cy, plot_start_x + cx, utf8);
+        }
+    }
+    if (has_colors()) attroff(COLOR_PAIR(current_graph_color_pair));
+    free(dots);
+
+    // ─── Pearson r (верхний правый угол, первый проход) ────────────────────
+    if (!isnan(r_corr) && (graph_overlay_mode <= 1)) {
+        char rbuf[32];
+        snprintf(rbuf, sizeof(rbuf), "r=%.3f", r_corr);
+        int rx_pos = plot_start_x + plot_width - (int)strlen(rbuf) - 2;
+        attron(COLOR_PAIR(current_graph_color_pair) | A_BOLD);
+        mvprintw(plot_start_y + 1, rx_pos, "%s", rbuf);
+        attroff(COLOR_PAIR(current_graph_color_pair) | A_BOLD);
+    }
+
+    // ─── Cursor: вертикальная линия + ближайшая точка ──────────────────────
+    if (show_graph_cursor && cursor_pos >= 0) {
+        int cpos = cursor_pos;
+        if (cpos >= plot_width) cpos = plot_width - 1;
+        int cx_screen = plot_start_x + cpos;
+        // vertical dim line
+        attron(A_DIM);
+        for (int y = plot_start_y; y < plot_start_y + plot_height; y++)
+            mvaddch(y, cx_screen, ACS_VLINE);
+        attroff(A_DIM);
+
+        // Find point nearest to cursor_pos (canvas x)
+        double cursor_x_val = xmin + ((double)cpos / (plot_width - 1)) * (xmax - xmin);
+        int best = -1;
+        double best_dx = INFINITY;
+        for (int i = 0; i < n; i++) {
+            double dx = fabs(xs[i] - cursor_x_val);
+            if (dx < best_dx) { best_dx = dx; best = i; }
+        }
+        if (best >= 0) {
+            graph_last_cursor_y = ys[best];
+            snprintf(graph_last_cursor_x, sizeof(graph_last_cursor_x), "%.4g", xs[best]);
+
+            if (graph_overlay_mode == 0) {
+                char info[128];
+                snprintf(info, sizeof(info), "X:%.4g Y:%.4g", xs[best], ys[best]);
+                int ty = plot_start_y + 1;
+                attron(COLOR_PAIR(1) | A_BOLD);
+                mvprintw(ty, cx_screen - (int)strlen(info) / 2, "%s", info);
+                attroff(COLOR_PAIR(1) | A_BOLD);
+            }
+        }
+    }
+
+    free(xs);
+    free(ys);
 }

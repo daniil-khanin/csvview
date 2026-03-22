@@ -146,6 +146,9 @@ Aggregates (whole file): same with `_all` suffix
 - **Cursor mode** (`:gp on`): shows value at cursor; in multi-series — one shared `X:` label + `Y:` per series in its color
 - Jump to min/max with `m`/`M`; 4 Y-axis labels (top, 1/3, 2/3, bottom)
 - **Grid lines**: `:grid y|x|yx|off` — dim horizontal/vertical grid drawn under data
+- **Dual Y axis** (`:g2y on/off`): series 1 uses left axis, series 2+ use right axis — each group gets its own scale; labels drawn in series color
+- **Scatter plot** (`:gsc x_col [y_col]`): braille dot cloud of one column vs another; shows Pearson r in corner; `←`/`→` cursor shows nearest point (X, Y); `:gsc off` to exit
+- **SVG export** (`:gsvg [file] [WxH]`): export current graph view to SVG — respects zoom, grid, hidden series, dual Y axis, scatter mode. White background, print-ready. Default size 900×500; example: `:gsvg report.svg 1200x700`
 - Anomaly highlighting (values > 3σ)
 - Date column as X axis (`:gx <column>` — Tab autocomplete)
 - **Pivot graph**: `G` in pivot mode splits screen — table on left, chart on right
@@ -192,11 +195,15 @@ Aggregates (whole file): same with `_all` suffix
 :fqu            Quick filter: reset and apply
 
 Graph commands (in graph mode):
-:grid y|x|yx|off  Grid lines (horizontal / vertical / both / off)
-:gp on|off        Cursor; multi-series shows per-series Y tooltip
-:gt bar|line|dot  Graph type
-:gy log|linear    Y-scale
-:gx <column>      Date column as X axis
+:grid y|x|yx|off        Grid lines (horizontal / vertical / both / off)
+:gp on|off              Cursor; multi-series shows per-series Y tooltip
+:gt bar|line|dot        Graph type
+:gy log|linear          Y-scale
+:gx <column>            Date column as X axis
+:g2y on|off             Dual Y axis (series 1 = left, rest = right — own scale)
+:gsc x_col [y_col]      Scatter plot: dot cloud + Pearson r in corner
+:gsc off                Exit scatter mode
+:gsvg [file] [WxH]      Export graph to SVG (default: <file>_graph.svg 900x500)
 ```
 
 ---
@@ -232,8 +239,11 @@ In graph mode:
   1–9               Toggle series visibility
   + / =             Zoom in    - Zoom out    0 Reset zoom
   m / M             Jump to min/max value
-  :grid y|x|yx|off  Grid lines
-  :gp on|off        Cursor on points (multi-series shows per-series Y values)
+  :grid y|x|yx|off        Grid lines
+  :gp on|off              Cursor on points (multi-series shows per-series Y values)
+  :g2y on|off             Dual Y axis
+  :gsc x_col [y_col]      Scatter plot; :gsc off to exit
+  :gsvg [file] [WxH]      Export graph to SVG
 
 ?                   Help
 q / Esc             Quit

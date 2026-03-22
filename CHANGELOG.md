@@ -1,5 +1,43 @@
 # Changelog
 
+## v17 — 2026-03-22
+
+### New features
+
+- **Scatter plot** (`:gsc x_col [y_col]`): plots one column against another as a braille dot
+  cloud. Pearson r shown in corner (in series color). `←`/`→` cursor finds nearest point and
+  shows `X: value  Y: value` tooltip. Multi-series: mark columns with `M`, then `:gsc x_col` —
+  each Y series in its own color. `:gsc off` exits scatter mode. Error shown if X = Y column.
+
+- **Dual Y axis** (`:g2y on/off`): in multi-series graph mode, series 1 uses the left axis and
+  series 2+ use the right axis, each group independently auto-scaled. Axis labels drawn in the
+  corresponding series color. Useful when series have very different magnitudes.
+
+- **Per-series min/max tooltip**: `m`/`M` in multi-series mode places each series' `@` marker at
+  its own min/max, with `X:value Y:value` label drawn near the marker in series color — so each
+  series shows its own extremum independently.
+
+- **Series numbers in tooltip**: cursor tooltip now uses `1:`, `2:` series numbers instead of
+  truncated column names to avoid overlap on narrow screens.
+
+- **SVG export** (`:gsvg [file] [WxH]`): export the current graph view to a print-ready SVG
+  file with white background. Respects zoom window, hidden series, grid lines, dual Y axis,
+  and scatter mode. Default size 900×500; custom size via e.g. `:gsvg report.svg 1200x700`.
+  Line graphs → `<polyline>`, dots/scatter → compact `<path M x,y h0>` (small file even for
+  large datasets). Pearson r shown in scatter SVG; legend for multi-series.
+
+### Bug fixes
+- Fixed: `?` help key did not work in graph mode or pivot table — now opens the help screen
+  from both modes (graph key handler and both pivot event loops).
+- Fixed: scatter cursor could not move to the right — `graph_visible_points` was not set by
+  `draw_scatter`, leaving a stale value from a previous graph session.
+- Fixed: scatter X axis labels used `%.3g` causing inconsistent notation (e.g. `573` vs `1e+03`
+  for adjacent ticks); now uses `%g` for consistent formatting.
+- Fixed: scatter axes (X/Y lines) and grid were not drawn — added `draw_bresenham` axis calls
+  and `graph_grid` support identical to line/dot/bar graphs.
+
+---
+
 ## v16 — 2026-03-22
 
 ### New features

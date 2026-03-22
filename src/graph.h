@@ -57,6 +57,14 @@
 void draw_graph(int col, int height, int width, RowIndex *rows, FILE *f, int row_count, int cursor_pos, int min_max_show);
 
 /**
+ * Scatter plot: one dot per row at (x_col value, y_col value).
+ * Draws braille dots, X/Y axis labels, and Pearson r in the corner.
+ * Supports multi-series overlay via graph_overlay_mode / graph_global_min/max.
+ */
+void draw_scatter(int x_col, int y_col, int height, int width,
+                  RowIndex *rows, FILE *f, int row_count, int cursor_pos);
+
+/**
  * Рисует линию между двумя пикселями в массиве dots (алгоритм Брезенхема).
  * Экспортируется для использования в draw_pivot_graph.
  */
@@ -94,5 +102,10 @@ extern char   graph_last_cursor_x[64]; /* X label at cursor after last draw_grap
 extern int    graph_zoom_start;        /* first visible data point (0 = from start) */
 extern int    graph_zoom_end;          /* last visible data point (-1 = all) */
 extern int    graph_total_points;      /* total data points before zoom */
+/* Dual Y axis — set by caller per series */
+extern int    graph_use_right_axis;   /* 1 = current series uses right Y axis */
+extern double graph_right_min;        /* right axis min */
+extern double graph_right_max;        /* right axis max */
+extern int    graph_right_axis_drawn; /* reset to 0 before loop; set by draw_graph */
 
 #endif /* GRAPH_H */

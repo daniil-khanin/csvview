@@ -14,6 +14,7 @@
 #include "filtering.h"
 #include "graph.h"          // draw_bresenham
 #include "csv_mmap.h"
+#include "help.h"
 
 #include <ncurses.h>        // отрисовка
 #include <stdlib.h>         // malloc, free, qsort, calloc
@@ -1043,6 +1044,9 @@ void show_pivot_settings_window(PivotSettings *settings, const char *csv_filenam
                 return;
             }
         }
+        else if (ch == '?') {
+            show_help(1);
+        }
         else if (ch == 27 || ch == 'q' || ch == 'Q') {
             delwin(win);
             for (int i = 0; i < num_col_options; i++) free(col_options[i]);
@@ -1949,6 +1953,9 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
                 break;
             }
             // Enter на Total-строке/столбце — игнорируем
+        }
+        else if (ch == '?') {
+            show_help(1);
         }
         else if (ch == 'q' || ch == 27) {
             break;
