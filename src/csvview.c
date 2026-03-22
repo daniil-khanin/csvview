@@ -1300,9 +1300,11 @@ int main(int argc, char *argv[]) {
                 for (int s = 0; s < graph_col_count; s++) {
                     current_graph_color_pair = GRAPH_COLOR_BASE + (s % 7);
                     graph_overlay_mode = (s == 0) ? 1 : 2;
+                    graph_draw_cursor_overlay = (s == current_graph % graph_col_count) ? 1 : 0;
                     draw_graph(graph_col_list[s], height, width, rows, f, row_count, graph_cursor_pos, min_max_show);
                 }
                 graph_overlay_mode = 0;
+                graph_draw_cursor_overlay = 0;
                 graph_global_min = NAN;
                 graph_global_max = NAN;
                 // Draw color legend
@@ -1754,7 +1756,34 @@ int main(int argc, char *argv[]) {
                         show_graph_cursor = false;
                     }
                     continue;
-                }                
+                } else if (strcmp(cmd, "grid") == 0) {
+                    if (!arg || !*arg) {
+                        draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
+                        attron(COLOR_PAIR(3));
+                        printw(" | Usage: :grid y|x|yx|off");
+                        attroff(COLOR_PAIR(3));
+                        refresh();
+                        getch();
+                        clrtoeol();
+                        continue;
+                    }
+                    if (strcasecmp(arg, "y") == 0)        graph_grid = 1;
+                    else if (strcasecmp(arg, "x") == 0)   graph_grid = 2;
+                    else if (strcasecmp(arg, "yx") == 0 ||
+                             strcasecmp(arg, "xy") == 0 ||
+                             strcasecmp(arg, "on") == 0)  graph_grid = 3;
+                    else if (strcasecmp(arg, "off") == 0) graph_grid = 0;
+                    else {
+                        draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
+                        attron(COLOR_PAIR(3));
+                        printw(" | :grid y|x|yx|off");
+                        attroff(COLOR_PAIR(3));
+                        refresh();
+                        getch();
+                        clrtoeol();
+                    }
+                    continue;
+                }
 
                 clrtoeol();
                 refresh();

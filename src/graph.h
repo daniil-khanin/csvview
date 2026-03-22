@@ -87,5 +87,7 @@ double *extract_plot_values(int col, RowIndex *rows, FILE *f, int row_count, int
 extern double graph_global_min;
 extern double graph_global_max;
 extern int    graph_overlay_mode;
+extern int    graph_draw_cursor_overlay; /* 1 = show cursor even in overlay passes */
+extern int    graph_grid;               /* 0=off, 1=y-lines, 2=x-lines, 3=both */
 
 #endif /* GRAPH_H */

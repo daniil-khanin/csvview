@@ -27,6 +27,8 @@
 double graph_global_min = NAN;
 double graph_global_max = NAN;
 int    graph_overlay_mode = 0;  /* 0=single, 1=first pass (draw axes), 2=subsequent pass */
+int    graph_draw_cursor_overlay = 0; /* 1 = draw cursor even in overlay mode */
+int    graph_grid = 0;          /* 0=off, 1=y-lines, 2=x-lines, 3=both */
 
 /* Inline field extractor — no malloc */
 static void get_field_graph(const char *line, int idx, char *buf, int buf_size)
@@ -422,19 +424,23 @@ void draw_graph(int col, int height, int width, RowIndex *rows, FILE *f, int row
     if (!min_included && !min_added) plot_values[plot_idx++] = values[min_y_x_pos];
     if (!max_included && !max_added) plot_values[plot_idx++] = values[max_y_x_pos];
 
-    // ─── Y-метки ────────────────────────────────────────────────────────────────
+    // ─── Y-метки (4 штуки: top, 1/3, 2/3, bottom) ──────────────────────────────
     char buf[32];
     if (graph_overlay_mode != 2) {
-        if (graph_scale == SCALE_LOG) {
-            snprintf(buf, sizeof(buf), "1e%.0f", log10(max_y));
-            mvprintw(plot_start_y, 1, "%*s", ROW_NUMBER_WIDTH - 3, buf);
-            snprintf(buf, sizeof(buf), "1e%.0f", log10(min_y > 0 ? min_y : 1));
-            mvprintw(plot_start_y + plot_height - 1, 1, "%*s", ROW_NUMBER_WIDTH - 3, buf);
-        } else {
-            snprintf(buf, sizeof(buf), "%.2f", max_y);
-            mvprintw(plot_start_y, 1, "%*s", ROW_NUMBER_WIDTH - 3, buf);
-            snprintf(buf, sizeof(buf), "%.2f", min_y);
-            mvprintw(plot_start_y + plot_height - 1, 1, "%*s", ROW_NUMBER_WIDTH - 3, buf);
+        for (int yi = 0; yi < 4; yi++) {
+            double frac = (double)yi / 3.0;
+            int    lrow = plot_start_y + (int)round(frac * (plot_height - 1));
+            double val;
+            if (graph_scale == SCALE_LOG) {
+                double lmax = log10(max_y > 0 ? max_y : 1);
+                double lmin = log10(min_y > 0 ? min_y : 1);
+                val = pow(10.0, lmax - frac * (lmax - lmin));
+                snprintf(buf, sizeof(buf), "%.2e", val);
+            } else {
+                val = max_y - frac * (max_y - min_y);
+                snprintf(buf, sizeof(buf), "%.3g", val);
+            }
+            mvprintw(lrow, 1, "%8s", buf);
         }
     }
     // ─── X-метки (5–7 штук) ─────────────────────────────────────────────────────
@@ -468,6 +474,25 @@ void draw_graph(int col, int height, int width, RowIndex *rows, FILE *f, int row
             if (x_pos + len > width - 2) x_pos = width - 2 - len;
             mvprintw(plot_start_y + plot_height, x_pos, "%s", label);
         }
+    }
+    // ─── Сетка (рисуем до braille, чтобы данные перекрыли линии) ───────────────
+    if (graph_overlay_mode != 2 && graph_grid) {
+        attron(A_DIM);
+        if (graph_grid & 1) {  // горизонтальные линии по Y-меткам (1/3 и 2/3 — крайние совпадают с осями)
+            for (int yi = 1; yi <= 2; yi++) {
+                int gy = plot_start_y + (int)round((double)yi / 3.0 * (plot_height - 1));
+                mvhline(gy, plot_start_x, ACS_HLINE, plot_width);
+            }
+        }
+        if (graph_grid & 2) {  // вертикальные линии по X-меткам
+            int xlsv = visible_points / 6;
+            if (xlsv < 1) xlsv = 1;
+            for (int i = xlsv; i < visible_points - 1; i += xlsv) {
+                int gx = plot_start_x + (i * plot_width / (visible_points > 1 ? visible_points - 1 : 1));
+                mvvline(plot_start_y, gx, ACS_VLINE, plot_height);
+            }
+        }
+        attroff(A_DIM);
     }
     // ─── Рисование графика ──────────────────────────────────────────────────────
     int pixel_h = plot_height * 4;
@@ -535,8 +560,8 @@ void draw_graph(int col, int height, int width, RowIndex *rows, FILE *f, int row
                     }
                 }
             }
-            // In overlay passes, skip empty cells to preserve earlier series
-            if (graph_overlay_mode == 2 && code == 0) continue;
+            // Skip empty cells — canvas already cleared with spaces (also preserves grid and earlier series)
+            if (code == 0) continue;
             char braille_utf8[5] = {0};
             wcrtomb(braille_utf8, 0x2800 + code, NULL);
             mvaddstr(plot_start_y + cy, plot_start_x + cx, braille_utf8);
@@ -570,7 +595,7 @@ void draw_graph(int col, int height, int width, RowIndex *rows, FILE *f, int row
     }
 
     // ─── Курсор и значение под ним ──────────────────────────────────────────────
-    if (graph_overlay_mode == 0 && show_graph_cursor)
+    if ((graph_overlay_mode == 0 || graph_draw_cursor_overlay) && show_graph_cursor)
     {
         int full_idx = cursor_pos * step;  // текущий полный индекс (если не прыгаем)
 
