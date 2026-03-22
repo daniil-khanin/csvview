@@ -2329,6 +2329,39 @@ int main(int argc, char *argv[]) {
             }
             save_column_settings(file_to_open);
         }
+        else if (ch == 'c') {  /* c<t/i/f/d> — quick column type/format */
+            if (cur_col >= 0 && cur_col < col_count) {
+                int ch2 = getch();
+                const char *msg = NULL;
+                if (ch2 == 't') {
+                    col_types[cur_col] = COL_STR;
+                    col_formats[cur_col].decimal_places = -1;
+                    col_formats[cur_col].date_format[0] = '\0';
+                    msg = "Text";
+                } else if (ch2 == 'i') {
+                    col_types[cur_col] = COL_NUM;
+                    col_formats[cur_col].decimal_places = 0;
+                    msg = "Integer";
+                } else if (ch2 == 'f') {
+                    col_types[cur_col] = COL_NUM;
+                    col_formats[cur_col].decimal_places = 2;
+                    msg = "Float (2 decimals)";
+                } else if (ch2 == 'd') {
+                    col_types[cur_col] = COL_DATE;
+                    strncpy(col_formats[cur_col].date_format, "%Y-%m-%d",
+                            sizeof(col_formats[cur_col].date_format) - 1);
+                    msg = "Date (%Y-%m-%d)";
+                }
+                if (msg) {
+                    save_column_settings(file_to_open);
+                    draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
+                    attron(COLOR_PAIR(3));
+                    printw(" | Column type: %s", msg);
+                    attroff(COLOR_PAIR(3));
+                    refresh();
+                }
+            }
+        }
         else if (ch == '[') {
             // Sort ascending — resets any existing multi-sort
             if (cur_col >= 0 && cur_col < col_count) {
