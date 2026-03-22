@@ -75,7 +75,7 @@ void show_help(int use_ncurses)
         "  #                    Show file comment lines (lines starting with #)",
         "  p                    Pivot table (apply saved or open settings)",
         "  P                    Pivot table — always open settings window",
-        "  g                    Graph current column (press g then any key)",
+        "  Ctrl+G               Graph current column",
         "  q / Esc              Quit",
         "  ?                    This help",
         "",

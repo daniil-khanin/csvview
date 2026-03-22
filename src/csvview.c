@@ -1749,80 +1749,82 @@ int main(int argc, char *argv[]) {
                     if (col_widths[c] > 80) col_widths[c] = 80;
                 }
                 save_column_settings(file_to_open);
-            } else {
-                // g + other key → graph current column
-                if (col_types[cur_col] != COL_NUM) {
-                    draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
-                    attron(COLOR_PAIR(1));
-                    printw(" | Not a numeric column");
-                    attroff(COLOR_PAIR(1));
-                    refresh();
-                    getch();
-                    continue;
-                }
-                graph_col_list[0] = cur_col;
-                graph_col_count = 1;
-                current_graph = 0;
-                graph_start = 0;
-                using_date_x = 0;
-                date_col = -1;
-                for (int c = 0; c < col_count; c++) {
-                    if (col_types[c] == COL_DATE) {
-                        date_col = c;
-                        break;
-                    }
-                }
-                if (date_col >= 0) {
-                    draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
-                    attron(COLOR_PAIR(3));
-                    char col_buf[16];
-                    if (column_names[date_col]) {
-                        strncpy(col_buf, column_names[date_col], sizeof(col_buf) - 1);
-                        col_buf[sizeof(col_buf) - 1] = '\0';
-                    } else {
-                        col_letter(date_col, col_buf);
-                    }
-                    printw(" | Use date column %s as X-axis? (y/n) ", col_buf);
-                    attroff(COLOR_PAIR(3));
-                    refresh();
-                    int yn = getch();
-                    if (yn == 'y' || yn == 'Y') {
-                        using_date_x = 1;
-                        save_sort_col = sort_col; save_sort_level_count = sort_level_count;
-                        save_sort_order = sort_order;
-                        int temp_sort_col = sort_col;
-                        int temp_sort_order = sort_order;
-                        sort_col = date_col;
-                        sort_order = 1;
+            }
+            /* unknown g+key: ignore */
+        }
 
-                        draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
-                        attron(COLOR_PAIR(3));
-                        printw(" | Sorting...                                              ");
-                        attroff(COLOR_PAIR(3));
-                        refresh();
-
-                        if (filter_active) {
-                            save_filtered_count = filtered_count;
-                            save_filtered_rows = malloc(sizeof(int) * save_filtered_count);
-                            if (save_filtered_rows) {
-                                memcpy(save_filtered_rows, filtered_rows, sizeof(int) * save_filtered_count);
-                            }
-                            qsort(filtered_rows, filtered_count, sizeof(int), compare_rows_by_column);
-                        } else {
-                            save_sorted_count = sorted_count;
-                            save_sorted_rows = malloc(sizeof(int) * sorted_count);
-                            if (save_sorted_rows) {
-                                memcpy(save_sorted_rows, sorted_rows, sizeof(int) * save_sorted_count);
-                            }
-                            build_sorted_index();
-                        }
-                        sort_col = temp_sort_col;
-                        sort_order = temp_sort_order;
-                    }
-                }
-                in_graph_mode = 1;
+        if (ch == ('G' & 0x1f)) {  // Ctrl+G — graph current column
+            if (col_types[cur_col] != COL_NUM) {
+                draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
+                attron(COLOR_PAIR(1));
+                printw(" | Not a numeric column");
+                attroff(COLOR_PAIR(1));
+                refresh();
+                getch();
                 continue;
             }
+            graph_col_list[0] = cur_col;
+            graph_col_count = 1;
+            current_graph = 0;
+            graph_start = 0;
+            using_date_x = 0;
+            date_col = -1;
+            for (int c = 0; c < col_count; c++) {
+                if (col_types[c] == COL_DATE) {
+                    date_col = c;
+                    break;
+                }
+            }
+            if (date_col >= 0) {
+                draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
+                attron(COLOR_PAIR(3));
+                char col_buf[16];
+                if (column_names[date_col]) {
+                    strncpy(col_buf, column_names[date_col], sizeof(col_buf) - 1);
+                    col_buf[sizeof(col_buf) - 1] = '\0';
+                } else {
+                    col_letter(date_col, col_buf);
+                }
+                printw(" | Use date column %s as X-axis? (y/n) ", col_buf);
+                attroff(COLOR_PAIR(3));
+                refresh();
+                int yn = getch();
+                if (yn == 'y' || yn == 'Y') {
+                    using_date_x = 1;
+                    save_sort_col = sort_col; save_sort_level_count = sort_level_count;
+                    save_sort_order = sort_order;
+                    int temp_sort_col = sort_col;
+                    int temp_sort_order = sort_order;
+                    sort_col = date_col;
+                    sort_order = 1;
+
+                    draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
+                    attron(COLOR_PAIR(3));
+                    printw(" | Sorting...                                              ");
+                    attroff(COLOR_PAIR(3));
+                    refresh();
+
+                    if (filter_active) {
+                        save_filtered_count = filtered_count;
+                        save_filtered_rows = malloc(sizeof(int) * save_filtered_count);
+                        if (save_filtered_rows) {
+                            memcpy(save_filtered_rows, filtered_rows, sizeof(int) * save_filtered_count);
+                        }
+                        qsort(filtered_rows, filtered_count, sizeof(int), compare_rows_by_column);
+                    } else {
+                        save_sorted_count = sorted_count;
+                        save_sorted_rows = malloc(sizeof(int) * sorted_count);
+                        if (save_sorted_rows) {
+                            memcpy(save_sorted_rows, sorted_rows, sizeof(int) * save_sorted_count);
+                        }
+                        build_sorted_index();
+                    }
+                    sort_col = temp_sort_col;
+                    sort_order = temp_sort_order;
+                }
+            }
+            in_graph_mode = 1;
+            continue;
         }
 
         if (ch == 'q' || ch == 27) {
