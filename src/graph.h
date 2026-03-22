@@ -83,4 +83,9 @@ int find_max_index(double *values, int count);
  */
 double *extract_plot_values(int col, RowIndex *rows, FILE *f, int row_count, int *out_point_count, bool *out_aggregate, char *target_date_fmt_out );
 
+/* Multi-series overlay — set before calling draw_graph in a loop */
+extern double graph_global_min;
+extern double graph_global_max;
+extern int    graph_overlay_mode;
+
 #endif /* GRAPH_H */

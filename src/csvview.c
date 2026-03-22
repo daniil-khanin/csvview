@@ -1279,8 +1279,50 @@ int main(int argc, char *argv[]) {
         draw_table_headers(table_top, ROW_DATA_OFFSET, visible_cols, left_col, cur_col);
 
         if (in_graph_mode) {
-            int col = graph_col_list[current_graph];
-            draw_graph(col, height, width, rows, f, row_count, graph_cursor_pos, min_max_show);
+            if (graph_col_count > 1) {
+                // Multi-series: compute shared Y scale, then draw each series with a different color
+                double gmin = INFINITY, gmax = -INFINITY;
+                for (int s = 0; s < graph_col_count; s++) {
+                    int pc = 0; bool agg = false; char dfmt[32];
+                    double *vals = extract_plot_values(graph_col_list[s], rows, f, row_count, &pc, &agg, dfmt);
+                    if (vals) {
+                        for (int i = 0; i < pc; i++) {
+                            if (vals[i] < gmin) gmin = vals[i];
+                            if (vals[i] > gmax) gmax = vals[i];
+                        }
+                        free(vals);
+                    }
+                }
+                if (isinf(gmin) || isinf(gmax)) { gmin = 0; gmax = 1; }
+                if (gmin == gmax) { gmax += 1.0; gmin -= 1.0; }
+                graph_global_min = gmin;
+                graph_global_max = gmax;
+                for (int s = 0; s < graph_col_count; s++) {
+                    current_graph_color_pair = GRAPH_COLOR_BASE + (s % 7);
+                    graph_overlay_mode = (s == 0) ? 1 : 2;
+                    draw_graph(graph_col_list[s], height, width, rows, f, row_count, graph_cursor_pos, min_max_show);
+                }
+                graph_overlay_mode = 0;
+                graph_global_min = NAN;
+                graph_global_max = NAN;
+                // Draw color legend
+                int lx = ROW_DATA_OFFSET + 2;
+                for (int s = 0; s < graph_col_count; s++) {
+                    int cp = GRAPH_COLOR_BASE + (s % 7);
+                    char cn[20] = "";
+                    if (use_headers && column_names[graph_col_list[s]])
+                        snprintf(cn, sizeof(cn), "%.15s", column_names[graph_col_list[s]]);
+                    else
+                        col_letter(graph_col_list[s], cn);
+                    attron(COLOR_PAIR(cp) | A_BOLD);
+                    mvprintw(height - 3, lx, "- %s", cn);
+                    attroff(COLOR_PAIR(cp) | A_BOLD);
+                    lx += (int)strlen(cn) + 4;
+                }
+            } else {
+                int col = graph_col_list[current_graph];
+                draw_graph(col, height, width, rows, f, row_count, graph_cursor_pos, min_max_show);
+            }
         } else {
             draw_table_body(table_top, ROW_DATA_OFFSET, visible_rows, top_display_row, cur_display_row, cur_col, left_col, visible_cols, rows, f, row_count);
         }

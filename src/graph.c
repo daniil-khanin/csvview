@@ -23,6 +23,11 @@
 #include <wchar.h>           // wcrtomb для Braille
 #include <pthread.h>
 
+/* Multi-series overlay globals — set by caller before looping draw_graph */
+double graph_global_min = NAN;
+double graph_global_max = NAN;
+int    graph_overlay_mode = 0;  /* 0=single, 1=first pass (draw axes), 2=subsequent pass */
+
 /* Inline field extractor — no malloc */
 static void get_field_graph(const char *line, int idx, char *buf, int buf_size)
 {
@@ -314,10 +319,12 @@ void draw_graph(int col, int height, int width, RowIndex *rows, FILE *f, int row
     int plot_width = width - plot_start_x - 4; // запас справа
     if (plot_height < 5 || plot_width < 10) return; // слишком маленький экран
     // ─── Очистка области графика ───────────────────────────────────────────────
-    for (int y = plot_start_y; y < plot_start_y + plot_height + 2; y++) {
-        for (int x = 1; x < width - 1; x++) {
-            if (y >= 0 && y < height && x >= 0 && x < width) {
-                mvaddch(y, x, ' ');
+    if (graph_overlay_mode != 2) {
+        for (int y = plot_start_y; y < plot_start_y + plot_height + 2; y++) {
+            for (int x = 1; x < width - 1; x++) {
+                if (y >= 0 && y < height && x >= 0 && x < width) {
+                    mvaddch(y, x, ' ');
+                }
             }
         }
     }
@@ -348,6 +355,11 @@ void draw_graph(int col, int height, int width, RowIndex *rows, FILE *f, int row
         min_y -= 1.0;
     }
     if (isinf(min_y) || isinf(max_y)) goto cleanup;
+    // Override with caller-provided global scale in multi-series mode
+    if (!isnan(graph_global_min) && !isnan(graph_global_max)) {
+        min_y = graph_global_min;
+        max_y = graph_global_max;
+    }
     double sum = 0.0, sum_sq = 0.0;
     for (int i = 0; i < point_count; i++) {
         sum += values[i];
@@ -412,46 +424,50 @@ void draw_graph(int col, int height, int width, RowIndex *rows, FILE *f, int row
 
     // ─── Y-метки ────────────────────────────────────────────────────────────────
     char buf[32];
-    if (graph_scale == SCALE_LOG) {
-        snprintf(buf, sizeof(buf), "1e%.0f", log10(max_y));
-        mvprintw(plot_start_y, 1, "%*s", ROW_NUMBER_WIDTH - 3, buf);
-        snprintf(buf, sizeof(buf), "1e%.0f", log10(min_y > 0 ? min_y : 1));
-        mvprintw(plot_start_y + plot_height - 1, 1, "%*s", ROW_NUMBER_WIDTH - 3, buf);
-    } else {
-        snprintf(buf, sizeof(buf), "%.2f", max_y);
-        mvprintw(plot_start_y, 1, "%*s", ROW_NUMBER_WIDTH - 3, buf);
-        snprintf(buf, sizeof(buf), "%.2f", min_y);
-        mvprintw(plot_start_y + plot_height - 1, 1, "%*s", ROW_NUMBER_WIDTH - 3, buf);
+    if (graph_overlay_mode != 2) {
+        if (graph_scale == SCALE_LOG) {
+            snprintf(buf, sizeof(buf), "1e%.0f", log10(max_y));
+            mvprintw(plot_start_y, 1, "%*s", ROW_NUMBER_WIDTH - 3, buf);
+            snprintf(buf, sizeof(buf), "1e%.0f", log10(min_y > 0 ? min_y : 1));
+            mvprintw(plot_start_y + plot_height - 1, 1, "%*s", ROW_NUMBER_WIDTH - 3, buf);
+        } else {
+            snprintf(buf, sizeof(buf), "%.2f", max_y);
+            mvprintw(plot_start_y, 1, "%*s", ROW_NUMBER_WIDTH - 3, buf);
+            snprintf(buf, sizeof(buf), "%.2f", min_y);
+            mvprintw(plot_start_y + plot_height - 1, 1, "%*s", ROW_NUMBER_WIDTH - 3, buf);
+        }
     }
     // ─── X-метки (5–7 штук) ─────────────────────────────────────────────────────
-    int label_step = visible_points / 6;
-    if (label_step < 1) label_step = 1;
-    for (int i = 0; i < visible_points; i += label_step)
-    {
-        int orig_idx = i * step;
-        if (orig_idx >= point_count) orig_idx = point_count - 1;
-        char label[32] = "";
-        if (using_date_x) {
-            int row_idx = start_row + orig_idx;
-            int real_row = get_real_row(row_idx);
-            if (real_row >= 0 && real_row < row_count) {
-                char *date_raw = get_column_value(rows[real_row].line_cache,
-                                                  column_names[date_col] ? column_names[date_col] : "",
-                                                  use_headers);
-                if (date_raw) {
-                    char *formatted = format_date(date_raw, target_date_fmt);
-                    strncpy(label, formatted, sizeof(label) - 1);
-                    free(formatted);
-                    free(date_raw);
+    if (graph_overlay_mode != 2) {
+        int label_step = visible_points / 6;
+        if (label_step < 1) label_step = 1;
+        for (int i = 0; i < visible_points; i += label_step)
+        {
+            int orig_idx = i * step;
+            if (orig_idx >= point_count) orig_idx = point_count - 1;
+            char label[32] = "";
+            if (using_date_x) {
+                int row_idx = start_row + orig_idx;
+                int real_row = get_real_row(row_idx);
+                if (real_row >= 0 && real_row < row_count) {
+                    char *date_raw = get_column_value(rows[real_row].line_cache,
+                                                      column_names[date_col] ? column_names[date_col] : "",
+                                                      use_headers);
+                    if (date_raw) {
+                        char *formatted = format_date(date_raw, target_date_fmt);
+                        strncpy(label, formatted, sizeof(label) - 1);
+                        free(formatted);
+                        free(date_raw);
+                    }
                 }
+            } else {
+                snprintf(label, sizeof(label), "%d", orig_idx + 1);
             }
-        } else {
-            snprintf(label, sizeof(label), "%d", orig_idx + 1);
+            int x_pos = plot_start_x + (i * plot_width / (visible_points - 1));
+            int len = strlen(label);
+            if (x_pos + len > width - 2) x_pos = width - 2 - len;
+            mvprintw(plot_start_y + plot_height, x_pos, "%s", label);
         }
-        int x_pos = plot_start_x + (i * plot_width / (visible_points - 1));
-        int len = strlen(label);
-        if (x_pos + len > width - 2) x_pos = width - 2 - len;
-        mvprintw(plot_start_y + plot_height, x_pos, "%s", label);
     }
     // ─── Рисование графика ──────────────────────────────────────────────────────
     int pixel_h = plot_height * 4;
@@ -528,7 +544,7 @@ void draw_graph(int col, int height, int width, RowIndex *rows, FILE *f, int row
         attroff(COLOR_PAIR(current_graph_color_pair));
     }
     // ─── Подсветка аномалий ─────────────────────────────────────────────────────
-    if (show_anomalies && graph_anomaly_count > 0) {
+    if (graph_overlay_mode == 0 && show_anomalies && graph_anomaly_count > 0) {
         if (has_colors()) {
             attron(COLOR_PAIR(11) | A_BOLD);
         }
@@ -552,7 +568,7 @@ void draw_graph(int col, int height, int width, RowIndex *rows, FILE *f, int row
     }
 
     // ─── Курсор и значение под ним ──────────────────────────────────────────────
-    if (show_graph_cursor)
+    if (graph_overlay_mode == 0 && show_graph_cursor)
     {
         int full_idx = cursor_pos * step;  // текущий полный индекс (если не прыгаем)
 
