@@ -2193,6 +2193,7 @@ int main(int argc, char *argv[]) {
             top_display_row += scroll;
             if (cur_display_row >= display_count) cur_display_row = display_count - 1;
             if (top_display_row > display_count - visible_rows) top_display_row = display_count - visible_rows;
+            if (top_display_row < 0) top_display_row = 0;
         }
         else if (ch == KEY_HOME || ch == 'K') {
             cur_display_row = 0;
