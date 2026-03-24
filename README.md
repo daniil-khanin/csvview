@@ -7,6 +7,8 @@ No Python. No Electron. No dependencies — just C and ncurses.
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)](#install)
 [![Language](https://img.shields.io/badge/language-C-orange)](#build-from-source)
 
+![csvview demo — big file, sort, stats, multi-series graph](assets/demo.gif)
+
 ![Multi-series graph with dual Y axis](assets/screenshot-graph.png)
 
 ![SVG export — print-ready white-background chart](assets/screenshot-exportsvg.png)
