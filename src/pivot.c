@@ -394,6 +394,25 @@ static void draw_pivot_graph(
         attroff(COLOR_PAIR(6));
     }
 
+    // ── Horizontal grid lines ─────────────────────────────────────────────────
+    // Drawn BEFORE the Braille series so data overwrites empty grid positions.
+    // ACS_HLINE characters at 5 evenly-spaced Y levels (max/75%/mid/25%/min).
+    {
+        int grid_ys[5] = {
+            plot_start_y,
+            plot_start_y + plot_height / 4,
+            plot_start_y + plot_height / 2,
+            plot_start_y + 3 * plot_height / 4,
+            plot_start_y + plot_height - 1
+        };
+        attron(COLOR_PAIR(6));
+        for (int g = 0; g < 5; g++) {
+            for (int cx = 0; cx < plot_width; cx++)
+                mvaddch(grid_ys[g], plot_start_x + cx, ACS_HLINE);
+        }
+        attroff(COLOR_PAIR(6));
+    }
+
     // ── X labels (up to 6) ────────────────────────────────────────────────────
     {
         int n_xlabels = (n_points < 6) ? n_points : 6;
@@ -547,6 +566,197 @@ static void draw_pivot_graph(
 
 pivot_graph_cleanup:
     for (int s = 0; s < n_active; s++) free(all_values[s]);
+}
+
+/* ── SVG export of the pivot graph ───────────────────────────────────────────
+   Writes a self-contained SVG (white background, print-ready palette) with
+   the same active series, graph type, and Y scale as the on-screen graph.   */
+static void write_pivot_svg(
+    const char *filename,
+    Agg **matrix, Agg *row_totals, Agg *col_totals, const Agg *grand,
+    char **row_keys, int unique_rows,
+    char **col_keys, int unique_cols,
+    int *row_order, int *col_order,
+    bool *series_pinned,
+    int cur_row_p, int cur_col_p,
+    int graph_axis,
+    GraphType gtype, GraphScale gscale,
+    const char *aggregation,
+    int total_rows, int total_cols)
+{
+    static const char *SVG_COL[6] = {
+        "#0077bb","#cc3311","#009944","#ee7733","#aa3377","#33bbee"
+    };
+
+    /* ── Build active series list (same logic as draw_pivot_graph) ── */
+    int cursor_series  = (graph_axis == 0) ? cur_col_p : cur_row_p;
+    int max_series_idx = (graph_axis == 0) ? total_cols : total_rows;
+    int active[6]; int n_active = 0;
+    if (cursor_series >= 0 && cursor_series < max_series_idx)
+        active[n_active++] = cursor_series;
+    for (int i = 0; i < max_series_idx && n_active < 6; i++) {
+        if (i == cursor_series) continue;
+        if (i < 512 && series_pinned[i]) active[n_active++] = i;
+    }
+    if (n_active == 0) return;
+
+    int n_points = (graph_axis == 0) ? total_rows : total_cols;
+    if (n_points == 0) return;
+
+    /* ── Collect data and find global min/max ── */
+    double *vals[6] = {NULL};
+    double gmin = INFINITY, gmax = -INFINITY;
+    for (int s = 0; s < n_active; s++) {
+        int sidx = active[s];
+        vals[s] = malloc(n_points * sizeof(double));
+        if (!vals[s]) continue;
+        for (int i = 0; i < n_points; i++) {
+            const Agg *agg;
+            if (graph_axis == 0) {
+                int arid = (i    < unique_rows) ? row_order[i]    : -1;
+                int acid = (sidx < unique_cols) ? col_order[sidx] : -1;
+                if      (i    < unique_rows && sidx < unique_cols)  agg = &matrix[arid][acid];
+                else if (i    < unique_rows && sidx == unique_cols) agg = &row_totals[arid];
+                else if (i    == unique_rows && sidx < unique_cols) agg = &col_totals[acid];
+                else                                                 agg = grand;
+            } else {
+                int arid = (sidx < unique_rows) ? row_order[sidx] : -1;
+                int acid = (i    < unique_cols) ? col_order[i]    : -1;
+                if      (sidx < unique_rows && i    < unique_cols) agg = &matrix[arid][acid];
+                else if (sidx < unique_rows && i    == unique_cols) agg = &row_totals[arid];
+                else if (sidx == unique_rows && i   < unique_cols) agg = &col_totals[acid];
+                else                                                agg = grand;
+            }
+            vals[s][i] = agg_sort_value(agg, aggregation);
+            if (vals[s][i] < gmin) gmin = vals[s][i];
+            if (vals[s][i] > gmax) gmax = vals[s][i];
+        }
+    }
+    if (isinf(gmin) || isinf(gmax)) goto svg_cleanup;
+    if (gmin == gmax) gmax += 1.0;
+
+    /* ── Layout ── */
+    int svg_w = 900, svg_h = 500;
+    int ml = 72, mr = 20, mt = 40, mb = 80;
+    int pw = svg_w - ml - mr;
+    int ph = svg_h - mt - mb;
+
+    /* Map value → SVG Y pixel */
+    #define SVG_PY(v) (mt + ph - (int)round(                               \
+        ((gscale == SCALE_LOG && gmin > 0 && gmax > 0)                     \
+          ? (log10((v) > 1e-300 ? (v) : 1e-300) - log10(gmin)) /           \
+            (log10(gmax) - log10(gmin))                                     \
+          : ((v) - gmin) / (gmax - gmin))                                   \
+        * ph))
+    /* Map point index → SVG X pixel */
+    #define SVG_PX(i) (ml + (n_points > 1 ? (i) * pw / (n_points - 1) : pw / 2))
+
+    FILE *fp = fopen(filename, "w");
+    if (!fp) goto svg_cleanup;
+
+    fprintf(fp,
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"%d\" height=\"%d\">\n"
+        "<rect width=\"%d\" height=\"%d\" fill=\"white\"/>\n",
+        svg_w, svg_h, svg_w, svg_h);
+
+    /* ── Grid lines + Y labels ── */
+    fprintf(fp, "<g stroke=\"#cccccc\" stroke-width=\"1\">\n");
+    for (int g = 0; g <= 4; g++) {
+        double frac = g / 4.0;
+        double v = gmin + frac * (gmax - gmin);
+        int gy = SVG_PY(v);
+        fprintf(fp, "  <line x1=\"%d\" y1=\"%d\" x2=\"%d\" y2=\"%d\"/>\n",
+                ml, gy, ml + pw, gy);
+        fprintf(fp,
+            "  <text x=\"%d\" y=\"%d\" text-anchor=\"end\" font-size=\"11\""
+            " fill=\"#666\">%.4g</text>\n",
+            ml - 4, gy + 4, v);
+    }
+    fprintf(fp, "</g>\n");
+
+    /* ── X axis line ── */
+    fprintf(fp,
+        "<line x1=\"%d\" y1=\"%d\" x2=\"%d\" y2=\"%d\""
+        " stroke=\"#999\" stroke-width=\"1\"/>\n",
+        ml, mt + ph, ml + pw, mt + ph);
+
+    /* ── X labels (up to 8) ── */
+    fprintf(fp, "<g font-size=\"10\" fill=\"#555\" text-anchor=\"middle\">\n");
+    int n_xl = n_points < 8 ? n_points : 8;
+    for (int li = 0; li < n_xl; li++) {
+        int pt = (n_xl > 1) ? li * (n_points - 1) / (n_xl - 1) : 0;
+        const char *lbl = "?";
+        if (graph_axis == 0) lbl = (pt < unique_rows) ? row_keys[row_order[pt]] : "Total";
+        else                 lbl = (pt < unique_cols) ? col_keys[col_order[pt]] : "Total";
+        char lbuf[20]; snprintf(lbuf, sizeof(lbuf), "%.14s", lbl);
+        fprintf(fp, "  <text x=\"%d\" y=\"%d\">%s</text>\n",
+                SVG_PX(pt), mt + ph + 16, lbuf);
+    }
+    fprintf(fp, "</g>\n");
+
+    /* ── Series ── */
+    int bar_grp = pw / (n_points > 0 ? n_points : 1);
+    if (bar_grp < 4) bar_grp = 4;
+    int bar_w = bar_grp / (n_active > 0 ? n_active : 1);
+    if (bar_w < 2) bar_w = 2;
+
+    for (int s = 0; s < n_active; s++) {
+        if (!vals[s]) continue;
+        const char *col = SVG_COL[s % 6];
+
+        if (gtype == GRAPH_LINE) {
+            fprintf(fp, "<polyline fill=\"none\" stroke=\"%s\" stroke-width=\"2\""
+                    " stroke-linejoin=\"round\" points=\"", col);
+            for (int i = 0; i < n_points; i++)
+                fprintf(fp, "%d,%d ", SVG_PX(i), SVG_PY(vals[s][i]));
+            fprintf(fp, "\"/>\n");
+        } else if (gtype == GRAPH_BAR) {
+            fprintf(fp, "<g fill=\"%s\" opacity=\"0.8\">\n", col);
+            int zero_y = SVG_PY(gmin > 0 ? gmin : 0);
+            for (int i = 0; i < n_points; i++) {
+                int bx = SVG_PX(i) - bar_grp / 2 + s * bar_w;
+                int by = SVG_PY(vals[s][i]);
+                int bh = zero_y - by;
+                if (bh < 1) bh = 1;
+                fprintf(fp, "  <rect x=\"%d\" y=\"%d\" width=\"%d\" height=\"%d\"/>\n",
+                        bx, by, bar_w > 2 ? bar_w - 1 : 1, bh);
+            }
+            fprintf(fp, "</g>\n");
+        } else { /* GRAPH_DOT */
+            fprintf(fp, "<g fill=\"%s\">\n", col);
+            for (int i = 0; i < n_points; i++)
+                fprintf(fp, "  <circle cx=\"%d\" cy=\"%d\" r=\"3\"/>\n",
+                        SVG_PX(i), SVG_PY(vals[s][i]));
+            fprintf(fp, "</g>\n");
+        }
+    }
+
+    /* ── Legend ── */
+    {
+        int lx = ml, ly = svg_h - mb + 30;
+        for (int s = 0; s < n_active; s++) {
+            int sidx = active[s];
+            const char *name;
+            if (graph_axis == 0) name = (sidx < unique_cols) ? col_keys[col_order[sidx]] : "Total";
+            else                 name = (sidx < unique_rows) ? row_keys[row_order[sidx]] : "Total";
+            char nbuf[32]; snprintf(nbuf, sizeof(nbuf), "%.24s", name);
+            fprintf(fp,
+                "<rect x=\"%d\" y=\"%d\" width=\"12\" height=\"12\" fill=\"%s\"/>\n"
+                "<text x=\"%d\" y=\"%d\" font-size=\"12\" fill=\"#333\">%s</text>\n",
+                lx, ly - 10, SVG_COL[s % 6],
+                lx + 16, ly, nbuf);
+            lx += 16 + (int)strlen(nbuf) * 7 + 12;
+            if (lx > svg_w - 100) { lx = ml; ly += 18; }
+        }
+    }
+
+    fprintf(fp, "</svg>\n");
+    fclose(fp);
+    #undef SVG_PY
+    #undef SVG_PX
+
+svg_cleanup:
+    for (int s = 0; s < n_active; s++) free(vals[s]);
 }
 
 int load_pivot_settings(const char *csv_filename, PivotSettings *settings) {
@@ -1673,8 +1883,13 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
             if (agg_sub == 0) {
                 char *key = (logical_col < unique_cols) ? col_keys[col_order[logical_col]] : "Total";
                 int is_current_col = (logical_col == cur_col_p / agg_count);
+                /* Show * prefix when this column's series is on the graph */
+                int in_graph_col = graph_split && graph_axis == 0 &&
+                                   (is_current_col ||
+                                    (logical_col < 512 && series_pinned[logical_col]));
                 char col_key_buf[CELL_WIDTH * 2 + 1];
-                snprintf(col_key_buf, CELL_WIDTH - 1, "%s", key);
+                snprintf(col_key_buf, CELL_WIDTH - 1, "%s%s",
+                         in_graph_col ? "*" : "", key);
                 attron(COLOR_PAIR(is_current_col ? 3 : 6) | A_BOLD);
                 mvprintw(4, pivot_row_index_width + c * CELL_WIDTH, "%*s",
                          CELL_WIDTH - 2, col_key_buf);
@@ -1704,6 +1919,17 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
             int is_current_row = (rid == cur_row_p);
             // Row label (left side)
             char *rkey = (rid < unique_rows) ? row_keys[row_order[rid]] : "Total";
+            /* Show * at column 1 when this row's series is on the graph */
+            int in_graph_row = graph_split && graph_axis == 1 &&
+                               (is_current_row ||
+                                (rid < 512 && series_pinned[rid]));
+            if (in_graph_row) {
+                attron(COLOR_PAIR(3) | A_BOLD);
+                mvprintw(data_row_y + i, 1, "*");
+                attroff(COLOR_PAIR(3) | A_BOLD);
+            } else {
+                mvprintw(data_row_y + i, 1, " ");
+            }
             if (is_current_row) {
                 attron(COLOR_PAIR(3)); // highlight current row
             } else {
@@ -1871,6 +2097,29 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
             } else if (strcmp(cmd, "gy") == 0 && arg) {
                 if (strcmp(arg, "log") == 0) pivot_gscale = SCALE_LOG;
                 else if (strcmp(arg, "lin") == 0 || strcmp(arg, "linear") == 0) pivot_gscale = SCALE_LINEAR;
+            } else if (strcmp(cmd, "eg") == 0) {
+                /* Export pivot graph to SVG */
+                if (!graph_split) {
+                    mvprintw(height - 1, 0, "Graph not open — press G first");
+                } else {
+                    char svg_file[256] = "pivot_graph.svg";
+                    if (arg && *arg) strncpy(svg_file, arg, sizeof(svg_file) - 1);
+                    if (!strstr(svg_file, ".svg")) strcat(svg_file, ".svg");
+                    write_pivot_svg(svg_file,
+                        matrix, row_totals, col_totals, &grand,
+                        row_keys, unique_rows,
+                        col_keys, unique_cols,
+                        row_order, col_order,
+                        series_pinned,
+                        cur_row_p, cur_col_p / agg_count,
+                        graph_axis,
+                        pivot_gtype, pivot_gscale,
+                        agg_list[0],
+                        total_rows, max_logical_cols);
+                    mvprintw(height - 1, 0, "Graph exported to %s", svg_file);
+                }
+                refresh();
+                getch();
             }
             clrtoeol();
             refresh();
