@@ -1292,6 +1292,7 @@ int main(int argc, char *argv[]) {
 
     char current_cell_content[256] = "(empty)";
     char col_name[256];
+    int vim_count = 0;   /* Nj/Nk: accumulated digit prefix */
 
     while (1) {
         clear();
@@ -1576,6 +1577,12 @@ int main(int argc, char *argv[]) {
         refresh();
 
         int ch = getch();
+
+        /* Vim-style Nj/Nk: accumulate digits outside graph mode */
+        if (!in_graph_mode && ch >= '0' && ch <= '9') {
+            vim_count = vim_count * 10 + (ch - '0');
+            continue;
+        }
 
         if (in_graph_mode) {
             if (ch == 'q' || ch == 27) {  // Esc
@@ -2240,7 +2247,7 @@ int main(int argc, char *argv[]) {
             /* unknown g+key: ignore */
         }
 
-        if (ch == 'M') {  /* M — toggle mark current column for multi-series graph */
+        if (ch == ' ') {  /* Space — toggle mark current column for multi-series graph */
             if (cur_col >= 0 && cur_col < col_count) {
                 if (col_types[cur_col] != COL_NUM) {
                     draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
@@ -2250,7 +2257,6 @@ int main(int argc, char *argv[]) {
                     refresh();
                 } else {
                     graph_marked[cur_col] = !graph_marked[cur_col];
-                    /* count total marked */
                     int mc = 0;
                     for (int c = 0; c < col_count; c++) if (graph_marked[c]) mc++;
                     draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
@@ -2281,7 +2287,7 @@ int main(int argc, char *argv[]) {
             if (graph_col_count == 0) {
                 draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
                 attron(COLOR_PAIR(1));
-                printw(" | No numeric columns selected (mark with M or move to numeric column)");
+                printw(" | No numeric columns selected (mark with Space or move to numeric column)");
                 attroff(COLOR_PAIR(1));
                 refresh();
                 getch();
@@ -2704,18 +2710,23 @@ int main(int argc, char *argv[]) {
             }
         }        
 
+        /* Consume accumulated digit prefix; reset after any non-digit key */
+        int nav_steps = vim_count > 0 ? vim_count : 1;
+        vim_count = 0;
+
         // Navigation through visible rows
         if (ch == KEY_DOWN || ch == 'j') {
-            if (cur_display_row < display_count - 1) {
-                cur_display_row++;
-                if (cur_display_row >= top_display_row + visible_rows - 1) top_display_row++;
-            }
+            cur_display_row += nav_steps;
+            if (cur_display_row >= display_count) cur_display_row = display_count - 1;
+            if (cur_display_row < 0) cur_display_row = 0;
+            if (cur_display_row >= top_display_row + visible_rows - 1)
+                top_display_row = cur_display_row - visible_rows + 2;
+            if (top_display_row < 0) top_display_row = 0;
         }
         else if (ch == KEY_UP || ch == 'k') {
-            if (cur_display_row > 0) {
-                cur_display_row--;
-                if (cur_display_row < top_display_row) top_display_row = cur_display_row;
-            }
+            cur_display_row -= nav_steps;
+            if (cur_display_row < 0) cur_display_row = 0;
+            if (cur_display_row < top_display_row) top_display_row = cur_display_row;
         }
         else if (ch == KEY_LEFT || ch == 'h') {
             int nc = cur_col - 1;
@@ -3080,14 +3091,21 @@ int main(int argc, char *argv[]) {
                 refresh();
             }
         }
-        else if (ch == 'm') {  /* set/clear bookmark: m<a-z> */
+        else if (ch == 'm') {  /* set/clear bookmark: m (auto) or m<a-z> (explicit) */
+            /* Peek for an optional letter with a short timeout.
+               m alone → auto-assign next free letter (or clear if row already has one).
+               m<a-z>  → explicit letter assignment (original behaviour). */
+            halfdelay(3);          /* 0.3 s timeout */
             int label = getch();
+            cbreak();              /* restore blocking input */
+
+            int cur_real = get_real_row(cur_display_row);
+            draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
+
             if (label >= 'a' && label <= 'z') {
+                /* Explicit letter */
                 int bi = label - 'a';
-                int cur_real = get_real_row(cur_display_row);
-                draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
                 if (bookmarks[bi] == cur_real) {
-                    /* toggle: already on this bookmark → clear it */
                     bookmarks[bi] = -1;
                     attron(COLOR_PAIR(6));
                     printw(" | Bookmark '%c' cleared", label);
@@ -3098,9 +3116,34 @@ int main(int argc, char *argv[]) {
                     printw(" | Bookmark '%c' set at row %d", label, cur_display_row + 1);
                     attroff(COLOR_PAIR(3));
                 }
-                save_column_settings(file_to_open);
-                refresh();
+            } else if (label != 27) {  /* ESC cancels */
+                /* Auto-assign: if row already has a bookmark → toggle it off */
+                int found = -1;
+                for (int bi = 0; bi < 26; bi++)
+                    if (bookmarks[bi] == cur_real) { found = bi; break; }
+                if (found >= 0) {
+                    bookmarks[found] = -1;
+                    attron(COLOR_PAIR(6));
+                    printw(" | Bookmark '%c' cleared", 'a' + found);
+                    attroff(COLOR_PAIR(6));
+                } else {
+                    int bi = -1;
+                    for (int i = 0; i < 26; i++)
+                        if (bookmarks[i] < 0) { bi = i; break; }
+                    if (bi < 0) {
+                        attron(COLOR_PAIR(11));
+                        printw(" | All 26 bookmarks in use");
+                        attroff(COLOR_PAIR(11));
+                    } else {
+                        bookmarks[bi] = cur_real;
+                        attron(COLOR_PAIR(3));
+                        printw(" | Bookmark '%c' set at row %d", 'a' + bi, cur_display_row + 1);
+                        attroff(COLOR_PAIR(3));
+                    }
+                }
             }
+            save_column_settings(file_to_open);
+            refresh();
         }
         else if (ch == '\'') {  /* jump to bookmark: '<a-z> */
             int label = getch();
