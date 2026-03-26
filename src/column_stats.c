@@ -7,6 +7,7 @@
 #include "column_stats.h"
 #include "utils.h"          // get_column_value, trim, col_letter, etc.
 #include "csv_mmap.h"
+#include "filtering.h"      // apply_filter
 
 #include <ncurses.h>        // newwin, mvwprintw, wrefresh, etc.
 #include <stdlib.h>         // malloc, realloc, free, qsort
@@ -75,6 +76,211 @@ static int freq_lookup_insert(Freq *freqs, long *freq_count, long *ht, const cha
         (*freq_count)++;
     }
     return 1;
+}
+
+// ────────────────────────────────────────────────
+// Comparison functions for sorting Freq arrays
+// ────────────────────────────────────────────────
+
+static int cmp_freq_count_desc(const void *a, const void *b) {
+    const Freq *fa = a, *fb = b;
+    if (fb->count != fa->count) return (fb->count > fa->count) ? 1 : -1;
+    return strcmp(fa->value, fb->value);
+}
+static int cmp_freq_count_asc(const void *a, const void *b) {
+    const Freq *fa = a, *fb = b;
+    if (fa->count != fb->count) return (fa->count > fb->count) ? 1 : -1;
+    return strcmp(fa->value, fb->value);
+}
+static int cmp_freq_alpha_asc(const void *a, const void *b) {
+    return strcmp(((const Freq*)a)->value, ((const Freq*)b)->value);
+}
+static int cmp_freq_alpha_desc(const void *a, const void *b) {
+    return strcmp(((const Freq*)b)->value, ((const Freq*)a)->value);
+}
+
+// ────────────────────────────────────────────────
+// Full interactive frequency list with drilldown
+// ────────────────────────────────────────────────
+
+#define FREQ_SORT_COUNT_DESC  0
+#define FREQ_SORT_COUNT_ASC   1
+#define FREQ_SORT_ALPHA_ASC   2
+#define FREQ_SORT_ALPHA_DESC  3
+
+static const char *freq_sort_names[] = {
+    "Count (High->Low)",
+    "Count (Low->High)",
+    "Alpha (A->Z)",
+    "Alpha (Z->A)"
+};
+
+typedef int (*FreqCmpFn)(const void*, const void*);
+static FreqCmpFn freq_cmps[] = {
+    cmp_freq_count_desc,
+    cmp_freq_count_asc,
+    cmp_freq_alpha_asc,
+    cmp_freq_alpha_desc
+};
+
+static void show_freq_list(Freq *freqs, long freq_count, long valid_count,
+                           const char *col_name)
+{
+    if (freq_count <= 0) return;
+
+    int sort_mode = FREQ_SORT_COUNT_DESC;   /* already sorted this way */
+
+    WINDOW *win = newwin(LINES, COLS, 0, 0);
+    if (!win) return;
+    wbkgd(win, COLOR_PAIR(1));
+    keypad(win, TRUE);
+
+    /* Layout */
+    int data_y0  = 6;                        /* first data row */
+    int data_y1  = LINES - 4;               /* last data row (exclusive) */
+    int page_sz  = data_y1 - data_y0;
+    if (page_sz < 1) page_sz = 1;
+
+    /* Column widths — adapt to terminal */
+    int cnt_w  = 12;
+    int pct_w  = 7;   /* "100.0%" */
+    /* val_w: leave room for rank(6) + cnt + pct + 3 spaces + bar_min(10) + 2 border */
+    int val_w  = COLS - 2 - 6 - cnt_w - pct_w - 3 - 10;
+    if (val_w > 44) val_w = 44;
+    if (val_w < 12) val_w = 12;
+    int bar_w  = COLS - 2 - 6 - val_w - cnt_w - pct_w - 3;
+    if (bar_w > 45) bar_w = 45;
+    if (bar_w <  5) bar_w =  5;
+
+    long cur  = 0;
+    long top  = 0;
+    char bar_buf[64];
+
+    for (;;) {
+        /* Clamp cursor & scroll */
+        if (cur >= freq_count) cur = freq_count - 1;
+        if (cur < 0) cur = 0;
+        if (cur < top) top = cur;
+        if (cur >= top + page_sz) top = cur - page_sz + 1;
+
+        /* Max count for bar scaling */
+        long max_cnt = 1;
+        for (long i = 0; i < freq_count; i++)
+            if (freqs[i].count > max_cnt) max_cnt = freqs[i].count;
+
+        werase(win);
+        wattron(win, COLOR_PAIR(6));
+        box(win, 0, 0);
+        wattroff(win, COLOR_PAIR(6));
+
+        /* Title */
+        wattron(win, COLOR_PAIR(3) | A_BOLD);
+        mvwprintw(win, 1, 2, "Frequency List: %s", col_name);
+        wattroff(win, COLOR_PAIR(3) | A_BOLD);
+        char info_buf[64];
+        snprintf(info_buf, sizeof(info_buf), "%ld unique, %ld total", freq_count, valid_count);
+        mvwprintw(win, 1, COLS - 2 - (int)strlen(info_buf), "%s", info_buf);
+
+        /* Sort hint */
+        mvwprintw(win, 2, 2, "Sort: %s   [s] cycle", freq_sort_names[sort_mode]);
+
+        /* Divider + header */
+        wattron(win, COLOR_PAIR(6));
+        mvwhline(win, 3, 1, ACS_HLINE, COLS - 2);
+        wattroff(win, COLOR_PAIR(6));
+
+        wattron(win, A_BOLD);
+        mvwprintw(win, 4, 2, "%-5s %-*s %*s %*s  %-*s",
+                  "#", val_w, "Value", cnt_w, "Count", pct_w, "Pct%", bar_w, "Bar");
+        wattroff(win, A_BOLD);
+
+        wattron(win, COLOR_PAIR(6));
+        mvwhline(win, 5, 1, ACS_HLINE, COLS - 2);
+        wattroff(win, COLOR_PAIR(6));
+
+        /* Data rows */
+        for (int r = 0; r < page_sz; r++) {
+            long idx = top + r;
+            if (idx >= freq_count) break;
+            int ry = data_y0 + r;
+
+            /* Bar */
+            int blen = (int)(bar_w * (double)freqs[idx].count / max_cnt + 0.5);
+            if (blen > bar_w) blen = bar_w;
+            memset(bar_buf, '#', blen);
+            memset(bar_buf + blen, ' ', bar_w - blen);
+            bar_buf[bar_w] = '\0';
+
+            double pct = valid_count > 0
+                ? (double)freqs[idx].count / valid_count * 100.0 : 0.0;
+
+            /* Truncate value for display */
+            char val_buf[128];
+            strncpy(val_buf, freqs[idx].value, sizeof(val_buf) - 1);
+            val_buf[sizeof(val_buf) - 1] = '\0';
+            if ((int)strlen(val_buf) > val_w) {
+                val_buf[val_w - 2] = '.';
+                val_buf[val_w - 1] = '.';
+                val_buf[val_w]     = '\0';
+            }
+
+            if (idx == cur) wattron(win, COLOR_PAIR(3) | A_REVERSE);
+            mvwprintw(win, ry, 2, "%-5ld %-*s %*ld %*.1f%%  %s",
+                      idx + 1, val_w, val_buf,
+                      cnt_w, freqs[idx].count,
+                      pct_w - 1, pct,
+                      bar_buf);
+            if (idx == cur) wattroff(win, COLOR_PAIR(3) | A_REVERSE);
+        }
+
+        /* Bottom divider + hint */
+        wattron(win, COLOR_PAIR(6));
+        mvwhline(win, data_y1, 1, ACS_HLINE, COLS - 2);
+        wattroff(win, COLOR_PAIR(6));
+
+        mvwprintw(win, data_y1 + 1, 2,
+            "Row %ld/%ld  |  j/k/arrows Navigate  |  [s] Sort  |  [Enter] Drilldown filter  |  [q] Close",
+            cur + 1, freq_count);
+
+        wrefresh(win);
+
+        int ch = wgetch(win);
+
+        if (ch == 'q' || ch == 'Q' || ch == 27) {
+            break;
+        } else if (ch == KEY_UP || ch == 'k') {
+            cur--;
+        } else if (ch == KEY_DOWN || ch == 'j') {
+            cur++;
+        } else if (ch == KEY_PPAGE) {
+            cur -= page_sz;
+        } else if (ch == KEY_NPAGE) {
+            cur += page_sz;
+        } else if (ch == KEY_HOME || ch == 'g') {
+            cur = 0;
+        } else if (ch == KEY_END || ch == 'G') {
+            cur = freq_count - 1;
+        } else if (ch == 's' || ch == 'S') {
+            sort_mode = (sort_mode + 1) % 4;
+            qsort(freqs, freq_count, sizeof(Freq), freq_cmps[sort_mode]);
+            cur = 0; top = 0;
+        } else if (ch == '\n' || ch == '\r' || ch == KEY_ENTER) {
+            /* Drilldown: set filter and apply */
+            if (cur >= 0 && cur < freq_count) {
+                snprintf(filter_query, sizeof(filter_query),
+                         "%s = \"%s\"", col_name, freqs[cur].value);
+                in_filter_mode  = 1;
+                cur_display_row = 0;
+                top_display_row = 0;
+                apply_filter(rows, f, row_count);
+            }
+            break;
+        }
+    }
+
+    delwin(win);
+    touchwin(stdscr);
+    refresh();
 }
 
 // ────────────────────────────────────────────────
@@ -317,19 +523,8 @@ skip_num_alloc:
     // Sort frequencies (top-10) and date groups
     // ────────────────────────────────────────────────
 
-    // Sort frequencies in descending order (bubble sort — simple and sufficient)
-    for (long i = 0; i < freq_count - 1; i++)
-    {
-        for (long j = i + 1; j < freq_count; j++)
-        {
-            if (freqs[i].count < freqs[j].count)
-            {
-                Freq tmp = freqs[i];
-                freqs[i] = freqs[j];
-                freqs[j] = tmp;
-            }
-        }
-    }
+    // Sort frequencies in descending order by count
+    qsort(freqs, freq_count, sizeof(Freq), cmp_freq_count_desc);
 
     // Sort monthly groups chronologically
     for (int i = 0; i < monthly_group_count - 1; i++)
@@ -575,11 +770,23 @@ skip_num_alloc:
     }
 
     // Close hint
-    mvwprintw(win, STATS_H - 2, 2, "Press any key to close");
+    if (freq_count > 0)
+        mvwprintw(win, STATS_H - 2, 2, "[f] Full frequency list   [any key] Close");
+    else
+        mvwprintw(win, STATS_H - 2, 2, "Press any key to close");
     wrefresh(win);
 
     // Wait for keypress
-    wgetch(win);
+    int stats_ch = wgetch(win);
+
+    delwin(win);
+    touchwin(stdscr);
+    refresh();
+
+    // Open interactive frequency list if requested
+    if ((stats_ch == 'f' || stats_ch == 'F') && freq_count > 0) {
+        show_freq_list(freqs, freq_count, valid_count, col_name);
+    }
 
     // ────────────────────────────────────────────────
     // Free memory
@@ -592,8 +799,4 @@ skip_num_alloc:
     }
     free(freqs);
     free(freq_ht);
-
-    delwin(win);
-    touchwin(stdscr);
-    refresh();
 }
