@@ -1,7 +1,7 @@
 /**
  * help.c
  *
- * Реализация вывода справки и помощи для csvview
+ * Implementation of help output for csvview
  */
 
 #include "help.h"
@@ -286,14 +286,14 @@ void show_help(int use_ncurses)
 
     if (use_ncurses)
     {
-        // Подсчёт строк справки
+        // Count help lines
         int max_lines = 0;
         while (help_text[max_lines]) max_lines++;
 
-        // Размеры окна
-        int win_h = LINES - 6;              // почти весь экран
+        // Window dimensions
+        int win_h = LINES - 6;              // almost full screen
         if (win_h > max_lines + 4) win_h = max_lines + 4;
-        int win_w = 120;                    // фиксированная удобная ширина
+        int win_w = 120;                    // fixed comfortable width
         int start_y = (LINES - win_h) / 2;
         int start_x = (COLS - win_w) / 2;
 
@@ -306,19 +306,19 @@ void show_help(int use_ncurses)
         wattroff(win, COLOR_PAIR(6));
         keypad(win, TRUE);
 
-        // Заголовок окна
+        // Window title
         wattron(win, COLOR_PAIR(3) | A_BOLD);
         mvwprintw(win, 0, (win_w - 20) / 2, " CSVView Help ");
         wattroff(win, COLOR_PAIR(3) | A_BOLD);
 
-        // Подсказка управления (всегда внизу)
+        // Navigation hint (always at the bottom)
         wattron(win, COLOR_PAIR(6));
         mvwprintw(win, win_h - 1, 2,
-                  "↑↓ j k — строка | PageUp/Down — страница | Home/End — начало/конец | Esc/q — закрыть");
+                  "↑↓ / j k — scroll | PageUp/Down — page | Home/End — top/bottom | Esc/q — close");
         wattroff(win, COLOR_PAIR(6));
 
-        int top_line = 0;                   // первая видимая строка текста
-        int visible_lines = win_h - 3;      // сколько строк видно
+        int top_line = 0;                   // first visible text line
+        int visible_lines = win_h - 3;      // number of visible lines
 
         while (1)
         {
@@ -327,18 +327,18 @@ void show_help(int use_ncurses)
             box(win, 0, 0);
             wattroff(win, COLOR_PAIR(6));
 
-            // Перерисовываем заголовок
+            // Redraw the title
             wattron(win, COLOR_PAIR(3) | A_BOLD);
             mvwprintw(win, 0, (win_w - 20) / 2, " CSVView Help ");
             wattroff(win, COLOR_PAIR(3) | A_BOLD);
 
-            // Выводим видимую часть справки с подсветкой разделов
-            int line = 1;  // строка внутри окна
+            // Render the visible portion of help with section highlighting
+            int line = 1;  // line inside the window
             for (int i = top_line; i < max_lines && line < visible_lines; i++)
             {
                 const char *text = help_text[i];
 
-                // Подсветка основных заголовков разделов
+                // Highlight main section headers
                 if (strstr(text, "Usage:") ||
                     strstr(text, "Key Bindings (main view):") ||
                     strstr(text, "Command mode (press : then command):") ||
@@ -360,20 +360,20 @@ void show_help(int use_ncurses)
                     strstr(text, "File history (csvview with no arguments):") ||
                     strstr(text, "On first launch (no .csvf file):"))
                 {
-                    wattron(win, COLOR_PAIR(5) | A_BOLD);  // ярко-зелёный + жирный
+                    wattron(win, COLOR_PAIR(5) | A_BOLD);  // bright green + bold
                     mvwprintw(win, line++, 2, "%s", text);
                     wattroff(win, COLOR_PAIR(5) | A_BOLD);
                 }
                 else
                 {
-                    // Обычный текст — серый/белый
+                    // Normal text — grey/white
                     wattron(win, COLOR_PAIR(1));
                     mvwprintw(win, line++, 2, "%s", text);
                     wattroff(win, COLOR_PAIR(1));
                 }
             }
 
-            // Подсказка управления (всегда видна)
+            // Navigation hint (always visible)
             wattron(win, COLOR_PAIR(6));
             mvwprintw(win, win_h - 1, 2, "↑↓ / j k — scroll | PageUp/PageDown — page | Home/End — top/bottom | Esc/q — close");
             wattroff(win, COLOR_PAIR(6));
@@ -423,7 +423,7 @@ void show_help(int use_ncurses)
     {
         setlocale(LC_ALL, "");
 
-        // Простой вывод в консоль
+        // Simple output to the console
         for (int i = 0; help_text[i]; i++) {
             printf("%s\n", help_text[i]);
         }

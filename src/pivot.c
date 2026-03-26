@@ -1,7 +1,7 @@
 /**
  * pivot.c
  *
- * Реализация сводных таблиц (pivot tables) для csvview
+ * Implementation of pivot tables for csvview
  */
 
 #define _XOPEN_SOURCE 700  /* strptime on Linux */
@@ -16,13 +16,13 @@
 #include "csv_mmap.h"
 #include "help.h"
 
-#include <ncurses.h>        // отрисовка
+#include <ncurses.h>        // rendering
 #include <stdlib.h>         // malloc, free, qsort, calloc
 #include <string.h>         // strcpy, strcmp, strlen
 #include <stdio.h>          // fopen, fprintf, sscanf
 #include <math.h>           // INFINITY
 #include <time.h>           // struct tm, strptime
-#include <wchar.h>          // wcrtomb для Braille
+#include <wchar.h>          // wcrtomb for Braille
 #include <pthread.h>
 
 
@@ -225,28 +225,28 @@ int compare_date_keys(const void *a, const void *b) {
     int ya = 0, ma = 0, qa = 0;
     int yb = 0, mb = 0, qb = 0;
 
-    // Год-квартал
+    // Year-quarter
     if (strstr(sa, "-Q") && strstr(sb, "-Q")) {
         sscanf(sa, "%d-Q%d", &ya, &qa);
         sscanf(sb, "%d-Q%d", &yb, &qb);
         if (ya != yb) return ya < yb ? -1 : 1;
         return qa < qb ? -1 : (qa > qb ? 1 : 0);
     }
-    // Год-месяц
+    // Year-month
     if (strchr(sa, '-') && strchr(sb, '-')) {
         sscanf(sa, "%d-%d", &ya, &ma);
         sscanf(sb, "%d-%d", &yb, &mb);
         if (ya != yb) return ya < yb ? -1 : 1;
         return ma < mb ? -1 : (ma > mb ? 1 : 0);
     }
-    // Просто год или век
+    // Plain year or century
     ya = atoi(sa);
     yb = atoi(sb);
     return ya < yb ? -1 : (ya > yb ? 1 : 0);
 }
 
 // ────────────────────────────────────────────────
-// Хелперы для сортировки order-массивов по значению агрегации
+// Helpers for sorting order arrays by aggregation value
 // ────────────────────────────────────────────────
 
 static Agg          *g_sort_agg_arr = NULL;
@@ -275,7 +275,7 @@ static int compare_order_by_agg(const void *a, const void *b) {
 }
 
 // ────────────────────────────────────────────────
-// Нормализация Y для pivot-графика
+// Y normalization for pivot graph
 // ────────────────────────────────────────────────
 static double pivot_norm_y(double val, double min_y, double max_y, GraphScale scale) {
     if (scale == SCALE_LOG) {
@@ -297,7 +297,7 @@ static void format_y_label(char *buf, int bufsz, double val) {
 }
 
 // ────────────────────────────────────────────────
-// График для сводной таблицы (Braille, multi-series)
+// Graph for pivot table (Braille, multi-series)
 // ────────────────────────────────────────────────
 static void draw_pivot_graph(
     int gx, int height, int gwidth,
@@ -312,7 +312,7 @@ static void draw_pivot_graph(
     const char *aggregation,
     int total_rows, int total_cols
 ) {
-    // ── Геометрия области ──────────────────────────────────────────────────────
+    // ── Area geometry ──────────────────────────────────────────────────────────
     int plot_start_y = 5;
     int plot_start_x = gx + 10;
     int legend_y     = height - 3;
@@ -322,7 +322,7 @@ static void draw_pivot_graph(
 
     if (plot_height < 4 || plot_width < 8) return;
 
-    // ── Активные серии (cursor first, then pinned, max 6) ─────────────────────
+    // ── Active series (cursor first, then pinned, max 6) ──────────────────────
     int cursor_series  = (graph_axis == 0) ? cur_col_p : cur_row_p;
     int max_series_idx = (graph_axis == 0) ? total_cols : total_rows;
 
@@ -338,11 +338,11 @@ static void draw_pivot_graph(
     }
     if (n_active == 0) return;
 
-    // ── Число точек по оси X ──────────────────────────────────────────────────
+    // ── Number of points along X axis ────────────────────────────────────────
     int n_points = (graph_axis == 0) ? total_rows : total_cols;
     if (n_points == 0) return;
 
-    // ── Данные для всех серий + глобальный min/max ─────────────────────────────
+    // ── Data for all series + global min/max ──────────────────────────────────
     double *all_values[6] = {NULL};
     double global_min = INFINITY, global_max = -INFINITY;
 
@@ -354,7 +354,7 @@ static void draw_pivot_graph(
         for (int i = 0; i < n_points; i++) {
             const Agg *agg;
             if (graph_axis == 0) {
-                // X = строки, серия = столбец sidx
+                // X = rows, series = column sidx
                 int arid = (i    < unique_rows) ? row_order[i]    : -1;
                 int acid = (sidx < unique_cols) ? col_order[sidx] : -1;
                 if      (i < unique_rows && sidx < unique_cols)  agg = &matrix[arid][acid];
@@ -362,7 +362,7 @@ static void draw_pivot_graph(
                 else if (i == unique_rows && sidx < unique_cols) agg = &col_totals[acid];
                 else                                              agg = grand;
             } else {
-                // X = столбцы, серия = строка sidx
+                // X = columns, series = row sidx
                 int arid = (sidx < unique_rows) ? row_order[sidx] : -1;
                 int acid = (i    < unique_cols) ? col_order[i]    : -1;
                 if      (sidx < unique_rows && i < unique_cols)  agg = &matrix[arid][acid];
@@ -380,7 +380,7 @@ static void draw_pivot_graph(
     if (isinf(global_min) || isinf(global_max)) goto pivot_graph_cleanup;
     if (global_min == global_max) { global_max += 1.0; }
 
-    // ── Y-метки (max / mid / min) ─────────────────────────────────────────────
+    // ── Y labels (max / mid / min) ────────────────────────────────────────────
     {
         char ybuf[16];
         attron(COLOR_PAIR(6));
@@ -394,7 +394,7 @@ static void draw_pivot_graph(
         attroff(COLOR_PAIR(6));
     }
 
-    // ── X-метки (до 6) ────────────────────────────────────────────────────────
+    // ── X labels (up to 6) ────────────────────────────────────────────────────
     {
         int n_xlabels = (n_points < 6) ? n_points : 6;
         attron(COLOR_PAIR(6));
@@ -416,12 +416,12 @@ static void draw_pivot_graph(
         attroff(COLOR_PAIR(6));
     }
 
-    // ── Рендеринг серий через Braille ─────────────────────────────────────────
+    // ── Series rendering via Braille ──────────────────────────────────────────
     {
         int pixel_h = plot_height * 4;
         int pixel_w = plot_width  * 2;
 
-        // Grouped bars: размеры слотов
+        // Grouped bars: slot sizes
         int group_w  = (n_points > 0) ? pixel_w / n_points : pixel_w;
         if (group_w < 1) group_w = 1;
         int bar_slot = (n_active > 0) ? group_w / n_active : group_w;
@@ -436,7 +436,7 @@ static void draw_pivot_graph(
             bool *dots = calloc(pixel_h * pixel_w, sizeof(bool));
             if (!dots) continue;
 
-            // Оси
+            // Axes
             draw_bresenham(dots, pixel_w, pixel_h, 0, pixel_h-1, pixel_w-1, pixel_h-1);
             draw_bresenham(dots, pixel_w, pixel_h, 0, pixel_h-1, 0, 0);
 
@@ -478,7 +478,7 @@ static void draw_pivot_graph(
                 }
             }
 
-            // Braille-рендеринг с цветом серии
+            // Braille rendering with series color
             int color = GRAPH_COLOR_BASE + s;
             int is_cursor_s = (active_series[s] == cursor_series);
             attr_t attrs = (attr_t)COLOR_PAIR(color) | (is_cursor_s ? (attr_t)A_BOLD : 0);
@@ -510,7 +510,7 @@ static void draw_pivot_graph(
         }
     }
 
-    // ── Легенда (предпоследняя строка внутри рамки) ────────────────────────────
+    // ── Legend (second-to-last line inside the border) ─────────────────────────
     {
         int lx = gx + 2;
         int max_name = (n_active > 0) ? (gwidth - 4) / n_active - 4 : 12;
@@ -529,7 +529,7 @@ static void draw_pivot_graph(
             int color       = GRAPH_COLOR_BASE + s;
 
             attron(COLOR_PAIR(color) | A_BOLD);
-            // ■ курсорная серия, ▪ закреплённая, ─ остальные (не бывает, но на всякий)
+            // ■ cursor series, ▪ pinned, ─ others (shouldn't happen, but just in case)
             const char *marker = is_cursor_s  ? "\xe2\x96\xa0" :
                                  is_pinned     ? "\xe2\x96\xaa" : "\xe2\x96\xa1";
             mvaddstr(legend_y, lx, marker);
@@ -601,7 +601,7 @@ int load_pivot_settings(const char *csv_filename, PivotSettings *settings) {
         memset(settings, 0, sizeof(PivotSettings));
         return 0;
     }
-    // Дефолты для полей, которых нет в старых .pivot файлах
+    // Defaults for fields absent from older .pivot files
     if (!settings->row_sort) settings->row_sort = strdup("KEY_ASC");
     if (!settings->col_sort) settings->col_sort = strdup("KEY_ASC");
     return 1;
@@ -640,15 +640,15 @@ char *get_group_key(const char *val, ColType type, const char *grouping, int col
         fmt = "%Y-%m-%d";  // fallback
     }
 
-    // Парсим дату по формату
+    // Parse date according to format
     if (strptime(val, fmt, &tm) == NULL) {
-        // Если не удалось — пробуем fallback
+        // If that fails — try fallback
         if (strptime(val, "%Y-%m-%d", &tm) == NULL) {
-            return strdup(val);  // ошибка парсинга — возвращаем как есть
+            return strdup(val);  // parse error — return as-is
         }
     }
 
-    // Теперь применяем гранулярность из grouping
+    // Apply granularity from grouping
     char *key = malloc(32);
     int year = tm.tm_year + 1900;
     int month = tm.tm_mon + 1;
@@ -679,7 +679,7 @@ void update_agg(Agg *agg, const char *val, ColType value_type) {
     }
 
     if (value_type == COL_NUM) {
-        // Очень агрессивная очистка: оставляем только цифры, точку, минус и запятую
+        // Aggressive cleaning: keep only digits, dot, minus, and comma
         char clean[128] = {0};
         int j = 0;
         int has_dot_or_comma = 0;
@@ -689,32 +689,32 @@ void update_agg(Agg *agg, const char *val, ColType value_type) {
             if (isdigit(c) || c == '-' || c == '+' || c == '.') {
                 clean[j++] = c;
             } else if (c == ',') {
-                // запятая → точка, но только одна
+                // comma → dot, but only once
                 if (!has_dot_or_comma) {
                     clean[j++] = '.';
                     has_dot_or_comma = 1;
                 }
             }
-            // всё остальное ($, €, пробелы, буквы) игнорируем
+            // everything else ($, €, spaces, letters) is ignored
         }
         clean[j] = '\0';
 
-        // Если строка пустая после очистки — выходим
+        // If string is empty after cleaning — return
         if (!*clean) return;
 
         char *endptr;
         double num = parse_double(clean, &endptr);
 
-        // Если удалось распарсить почти всю строку
+        // If nearly the entire string was parsed successfully
         if (endptr != clean && (*endptr == '\0' || isspace(*endptr))) {
             agg->sum += num;
             if (agg->count == 1 || num < agg->min) agg->min = num;
             if (agg->count == 1 || num > agg->max) agg->max = num;
         }
-        // else — не число, просто пропускаем (count уже увеличен)
+        // else — not a number, just skip (count already incremented)
     }
     else {
-        // Для нечисловых — min/max строки
+        // For non-numeric values — string min/max
         if (!agg->min_str || strcmp(val, agg->min_str) < 0) {
             free(agg->min_str);
             agg->min_str = strdup(val);
@@ -799,7 +799,7 @@ void show_pivot_settings_window(PivotSettings *settings, const char *csv_filenam
     wattroff(win, COLOR_PAIR(6));
     keypad(win, TRUE);
 
-    // Значения по умолчанию
+    // Default values
     if (!settings->aggregation)  settings->aggregation  = strdup("SUM");
     if (!settings->date_grouping) settings->date_grouping = strdup("Auto");
     if (!settings->row_sort)     settings->row_sort      = strdup("KEY_ASC");
@@ -850,14 +850,14 @@ void show_pivot_settings_window(PivotSettings *settings, const char *csv_filenam
     const char *sort_values[]  = {"KEY_ASC", "KEY_DESC", "VAL_ASC", "VAL_DESC"};
     int num_sort_opts = 4;
 
-    // Текущие индексы
+    // Current indices
     int row_group_idx = 0, col_group_idx = 0, value_idx = 0, agg_idx = 0, date_idx = 0;
     int row_tot_idx = settings->show_row_totals ? 0 : 1;
     int col_tot_idx = settings->show_col_totals ? 0 : 1;
     int grand_idx = settings->show_grand_total ? 0 : 1;
     int row_sort_idx = 0, col_sort_idx = 0;
 
-    // Инициализация из настроек (если загружены из файла)
+    // Initialize from settings (if loaded from file)
     if (settings->row_group_col) {
         for (int i = 1; i < num_col_options; i++) {
             if (strcmp(col_options[i], settings->row_group_col) == 0) {
@@ -908,7 +908,7 @@ void show_pivot_settings_window(PivotSettings *settings, const char *csv_filenam
         wattroff(win, COLOR_PAIR(6));
         mvwprintw(win, 1, 2, "Pivot Table Settings");
 
-        // Проверяем, есть ли хотя бы один столбец даты в группировке
+        // Check whether at least one date column is used in grouping
         int has_date_group = 0;
         int r_idx = row_group_idx > 0 ? (use_headers ? col_name_to_num(col_options[row_group_idx]) : col_to_num(col_options[row_group_idx])) : -1;
         int c_idx = col_group_idx > 0 ? (use_headers ? col_name_to_num(col_options[col_group_idx]) : col_to_num(col_options[col_group_idx])) : -1;
@@ -923,7 +923,7 @@ void show_pivot_settings_window(PivotSettings *settings, const char *csv_filenam
             else if (f == 2) val = col_options[value_idx];
             else if (f == 3) val = (char*)agg_options[agg_idx];
             else if (f == 4) {
-                // Date grouping — всегда показываем, но блокируем, если нет дат
+                // Date grouping — always shown, but disabled when no date columns
                 val = (char*)date_options[date_idx];
                 if (!has_date_group) val = "Auto (disabled)";
             }
@@ -937,8 +937,8 @@ void show_pivot_settings_window(PivotSettings *settings, const char *csv_filenam
             if (f == current_field) wattron(win, A_REVERSE);
 
             if (f == 4 && !has_date_group) {
-                // Серый цвет для заблокированного поля
-                wattron(win, COLOR_PAIR(6));  // COLOR_PAIR(6) — обычно серый/тёмный
+                // Gray color for disabled field
+                wattron(win, COLOR_PAIR(6));  // COLOR_PAIR(6) — typically gray/dark
             }
 
             mvwprintw(win, y_pos, 2, "%s:", fields[f]);
@@ -960,7 +960,7 @@ void show_pivot_settings_window(PivotSettings *settings, const char *csv_filenam
             current_field = (current_field - 1 + num_fields) % num_fields;
         }
         else if (ch == KEY_RIGHT || ch == 'l' || ch == 'L') {
-            int real_f = current_field;  // теперь не используем field_map, показываем все
+            int real_f = current_field;  // field_map no longer used, all fields shown
             if (real_f == 0) row_group_idx = (row_group_idx + 1) % num_col_options;
             else if (real_f == 1) col_group_idx = (col_group_idx + 1) % num_col_options;
             else if (real_f == 2) value_idx = (value_idx + 1) % num_col_options;
@@ -971,7 +971,7 @@ void show_pivot_settings_window(PivotSettings *settings, const char *csv_filenam
                 agg_idx = (agg_idx + 1) % max_a;
             }
             else if (real_f == 4) {
-                // Меняем только если активно (есть дата)
+                // Change only if active (date column present)
                 if (has_date_group) {
                     date_idx = (date_idx + 1) % num_date_options;
                 }
@@ -1086,7 +1086,7 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
 
     int display_count = filter_active ? filtered_count : (sort_col >= 0 ? sorted_count : (row_count - (use_headers ? 1 : 0)));
 
-    // Определяем типы группировки — ТОЛЬКО ЗДЕСЬ, ОДИН РАЗ
+    // Determine grouping types — ONLY HERE, ONCE
     int row_is_date = (row_group_idx >= 0) && (col_types[row_group_idx] == COL_DATE);
     int col_is_date = (col_group_idx >= 0) && (col_types[col_group_idx] == COL_DATE);
 
@@ -1102,7 +1102,7 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
 
     int start_row = use_headers ? 1 : 0;
 
-    // При отсутствии фильтра/сортировки читаем файл последовательно — без fseek на каждую строку
+    // Without filter/sort, read the file sequentially — no fseek per row
     int use_seq = (!filter_active && sort_col < 0);
     if (use_seq && !g_mmap_base) {
         rewind(f);
@@ -1189,7 +1189,7 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
     int unique_cols;
     char **col_keys = hash_map_keys(col_map, &unique_cols);
 
-    // Сортируем ключи
+    // Sort keys
     if (row_is_date) {
         qsort(row_keys, unique_rows, sizeof(char*), compare_date_keys);
     } else {
@@ -1206,7 +1206,7 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
     int total_cols = (unique_cols + (settings->show_row_totals ? 1 : 0)) * agg_count;
     int max_logical_cols = unique_cols + (settings->show_row_totals ? 1 : 0);
 
-    // Вычисляем ширину левого столбца
+    // Compute width of the left (row key) column
     int max_row_key_len = strlen("Row \\ Col");
     for (int i = 0; i < unique_rows; i++) {
         int len = strlen(row_keys[i]);
@@ -1217,7 +1217,7 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
         if (len > max_row_key_len) max_row_key_len = len;
     }
 
-    int pivot_row_index_width = max_row_key_len + 4; // запас по бокам
+    int pivot_row_index_width = max_row_key_len + 4; // padding on sides
 
     const int MIN_PIVOT_ROW_WIDTH = 12;
     const int MAX_PIVOT_ROW_WIDTH = 40;
@@ -1248,8 +1248,8 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
 
     Agg grand = {0, 0, INFINITY, -INFINITY, 0, NULL, NULL};
 
-    // Вычисляем хорошие начальные размеры хеш-таблиц (следующая степень 2)
-    // чтобы избежать коллизий при большом числе уникальных значений
+    // Compute good initial hash table sizes (next power of 2)
+    // to avoid collisions when there are many unique values
     int hm_grand  = 16; { int n = display_count / 2; while (hm_grand < n && hm_grand < 65536) hm_grand <<= 1; }
     int hm_perrow = 16; { int n = (display_count / (unique_rows > 0 ? unique_rows : 1)) * 2; while (hm_perrow < n && hm_perrow < 65536) hm_perrow <<= 1; }
     int hm_percol = 16; { int n = (display_count / (unique_cols > 0 ? unique_cols : 1)) * 2; while (hm_percol < n && hm_percol < 65536) hm_percol <<= 1; }
@@ -1259,7 +1259,7 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
     HashMap **col_unique_maps = calloc(unique_cols, sizeof(HashMap*));
     HashMap  *grand_unique_map = hash_map_create(hm_grand);
 
-    // Второй проход: агрегация (строки уже закэшированы в Pass 1 — I/O не нужен)
+    // Second pass: aggregation (rows already cached in Pass 1 — no I/O needed)
     draw_status_bar(height - 1, 1, csv_filename, row_count, file_size_str);
     attron(COLOR_PAIR(3));
     printw(" | Aggregating... 0%%                         ");
@@ -1436,7 +1436,7 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
     hash_map_destroy(row_map);
     hash_map_destroy(col_map);
 
-    // ── Строим display-порядок строк и столбцов согласно настройкам сортировки ──
+    // ── Build display order for rows and columns according to sort settings ──
     const char *rsort = settings->row_sort ? settings->row_sort : "KEY_ASC";
     const char *csort = settings->col_sort ? settings->col_sort : "KEY_ASC";
 
@@ -1473,7 +1473,7 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
         qsort(col_order, unique_cols, sizeof(int), compare_order_by_agg);
     }
 
-    // Строки отображения sort для заголовка
+    // Sort display strings for the header
     const char *rsort_disp = strcmp(rsort,"KEY_ASC")==0  ? "Key\xe2\x86\x91" :
                              strcmp(rsort,"KEY_DESC")==0  ? "Key\xe2\x86\x93" :
                              strcmp(rsort,"VAL_ASC")==0   ? "Val\xe2\x86\x91" : "Val\xe2\x86\x93";
@@ -1513,20 +1513,20 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
         draw_table_frame(1, 0, height - 2, width);
         draw_status_bar(height - 1, 1, csv_filename, row_count, file_size_str);
 
-        // Временный буфер для буквенных обозначений столбцов (A, B, AA...)
+        // Temporary buffer for column letter labels (A, B, AA...)
         char buf[16];
 
-        // Сбрасываем позицию курсора и начинаем вывод с y=3, x=2
+        // Reset cursor position and start output at y=3, x=2
         move(3, 2);
 
-        attron(COLOR_PAIR(6));  // основной цвет для скобок и меток
+        attron(COLOR_PAIR(6));  // main color for brackets and labels
 
         printw("[");
 
         // Rows
         printw("Rows:");
         attroff(COLOR_PAIR(6));
-        attron(COLOR_PAIR(3));  // яркий для имени столбца
+        attron(COLOR_PAIR(3));  // bright color for column name
         if (row_group_idx >= 0) {
             const char *name = use_headers && column_names[row_group_idx] ? column_names[row_group_idx] : (col_letter(row_group_idx, buf), buf);
             printw("%s", name);
@@ -1537,7 +1537,7 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
         attron(COLOR_PAIR(6));
         printw("]");
 
-        // Линия между блоками
+        // Separator between blocks
         addch(ACS_HLINE);
         addch(ACS_HLINE);
 
@@ -1555,7 +1555,7 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
         attron(COLOR_PAIR(6));
         printw("]");
 
-        // Линия между блоками
+        // Separator between blocks
         addch(ACS_HLINE);
         addch(ACS_HLINE);
 
@@ -1573,7 +1573,7 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
         attron(COLOR_PAIR(6));
         printw("]");
 
-        // Линия между блоками
+        // Separator between blocks
         addch(ACS_HLINE);
         addch(ACS_HLINE);
 
@@ -1586,7 +1586,7 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
         attron(COLOR_PAIR(6));
         printw("]");
 
-        // Линия между блоками
+        // Separator between blocks
         addch(ACS_HLINE);
         addch(ACS_HLINE);
 
@@ -1621,7 +1621,7 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
 
         refresh();
 
-        // Заголовок столбцов
+        // Column header
         attron(COLOR_PAIR(6) | A_BOLD);
         mvprintw(4, 2, "%-*s", pivot_row_index_width - 2, "Row \\ Col");
         attroff(COLOR_PAIR(6) | A_BOLD);
@@ -1658,16 +1658,16 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
             }
         }
 
-        // Тело таблицы
+        // Table body
         int data_row_y = 5 + (agg_count > 1 ? 1 : 0);
         for (int i = 0; i < vis_rows; i++) {
             int rid = top_row + i;
             if (rid >= total_rows) break;
             int is_current_row = (rid == cur_row_p);
-            // Название строки (слева)
+            // Row label (left side)
             char *rkey = (rid < unique_rows) ? row_keys[row_order[rid]] : "Total";
             if (is_current_row) {
-                attron(COLOR_PAIR(3)); // подсветка текущей строки
+                attron(COLOR_PAIR(3)); // highlight current row
             } else {
                 attron(COLOR_PAIR(6));
             }
@@ -1677,7 +1677,7 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
             if (is_current_row) attroff(COLOR_PAIR(3));
             else attroff(COLOR_PAIR(6));
 
-            // Ячейки строки
+            // Row cells
             for (int c = 0; c < vis_cols; c++) {
                 int cid = left_col_p + c;
                 if (cid >= total_cols) break;
@@ -1695,11 +1695,11 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
                 int is_current_row_cell = (rid == cur_row_p);
                 int is_current_col_cell = (logical_col == cur_col_p / agg_count);
                 if (is_current_cell) {
-                    attron(COLOR_PAIR(2)); // яркая текущая ячейка
+                    attron(COLOR_PAIR(2)); // bright current cell
                 } else if (is_current_row_cell || is_current_col_cell) {
-                    attron(COLOR_PAIR(1)); // подсветка строки или столбца
+                    attron(COLOR_PAIR(1)); // highlight row or column
                 } else {
-                    attron(COLOR_PAIR(8)); // обычный цвет
+                    attron(COLOR_PAIR(8)); // normal color
                 }
                 mvprintw(data_row_y + i, pivot_row_index_width + c * CELL_WIDTH,
                          "%*s", CELL_WIDTH - 2, disp);
@@ -1850,31 +1850,31 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
             if (cur_col_p < left_col_p) left_col_p = cur_col_p;
         } 
 
-        // H (большая) — на самый первый столбец
+        // H (uppercase) — jump to the very first column
         else if (ch == 'H') {
             cur_col_p = 0;
             left_col_p = 0;
         }
-        // L (большая) — на самый последний столбец
+        // L (uppercase) — jump to the very last column
         else if (ch == 'L') {
             cur_col_p = total_cols - 1;
-            // подстраиваем left_col_p так, чтобы последний столбец был виден
+            // adjust left_col_p so the last column is visible
             left_col_p = cur_col_p - vis_cols + 1;
             if (left_col_p < 0) left_col_p = 0;
         }
-        // Home → первая строка таблицы (не только видимая)
+        // Home → first row of the table (not just visible area)
         else if (ch == KEY_HOME || ch == 'K') {
             cur_row_p = 0;
             top_row = 0;
         }
-        // End → последняя строка таблицы
+        // End → last row of the table
         else if (ch == KEY_END || ch == 'J') {
             cur_row_p = total_rows - 1;
-            // подстраиваем top_row так, чтобы последняя строка была видна
+            // adjust top_row so the last row is visible
             top_row = cur_row_p - vis_rows + 1;
             if (top_row < 0) top_row = 0;
         }
-        // PageUp — страница вверх
+        // PageUp — page up
         else if (ch == KEY_PPAGE) {
             int step = vis_rows - 1;
             if (step < 1) step = 1;
@@ -1883,7 +1883,7 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
             top_row -= step;
             if (top_row < 0) top_row = 0;
         }
-        // PageDown — страница вниз
+        // PageDown — page down
         else if (ch == KEY_NPAGE) {
             int step = vis_rows - 1;
             if (step < 1) step = 1;
@@ -1922,17 +1922,17 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
             if (graph_split)
                 pivot_gscale = (pivot_gscale == SCALE_LINEAR) ? SCALE_LOG : SCALE_LINEAR;
         }
-        // Enter — drill-down: возврат в основную таблицу с фильтром по текущей ячейке
+        // Enter — drill-down: return to main table with filter on current cell
         else if (ch == '\n' || ch == KEY_ENTER) {
             char flt[512] = "";
 
-            // Фильтр по строке (row group)
+            // Filter by row (row group)
             if (settings->row_group_col && *settings->row_group_col && cur_row_p < unique_rows) {
                 char *rkey = row_keys[row_order[cur_row_p]];
                 snprintf(flt, sizeof(flt), "%s = \"%s\"", settings->row_group_col, rkey);
             }
 
-            // Фильтр по столбцу (col group)
+            // Filter by column (col group)
             int logical_cur_col = cur_col_p / agg_count;
             if (settings->col_group_col && *settings->col_group_col && logical_cur_col < unique_cols) {
                 char *ckey = col_keys[col_order[logical_cur_col]];
@@ -1952,7 +1952,7 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
                 pivot_drilldown_filter[sizeof(pivot_drilldown_filter) - 1] = '\0';
                 break;
             }
-            // Enter на Total-строке/столбце — игнорируем
+            // Enter on a Total row/column — ignore
         }
         else if (ch == '?') {
             show_help(1);

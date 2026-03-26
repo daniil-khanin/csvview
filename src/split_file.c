@@ -11,21 +11,21 @@
 #define SPLIT_VAL_BUF   512
 #define SPLIT_HASH_SIZE 8192
 
-// ── Структуры ─────────────────────────────────────────────────────────────────
+// ── Structures ────────────────────────────────────────────────────────────────
 
 typedef struct SplitEntry {
-    char           *key;        // значение столбца
-    char           *filename;   // путь к выходному файлу
-    FILE           *fp;         // открытый файловый дескриптор
+    char           *key;        // column value
+    char           *filename;   // path to the output file
+    FILE           *fp;         // open file descriptor
     long            row_count;
-    struct SplitEntry *next;    // цепочка в hash bucket
+    struct SplitEntry *next;    // chain in hash bucket
 } SplitEntry;
 
 static SplitEntry  *split_buckets[SPLIT_HASH_SIZE];
-static SplitEntry  *split_entries[MAX_SPLIT_FILES]; // для итогового вывода
+static SplitEntry  *split_entries[MAX_SPLIT_FILES]; // for the final summary output
 static int          split_entry_count = 0;
 
-// ── Хэш строки ────────────────────────────────────────────────────────────────
+// ── String hash ───────────────────────────────────────────────────────────────
 
 static unsigned int split_hash(const char *s) {
     unsigned int h = 5381;
@@ -33,13 +33,13 @@ static unsigned int split_hash(const char *s) {
     return h % SPLIT_HASH_SIZE;
 }
 
-// ── Извлечение N-го поля из CSV строки (0-based) ─────────────────────────────
+// ── Extract the N-th field from a CSV line (0-based) ─────────────────────────
 
 static void get_csv_col(const char *line, int col_idx, char *buf, int bufsz) {
     int col = 0;
     const char *p = line;
 
-    // пропускаем col_idx полей
+    // skip col_idx fields
     while (col < col_idx) {
         if (*p == '"') {
             p++;
@@ -56,7 +56,7 @@ static void get_csv_col(const char *line, int col_idx, char *buf, int bufsz) {
         if (!*p) { buf[0] = '\0'; return; }
     }
 
-    // читаем нужное поле
+    // read the target field
     int i = 0;
     if (*p == '"') {
         p++;
@@ -72,17 +72,17 @@ static void get_csv_col(const char *line, int col_idx, char *buf, int bufsz) {
     buf[i] = '\0';
 }
 
-// ── Удаление N-го поля из CSV строки (0-based), результат в buf ───────────────
+// ── Remove the N-th field from a CSV line (0-based), result in buf ───────────
 
 static void remove_csv_col(const char *line, int col_idx, char *buf, int bufsz) {
     int o = 0, col = 0;
     const char *p = line;
 
     while (*p && *p != '\n' && *p != '\r') {
-        // Границы текущего поля
+        // Boundaries of the current field
         const char *field_start = p;
 
-        // Пропускаем поле
+        // Skip the field
         if (*p == '"') {
             p++;
             while (*p) {
@@ -93,10 +93,10 @@ static void remove_csv_col(const char *line, int col_idx, char *buf, int bufsz) 
         } else {
             while (*p && *p != ',') p++;
         }
-        const char *field_end = p; // указывает на ',' или конец строки
+        const char *field_end = p; // points to ',' or end of line
 
         if (col != col_idx) {
-            // Пишем разделитель перед полем (кроме первого оставляемого)
+            // Write separator before the field (except before the first kept field)
             if (o > 0 && o < bufsz - 1) buf[o++] = ',';
             int flen = (int)(field_end - field_start);
             if (o + flen < bufsz - 1) {
@@ -111,7 +111,7 @@ static void remove_csv_col(const char *line, int col_idx, char *buf, int bufsz) 
     buf[o] = '\0';
 }
 
-// ── Замена небезопасных символов для имени файла ──────────────────────────────
+// ── Replace unsafe characters for use in a filename ───────────────────────────
 
 static void sanitize_for_filename(const char *val, char *out, int outsz) {
     int i = 0, o = 0;
@@ -126,15 +126,15 @@ static void sanitize_for_filename(const char *val, char *out, int outsz) {
     out[o] = '\0';
 }
 
-// ── Поиск индекса столбца по имени или 1-based номеру ─────────────────────────
+// ── Find column index by name or 1-based number ───────────────────────────────
 
 static int find_col_index(const char *header, const char *by_col) {
-    // Сначала пробуем как число (1-based)
+    // First try to parse as a number (1-based)
     char *endp;
     long n = strtol(by_col, &endp, 10);
     if (*endp == '\0' && n > 0) return (int)(n - 1);
 
-    // Ищем по имени в заголовке
+    // Search by name in the header
     char colname[512];
     int idx = 0;
     const char *p = header;
@@ -162,7 +162,7 @@ static int find_col_index(const char *header, const char *by_col) {
     return -1;
 }
 
-// ── Базовое имя файла без расширения ──────────────────────────────────────────
+// ── Base filename without extension ───────────────────────────────────────────
 
 static void get_base_prefix(const char *input_path, const char *output_dir,
                              char *prefix, int prefix_sz) {
@@ -182,7 +182,7 @@ static void get_base_prefix(const char *input_path, const char *output_dir,
     }
 }
 
-// ── Главная функция ───────────────────────────────────────────────────────────
+// ── Main function ─────────────────────────────────────────────────────────────
 
 int split_file(const char *input_path, const char *by_col, const char *output_dir, int drop_col) {
     memset(split_buckets, 0, sizeof(split_buckets));
@@ -197,7 +197,7 @@ int split_file(const char *input_path, const char *by_col, const char *output_di
     char *line = malloc(SPLIT_LINE_BUF);
     if (!line) { fclose(in); return 1; }
 
-    // Читаем заголовок
+    // Read the header
     if (!fgets(line, SPLIT_LINE_BUF, in)) {
         fprintf(stderr, "Error: file is empty: %s\n", input_path);
         fclose(in); free(line); return 1;
@@ -215,7 +215,7 @@ int split_file(const char *input_path, const char *by_col, const char *output_di
            input_path, col_idx + 1, by_col,
            drop_col ? " [column will be removed from output]" : "");
 
-    // Заголовок для записи (с удалённым столбцом или оригинал)
+    // Header to write (with the column removed or original)
     char *write_header;
     char *stripped_header = NULL;
     if (drop_col) {
@@ -226,11 +226,11 @@ int split_file(const char *input_path, const char *by_col, const char *output_di
         write_header = header;
     }
 
-    // Префикс для имён выходных файлов
+    // Prefix for output filenames
     char dir_prefix[1024];
     get_base_prefix(input_path, output_dir, dir_prefix, sizeof(dir_prefix));
 
-    // Обрабатываем строки
+    // Process rows
     long total_rows  = 0;
     int  error_flag  = 0;
     char val_buf[SPLIT_VAL_BUF];
@@ -243,7 +243,7 @@ int split_file(const char *input_path, const char *by_col, const char *output_di
 
         get_csv_col(line, col_idx, val_buf, sizeof(val_buf));
 
-        // Ищем запись в хэш-таблице
+        // Look up the entry in the hash table
         unsigned int h = split_hash(val_buf);
         SplitEntry *e = split_buckets[h];
         while (e && strcmp(e->key, val_buf) != 0) e = e->next;
@@ -300,7 +300,7 @@ int split_file(const char *input_path, const char *by_col, const char *output_di
     free(stripped_header);
     free(row_buf);
 
-    // Закрываем файлы и выводим итог
+    // Close files and print summary
     printf("\n%-36s  %s\n", "Value", "Rows");
     printf("%-36s  %s\n",
            "------------------------------------",

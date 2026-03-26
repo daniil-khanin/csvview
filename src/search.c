@@ -1,11 +1,11 @@
 /**
  * search.c
  *
- * Реализация поиска по содержимому ячеек таблицы CSV
+ * Implementation of search over CSV table cell contents
  */
 
 #include "search.h"
-#include "utils.h"          // strcasestr_custom, get_column_value и т.д.
+#include "utils.h"          // strcasestr_custom, get_column_value, etc.
 #include "ui_draw.h"        // spinner_tick / spinner_clear
 
 #include <stdio.h>          // fseek, fgets
@@ -13,28 +13,28 @@
 #include <string.h>         // strlen, strcpy, strtok
 
 // ────────────────────────────────────────────────
-// Выполнение поиска по всей таблице
+// Perform a search across the entire table
 // ────────────────────────────────────────────────
 
 void perform_search(RowIndex *rows, FILE *f, int row_count)
 {
-    // Сброс результатов поиска
+    // Reset search results
     search_count = 0;
     search_index = -1;
 
-    // Если запрос пустой — ничего не ищем
+    // If the query is empty — nothing to search
     if (strlen(search_query) == 0) {
         return;
     }
 
-    // Пропускаем заголовок, если он есть
+    // Skip the header row if present
     int start_row = use_headers ? 1 : 0;
 
     for (int r = start_row; r < row_count && search_count < MAX_SEARCH_RESULTS; r++)
     {
         if ((r - start_row) % 5000 == 0 && r > start_row) spinner_tick();
 
-        // Ленивая загрузка строки в кэш
+        // Lazy-load the row into cache
         if (!rows[r].line_cache)
         {
             fseek(f, rows[r].offset, SEEK_SET);
@@ -71,7 +71,7 @@ void perform_search(RowIndex *rows, FILE *f, int row_count)
 }
 
 // ────────────────────────────────────────────────
-// Переход к результату поиска
+// Navigate to a search result
 // ────────────────────────────────────────────────
 
 void goto_search_result(int index,
@@ -83,18 +83,18 @@ void goto_search_result(int index,
                         int visible_cols,
                         int row_count)
 {
-    // Проверка корректности индекса
+    // Validate the index
     if (index < 0 || index >= search_count) {
         return;
     }
 
     search_index = index;
 
-    // Реальный индекс строки в файле
+    // Actual row index in the file
     int target_real_row = search_results[index].row;
     int target_col = search_results[index].col;
 
-    // Находим видимую позицию строки (если фильтр активен)
+    // Find the visible position of the row (if a filter is active)
     int target_display_row = -1;
     if (filter_active)
     {
@@ -107,23 +107,23 @@ void goto_search_result(int index,
             }
         }
 
-        // Если строка не прошла фильтр — не прыгаем
+        // If the row did not pass the filter — do not jump
         if (target_display_row == -1) {
             return;
         }
     }
     else
     {
-        // Без фильтра — просто смещение на заголовок
+        // No filter — just offset by the header
         target_display_row = target_real_row - (use_headers ? 1 : 0);
     }
 
-    // Устанавливаем курсор на найденную строку и столбец
+    // Set the cursor to the found row and column
     *cur_display_row = target_display_row;
     cur_real_row = target_real_row;
     *cur_col = target_col;
 
-    // Вертикальная прокрутка — центрируем строку
+    // Vertical scroll — center the row
     *top_display_row = *cur_display_row - (visible_rows / 2);
     if (*top_display_row < 0) {
         *top_display_row = 0;
@@ -134,9 +134,9 @@ void goto_search_result(int index,
         *top_display_row = display_count - visible_rows;
     }
 
-    // Горизонтальная прокрутка — центрируем столбец (только в скроллируемой области)
+    // Horizontal scroll — center the column (only in the scrollable area)
     if (*cur_col < freeze_cols) {
-        // столбец в замороженной области — left_col не меняем, но не ниже freeze_cols
+        // column is in the frozen area — don't change left_col, but keep it at least freeze_cols
         if (*left_col < freeze_cols) *left_col = freeze_cols;
     } else {
         *left_col = *cur_col - (visible_cols / 2);

@@ -1,91 +1,91 @@
 /**
  * table_edit.h
  *
- * Интерфейс модуля редактирования таблицы CSV
- * Добавление/удаление столбцов, заполнение столбца значениями, пересборка заголовка
+ * Interface for the CSV table editing module
+ * Adding/removing columns, filling a column with values, rebuilding the header
  */
 
 #ifndef TABLE_EDIT_H
 #define TABLE_EDIT_H
 
-#include "csvview_defs.h"   // RowIndex, ColType, ColumnFormat и глобальные
-#include "utils.h"          // save_file, col_letter и т.д.
+#include "csvview_defs.h"   // RowIndex, ColType, ColumnFormat and globals
+#include "utils.h"          // save_file, col_letter, etc.
 
 // ────────────────────────────────────────────────
-// Публичные функции модуля
+// Public module functions
 // ────────────────────────────────────────────────
 
 /**
- * @brief Добавляет новый столбец в указанную позицию и сохраняет файл
+ * @brief Adds a new column at the specified position and saves the file
  *
- * Вставляет пустой столбец (или с именем) в позицию insert_pos.
- * Сдвигает все последующие столбцы вправо.
- * Перезаписывает файл, добавляя запятую и пустое значение (или имя в заголовке).
+ * Inserts an empty column (or one with a name) at position insert_pos.
+ * Shifts all subsequent columns to the right.
+ * Rewrites the file, adding a comma and an empty value (or the name in the header).
  *
- * @param insert_pos    Позиция вставки (0 = перед первым, col_count = в конец)
- * @param new_name      Имя нового столбца (может быть NULL → "untitled")
- * @param csv_filename  Имя файла для сохранения
+ * @param insert_pos    Insertion position (0 = before the first, col_count = at the end)
+ * @param new_name      Name of the new column (can be NULL → "untitled")
+ * @param csv_filename  File name to save to
  *
  * @note
- *   - Если col_count >= MAX_COLS — показывает ошибку и выходит
- *   - После добавления переиндексирует offsets и кэш строк
- *   - Сохраняет новые настройки через save_column_settings()
+ *   - If col_count >= MAX_COLS — shows an error and returns
+ *   - After adding, re-indexes offsets and the row cache
+ *   - Saves new settings via save_column_settings()
  *
  * @warning
- *   - Перезаписывает файл через временный .tmp
- *   - Если ошибка записи — файл может остаться в .tmp
- *   - Зависит от глобальных: col_count, column_names, col_types, col_widths, col_formats
+ *   - Rewrites the file through a temporary .tmp file
+ *   - If write fails — file may remain as .tmp
+ *   - Depends on globals: col_count, column_names, col_types, col_widths, col_formats
  */
 void add_column_and_save(int insert_pos, const char *new_name, const char *csv_filename);
 
 /**
- * @brief Заполняет весь столбец заданным значением или последовательностью
+ * @brief Fills an entire column with a given value or sequence
  *
- * Поддерживает:
- *   - фиксированное значение: "text" или "123"
- *   - последовательность: num(начало) или num(начало,шаг)
+ * Supports:
+ *   - fixed value: "text" or "123"
+ *   - sequence: num(start) or num(start,step)
  *
- * @param col_idx       Индекс столбца для заполнения
- * @param arg           Аргумент: "строка" или num(10) / num(1,5)
- * @param csv_filename  Имя файла для сохранения
+ * @param col_idx       Index of the column to fill
+ * @param arg           Argument: "string" or num(10) / num(1,5)
+ * @param csv_filename  File name to save to
  *
  * @note
- *   - Для num() — заполняет числами начиная с указанного значения
- *   - Перезаписывает кэш строк и файл
- *   - После заполнения переиндексирует offsets
+ *   - For num() — fills with numbers starting from the given value
+ *   - Overwrites the row cache and the file
+ *   - Re-indexes offsets after filling
  *
  * @warning
- *   - Если столбец некорректен — показывает ошибку
- *   - Перезаписывает файл — осторожно!
+ *   - If the column index is invalid — shows an error
+ *   - Overwrites the file — use with caution!
  */
 void fill_column(int col_idx, const char *arg, const char *csv_filename);
 
 /**
- * @brief Удаляет столбец по индексу и сохраняет файл
+ * @brief Deletes a column by index and saves the file
  *
- * Удаляет столбец cur_col, сдвигает все последующие влево.
- * Перезаписывает файл без удалённого столбца.
+ * Deletes column cur_col and shifts all subsequent columns to the left.
+ * Rewrites the file without the deleted column.
  *
- * @param col_idx       Индекс удаляемого столбца
- * @param arg           Имя столбца для проверки (опционально)
- * @param csv_filename  Имя файла для сохранения
+ * @param col_idx       Index of the column to delete
+ * @param arg           Column name for verification (optional)
+ * @param csv_filename  File name to save to
  *
  * @note
- *   - После удаления перемещает курсор на предыдущий столбец
- *   - Переиндексирует offsets и кэш строк
- *   - Сохраняет новые настройки
+ *   - After deletion, moves the cursor to the previous column
+ *   - Re-indexes offsets and the row cache
+ *   - Saves new settings
  *
  * @warning
- *   - Перезаписывает файл через временный .tmp
- *   - Если курсор не на нужном столбце — показывает предупреждение
+ *   - Rewrites the file through a temporary .tmp file
+ *   - If the cursor is not on the expected column — shows a warning
  */
 void delete_column(int col_idx, const char *arg, const char *csv_filename);
 
 /**
- * @brief Перестраивает кэш первой строки (заголовок) после изменения имён столбцов
+ * @brief Rebuilds the cache of the first row (header) after column renames
  *
- * Вызывается после rename столбца или добавления/удаления.
- * Формирует новую строку заголовка из column_names[] с правильным экранированием.
+ * Called after a column rename or an add/delete operation.
+ * Builds a new header line from column_names[] with proper escaping.
  */
 void rebuild_header_row(void);
 

@@ -1,21 +1,21 @@
 /**
  * sorting.c
  *
- * Реализация сортировки строк таблицы по выбранному столбцу
+ * Implementation of table row sorting by selected column
  */
 
 #include "sorting.h"
-#include "utils.h"          // get_column_value, col_name_to_num и т.д.
+#include "utils.h"          // get_column_value, col_name_to_num, etc.
 #include "ui_draw.h"        // spinner_tick / spinner_clear
 #include "csv_mmap.h"
 
 #include <stdlib.h>         // qsort
 #include <string.h>         // strcasecmp, strlen
-#include <stdio.h>          // fseek, fgets (если нужно)
+#include <stdio.h>          // fseek, fgets (if needed)
 #include <pthread.h>
 
 // ────────────────────────────────────────────────
-// Быстрый экстрактор одного поля CSV без malloc
+// Fast single-field CSV extractor without malloc
 // ────────────────────────────────────────────────
 
 static const char *get_field_fast(const char *line, int idx)
@@ -28,7 +28,7 @@ static const char *get_field_fast(const char *line, int idx)
     const char *p = line;
     int in_quote = 0;
 
-    // Пропускаем поля до нужного
+    // Skip fields until the desired one
     while (*p && field < idx) {
         if (*p == '"') { in_quote = !in_quote; p++; continue; }
         if (!in_quote && *p == csv_delimiter) field++;
@@ -36,7 +36,7 @@ static const char *get_field_fast(const char *line, int idx)
     }
     if (!*p || field != idx) return buf;
 
-    // Извлекаем нужное поле
+    // Extract the desired field
     char *out = buf;
     char *out_end = buf + sizeof(buf) - 1;
     in_quote = (*p == '"');
@@ -46,7 +46,7 @@ static const char *get_field_fast(const char *line, int idx)
         if (in_quote) {
             if (*p == '"') {
                 if (*(p + 1) == '"') { *out++ = '"'; p += 2; continue; }
-                break; // закрывающая кавычка
+                break; // closing quote
             }
         } else {
             if (*p == csv_delimiter || *p == '\n' || *p == '\r') break;
@@ -94,7 +94,7 @@ static void get_field_fast_ts(const char *line, int idx, char *buf, int buf_size
 }
 
 // ────────────────────────────────────────────────
-// Массив предвычисленных ключей сортировки
+// Array of pre-computed sort keys
 // ────────────────────────────────────────────────
 
 typedef struct {
@@ -132,54 +132,54 @@ static int compare_by_preextracted_ml(const void *pa, const void *pb)
 }
 
 /**
- * @brief Функция сравнения двух строк для qsort (callback)
+ * @brief Comparison function for two rows used by qsort (callback)
  *
- * Сравнивает значения двух строк таблицы в столбце sort_col.
- * Используется исключительно как аргумент для qsort().
+ * Compares the values of two table rows in column sort_col.
+ * Used exclusively as an argument to qsort().
  *
- * Логика сравнения:
- *   1. Заголовок (индекс 0) всегда считается "меньше" всех данных (если use_headers == 1)
- *   2. Лениво загружает строки в line_cache, если их ещё нет
- *   3. Получает значения ячеек по имени столбца (через get_column_value)
- *   4. Пытается сравнить как числа (strtod), если оба значения — валидные числа
- *   5. Иначе — лексикографическое регистронезависимое сравнение (strcasecmp)
- *   6. Умножает результат на sort_order (1 = asc, -1 = desc)
+ * Comparison logic:
+ *   1. The header row (index 0) is always considered "less than" all data rows (if use_headers == 1)
+ *   2. Lazily loads rows into line_cache if not yet cached
+ *   3. Retrieves cell values by column name (via get_column_value)
+ *   4. Attempts numeric comparison (strtod) if both values are valid numbers
+ *   5. Otherwise — case-insensitive lexicographic comparison (strcasecmp)
+ *   6. Multiplies result by sort_order (1 = asc, -1 = desc)
  *
- * @param pa  Указатель на индекс первой строки (int*)
- * @param pb  Указатель на индекс второй строки (int*)
+ * @param pa  Pointer to the index of the first row (int*)
+ * @param pb  Pointer to the index of the second row (int*)
  * @return
- *   -1   — первая строка должна идти раньше второй
- *    0   — строки равны по значению в sort_col
- *    1   — первая строка должна идти позже второй
- *    (результат уже умножен на sort_order)
+ *   -1   — first row should come before the second
+ *    0   — rows are equal in sort_col value
+ *    1   — first row should come after the second
+ *    (result is already multiplied by sort_order)
  *
  * @note
- *   - Функция **лениво загружает** строки в rows[].line_cache (strdup внутри)
- *   - Если кэш не удалось загрузить — строка считается пустой ("")
- *   - Если sort_col некорректен или имя столбца не найдено — сравнивает пустые строки
- *   - Выделяет и освобождает память для val_a / val_b (через get_column_value и strdup)
+ *   - The function **lazily loads** rows into rows[].line_cache (strdup internally)
+ *   - If cache could not be loaded — the row is treated as empty ("")
+ *   - If sort_col is invalid or column name not found — compares empty strings
+ *   - Allocates and frees memory for val_a / val_b (via get_column_value and strdup)
  *
  * @example
- *   // Пример вызова через qsort (в build_sorted_index)
+ *   // Example call via qsort (in build_sorted_index)
  *   qsort(sorted_rows, sorted_count, sizeof(int), compare_rows_by_column);
  *
- *   // Если sort_col = 2, sort_order = 1, столбец "Price"
- *   // "10.5" < "100" → числовое сравнение → -1
- *   // "apple" < "banana" → строковое → -1
- *   // "Apple" < "banana" → -1 (регистронезависимо)
+ *   // If sort_col = 2, sort_order = 1, column "Price"
+ *   // "10.5" < "100" -> numeric comparison -> -1
+ *   // "apple" < "banana" -> string comparison -> -1
+ *   // "Apple" < "banana" -> -1 (case-insensitive)
  *
  * @warning
- *   - Зависит от глобальных переменных: sort_col, sort_order, rows, f, column_names,
+ *   - Depends on global variables: sort_col, sort_order, rows, f, column_names,
  *     use_headers, col_count, MAX_LINE_LEN
- *   - Может выделять много памяти при первом вызове (если кэш пустой)
- *   - НЕ вызывать напрямую — только через qsort()
- *   - Если f == NULL или offsets некорректны → возможны ошибки чтения файла
- *   - При очень больших файлах ленивая загрузка может замедлить первую сортировку
+ *   - May allocate significant memory on first call (if cache is empty)
+ *   - DO NOT call directly — only via qsort()
+ *   - If f == NULL or offsets are invalid -> possible file read errors
+ *   - For very large files, lazy loading may slow down the first sort
  *
  * @see
- *   - build_sorted_index() — единственное место, где эта функция используется
- *   - get_column_value() — получение значения ячейки
- *   - strcasecmp() — регистронезависимое сравнение строк
+ *   - build_sorted_index() — the only place this function is used
+ *   - get_column_value() — retrieves a cell value
+ *   - strcasecmp() — case-insensitive string comparison
  */
 
 /* Multi-level slow comparator: reads from cache/mmap, used for filter-active sort */
@@ -251,19 +251,19 @@ static int compare_rows_multilevel(const void *pa, const void *pb)
 
 int compare_rows_by_column(const void *pa, const void *pb)
 {
-    // Извлекаем индексы строк из аргументов qsort
+    // Extract row indices from qsort arguments
     int ra = *(const int *)pa;
     int rb = *(const int *)pb;
 
-    // Заголовок (если есть) всегда считается "меньше" всех данных
-    // Это гарантирует, что строка 0 остаётся первой
+    // The header row (if present) is always considered "less than" all data rows
+    // This guarantees that row 0 stays first
     if (use_headers)
     {
         if (ra == 0) return -1;
         if (rb == 0) return 1;
     }
 
-    // Ленивая загрузка строки A, если кэш пустой
+    // Lazily load row A if cache is empty
     char *line_a = rows[ra].line_cache;
     if (!line_a)
     {
@@ -280,11 +280,11 @@ int compare_rows_by_column(const void *pa, const void *pb)
         }
         else
         {
-            line_a = "";  // ошибка чтения → пустая строка
+            line_a = "";  // read error -> empty string
         }
     }
 
-    // Ленивая загрузка строки B
+    // Lazily load row B
     char *line_b = rows[rb].line_cache;
     if (!line_b)
     {
@@ -305,20 +305,20 @@ int compare_rows_by_column(const void *pa, const void *pb)
         }
     }
 
-    // Определяем имя столбца для сравнения
+    // Determine the column name for comparison
     const char *col_name = (use_headers && sort_col < col_count && column_names[sort_col])
                            ? column_names[sort_col]
                            : "";
 
-    // Получаем значения ячеек (всегда новая память)
+    // Get cell values (always new memory)
     char *val_a = get_column_value(line_a ? line_a : "", col_name, use_headers);
     char *val_b = get_column_value(line_b ? line_b : "", col_name, use_headers);
 
-    // Защита от NULL (маловероятно, но на всякий случай)
+    // Guard against NULL (unlikely, but just in case)
     if (!val_a) val_a = strdup("");
     if (!val_b) val_b = strdup("");
 
-    // Пытаемся интерпретировать как числа
+    // Attempt to interpret as numbers
     char *end_a, *end_b;
     double num_a = parse_double(val_a, &end_a);
     double num_b = parse_double(val_b, &end_b);
@@ -329,22 +329,22 @@ int compare_rows_by_column(const void *pa, const void *pb)
     int result;
     if (is_num_a && is_num_b)
     {
-        // Числовое сравнение
+        // Numeric comparison
         if (num_a < num_b)      result = -1;
         else if (num_a > num_b) result = 1;
         else                    result = 0;
     }
     else
     {
-        // Строковое регистронезависимое сравнение
+        // Case-insensitive string comparison
         result = strcasecmp(val_a, val_b);
     }
 
-    // Освобождаем временно выделенную память
+    // Free temporarily allocated memory
     free(val_a);
     free(val_b);
 
-    // Учитываем направление сортировки (asc или desc)
+    // Apply sort direction (asc or desc)
     return sort_order * result;
 }
 
@@ -393,52 +393,52 @@ static void *sort_key_worker(void *arg)
 }
 
 /**
- * @brief Строит массив sorted_rows[] — индексы строк в отсортированном порядке
+ * @brief Builds the sorted_rows[] array — row indices in sorted order
  *
- * Заполняет глобальный массив sorted_rows[] индексами строк данных (пропуская заголовок),
- * отсортированными по текущему столбцу sort_col.
+ * Fills the global sorted_rows[] array with data row indices (skipping the header),
+ * sorted by the current column sort_col.
  *
- * Логика работы:
- *   1. Проверяет корректность sort_col
- *   2. Определяет диапазон строк данных (исключая заголовок при use_headers)
- *   3. Заполняет массив последовательными индексами строк данных
- *   4. Выполняет qsort() с функцией compare_rows_by_column
+ * Working logic:
+ *   1. Validates sort_col
+ *   2. Determines the data row range (excluding header if use_headers)
+ *   3. Fills the array with sequential data row indices
+ *   4. Calls qsort() with compare_rows_by_column
  *
- * После вызова:
- *   - sorted_count = количество отсортированных строк (данных, без заголовка)
- *   - sorted_rows[0..sorted_count-1] = индексы в массиве rows[] в нужном порядке
+ * After call:
+ *   - sorted_count = number of sorted rows (data only, no header)
+ *   - sorted_rows[0..sorted_count-1] = indices into rows[] in the desired order
  *
  * @note
- *   - Если sort_col некорректен (<0 или >= col_count) → сортировка сбрасывается (sorted_count = 0)
- *   - Заголовок (индекс 0) никогда не попадает в sorted_rows[]
- *   - Вызывает compare_rows_by_column, которая может лениво загружать строки в кэш
- *   - Эффективность: O(n log n) по количеству строк данных
+ *   - If sort_col is invalid (<0 or >= col_count) -> sort is reset (sorted_count = 0)
+ *   - The header (index 0) is never included in sorted_rows[]
+ *   - Calls compare_rows_by_column, which may lazily load rows into cache
+ *   - Efficiency: O(n log n) by number of data rows
  *
  * @example
- *   // Перед вызовом
- *   sort_col = 3;          // столбец D
- *   sort_order = -1;       // по убыванию
+ *   // Before call
+ *   sort_col = 3;          // column D
+ *   sort_order = -1;       // descending
  *   use_headers = 1;
- *   row_count = 1001;      // 1 заголовок + 1000 данных
+ *   row_count = 1001;      // 1 header + 1000 data rows
  *
  *   build_sorted_index();
- *   // После:
+ *   // After:
  *   // sorted_count == 1000
- *   // sorted_rows[0] — индекс самой большой строки по столбцу D
- *   // sorted_rows[999] — индекс самой маленькой
+ *   // sorted_rows[0] — index of the largest row by column D
+ *   // sorted_rows[999] — index of the smallest
  *
  * @warning
- *   - Зависит от глобальных переменных: sort_col, sort_order, col_count,
+ *   - Depends on global variables: sort_col, sort_order, col_count,
  *     use_headers, row_count, sorted_rows, sorted_count
- *   - Может вызвать значительное потребление памяти и времени при первой сортировке
- *     (из-за ленивой загрузки строк в compare_rows_by_column)
- *   - НЕ сохраняет порядок равных элементов (нестабильная сортировка)
- *   - Если row_count очень большой — может потребоваться много времени
+ *   - May cause significant memory usage and time on first sort
+ *     (due to lazy loading of rows in compare_rows_by_column)
+ *   - Does NOT preserve order of equal elements (unstable sort)
+ *   - If row_count is very large — may take significant time
  *
  * @see
- *   - compare_rows_by_column() — функция сравнения, вызываемая qsort()
- *   - get_real_row() — использует результат этой функции
- *   - qsort() — стандартная функция сортировки из <stdlib.h>
+ *   - compare_rows_by_column() — comparison function called by qsort()
+ *   - get_real_row() — uses the result of this function
+ *   - qsort() — standard sort function from <stdlib.h>
  */
 void build_sorted_index(void)
 {
@@ -449,7 +449,7 @@ void build_sorted_index(void)
 
     if (filter_active && filtered_count > 0)
     {
-        // Фильтр активен: набор уже маленький, используем многоуровневый компаратор.
+        // Filter is active: the set is already small, use multi-level comparator.
         sorted_count = filtered_count;
         for (int i = 0; i < sorted_count; i++)
             sorted_rows[i] = filtered_rows[i];
@@ -462,14 +462,14 @@ void build_sorted_index(void)
         return;
     }
 
-    // Полная сортировка: предвычисляем ключи для каждого уровня.
+    // Full sort: pre-compute keys for each level.
     sorted_count = row_count - start;
     for (int i = 0; i < sorted_count; i++)
         sorted_rows[i] = start + i;
 
     if (sorted_count <= 1) return;
 
-    // Выясняем сколько уровней валидны и аллоцируем массивы ключей
+    // Determine how many levels are valid and allocate key arrays
     SortKey *keys_ml[MAX_SORT_LEVELS];
     int valid_levels = 0;
     for (int lv = 0; lv < sort_level_count; lv++) {
@@ -480,7 +480,7 @@ void build_sorted_index(void)
     }
 
     if (valid_levels == 0) {
-        // OOM-fallback: используем старый медленный метод
+        // OOM fallback: use old slow method
         spinner_tick();
         qsort(sorted_rows, sorted_count, sizeof(int), compare_rows_by_column);
         spinner_clear();
@@ -489,7 +489,7 @@ void build_sorted_index(void)
 
     spinner_tick();
 
-    // Извлекаем ключи для каждого уровня
+    // Extract keys for each level
     for (int lv = 0; lv < valid_levels; lv++) {
         int scol = sort_levels[lv].col;
 
@@ -541,7 +541,7 @@ void build_sorted_index(void)
         }
     }
 
-    // Сортируем по предвычисленным многоуровневым ключам
+    // Sort by pre-computed multi-level keys
     for (int lv = 0; lv < valid_levels; lv++)
         g_sort_keys_ml[lv] = keys_ml[lv];
     g_sort_level_count_local = valid_levels;
@@ -549,7 +549,7 @@ void build_sorted_index(void)
     qsort(sorted_rows, sorted_count, sizeof(int), compare_by_preextracted_ml);
     g_sort_level_count_local = 0;
 
-    // Освобождаем строковые ключи для всех уровней
+    // Free string keys for all levels
     for (int lv = 0; lv < valid_levels; lv++) {
         for (int i = 0; i < sorted_count; i++)
             if (!keys_ml[lv][i].is_num) free(keys_ml[lv][i].str);
@@ -560,97 +560,97 @@ void build_sorted_index(void)
 }
 
 /**
- * @brief Преобразует видимый (экранный) индекс строки в реальный индекс в массиве rows[]
+ * @brief Converts a visible (screen) row index to the real index in the rows[] array
  *
- * Возвращает настоящий номер строки в файле (индекс в rows[]),
- * учитывая текущее состояние:
- *   - активную сортировку (sorted_rows[])
- *   - активный фильтр (filtered_rows[])
- *   - наличие заголовка (use_headers)
+ * Returns the actual row number in the file (index in rows[]),
+ * accounting for the current state:
+ *   - active sort (sorted_rows[])
+ *   - active filter (filtered_rows[])
+ *   - presence of a header (use_headers)
  *
- * Логика приоритетов:
- *   1. Если включена сортировка и количество отсортированных строк совпадает с видимыми —
- *      используем sorted_rows[display_idx]
- *   2. Если включён фильтр — используем filtered_rows[display_idx]
- *   3. В противном случае — обычный порядок + смещение на заголовок
+ * Priority logic:
+ *   1. If sort is active and the number of sorted rows matches the visible count —
+ *      use sorted_rows[display_idx]
+ *   2. If filter is active — use filtered_rows[display_idx]
+ *   3. Otherwise — natural order + offset for the header
  *
- * @param display_idx   Видимый индекс строки на экране (0 = первая видимая строка данных)
- *                      Может быть отрицательным или больше видимого количества
+ * @param display_idx   Visible row index on screen (0 = first visible data row)
+ *                      May be negative or greater than the visible count
  *
  * @return
- *   Реальный индекс строки в массиве rows[] (0-based, включая заголовок если есть)
- *   Если display_idx < 0 → возвращает 0 (первая строка)
- *   Если display_idx слишком большой → возвращает индекс последней видимой строки
+ *   Real row index in the rows[] array (0-based, including header if present)
+ *   If display_idx < 0 -> returns 0 (first row)
+ *   If display_idx is too large -> returns the index of the last visible row
  *
  * @note
- *   - Функция используется везде, где нужно знать "что именно отображается под курсором"
- *     (draw_table_body, обработка клавиш, статистика, экспорт и т.д.)
- *   - Если одновременно активны и сортировка, и фильтр — приоритет у сортировки
- *     (но в текущей логике программы это редкий случай — фильтр обычно применяется раньше)
- *   - Корректно обрабатывает случай, когда заголовок есть (use_headers == 1)
+ *   - This function is used everywhere that needs to know "what is under the cursor"
+ *     (draw_table_body, key handling, statistics, export, etc.)
+ *   - If both sort and filter are active simultaneously — sort takes priority
+ *     (but in current program logic this is a rare case — filter is usually applied first)
+ *   - Correctly handles the case where a header is present (use_headers == 1)
  *
  * @example
- *   // Ситуация 1: фильтр активен, 50 строк видно
+ *   // Situation 1: filter active, 50 rows visible
  *   filter_active = 1;
  *   filtered_count = 50;
- *   get_real_row(0)   → filtered_rows[0]
- *   get_real_row(49)  → filtered_rows[49]
- *   get_real_row(100) → filtered_rows[49] (последняя)
+ *   get_real_row(0)   -> filtered_rows[0]
+ *   get_real_row(49)  -> filtered_rows[49]
+ *   get_real_row(100) -> filtered_rows[49] (last)
  *
- *   // Ситуация 2: сортировка активна, 1000 строк данных
+ *   // Situation 2: sort active, 1000 data rows
  *   sort_col = 2;
  *   sorted_count = 1000;
- *   get_real_row(5)   → sorted_rows[5]
+ *   get_real_row(5)   -> sorted_rows[5]
  *
- *   // Ситуация 3: ничего не активно, есть заголовок
+ *   // Situation 3: nothing active, header present
  *   use_headers = 1;
  *   row_count = 1001;
- *   get_real_row(0)   → 1  (первая строка данных)
- *   get_real_row(999) → 1000
+ *   get_real_row(0)   -> 1  (first data row)
+ *   get_real_row(999) -> 1000
  *
  * @warning
- *   - Зависит от глобальных переменных: filter_active, filtered_count, filtered_rows,
+ *   - Depends on global variables: filter_active, filtered_count, filtered_rows,
  *     sort_col, sorted_count, sorted_rows, use_headers, row_count
- *   - НЕ проверяет границы массивов filtered_rows / sorted_rows — предполагается,
- *     что sorted_count и filtered_count всегда корректны
- *   - Если sorted_count != количеству видимых строк при сортировке — возможны ошибки
- *     (например, если фильтр применился после сортировки)
+ *   - Does NOT check bounds of filtered_rows / sorted_rows arrays — assumes
+ *     that sorted_count and filtered_count are always correct
+ *   - If sorted_count != number of visible rows during sort — errors are possible
+ *     (e.g., if filter was applied after sort)
  *
  * @see
- *   - apply_filter() — заполняет filtered_rows и filtered_count
- *   - build_sorted_index() — заполняет sorted_rows и sorted_count
- *   - draw_table_body() — основной потребитель этой функции
+ *   - apply_filter() — fills filtered_rows and filtered_count
+ *   - build_sorted_index() — fills sorted_rows and sorted_count
+ *   - draw_table_body() — primary consumer of this function
  */
 
 int get_real_row(int display_idx)
 {
-    // Защита от отрицательного индекса — всегда возвращаем первую строку
+    // Guard against negative index — always return the first row
     if (display_idx < 0) {
         return 0;
     }
 
-    // Вычисляем общее количество видимых строк (без заголовка)
+    // Compute total number of visible rows (excluding header)
     int total_visible = filter_active ? filtered_count : (row_count - (use_headers ? 1 : 0));
 
-    // Если запрашиваемый индекс за пределами видимых строк — возвращаем последнюю
+    // If requested index is beyond visible rows — return the last one
     if (display_idx >= total_visible)
     {
         return total_visible - 1 + (use_headers ? 1 : 0);
     }
 
-    // Приоритет 1: если активна сортировка и количество совпадает с видимыми
-    // (т.е. сортировка применяется к текущему набору видимых строк)
+    // Priority 1: if sort is active and count matches visible rows
+    // (i.e. sort is applied to the current visible row set)
     if (sort_level_count > 0 && sorted_count == total_visible)
     {
         return sorted_rows[display_idx];
     }
 
-    // Приоритет 2: если активен фильтр — берём из отфильтрованного массива
+    // Priority 2: if filter is active — use filtered array
     if (filter_active)
     {
         return filtered_rows[display_idx];
     }
 
-    // Обычный порядок: просто смещение на заголовок (если он есть)
+    // Natural order: just offset by header (if present)
     return display_idx + (use_headers ? 1 : 0);
 }

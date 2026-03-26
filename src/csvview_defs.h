@@ -1,12 +1,12 @@
 /**
  * csvview_defs.h
- * 
- * Центральный заголовочный файл проекта csvview.v11
- * Содержит:
- *   - все #define константы
- *   - все typedef enum и typedef struct
- *   - объявления (extern) глобальных переменных
- *   - минимально необходимые типы и макросы
+ *
+ * Central header file for the csvview.v11 project.
+ * Contains:
+ *   - all #define constants
+ *   - all typedef enum and typedef struct definitions
+ *   - declarations (extern) of global variables
+ *   - minimally required types and macros
  */
 
 #ifndef CSVVIEW_DEFS_H
@@ -20,7 +20,7 @@
 #include <stdio.h>         
 
 // ────────────────────────────────────────────────
-// Константы проекта
+// Project constants
 // ────────────────────────────────────────────────
 
 #define CSVVIEW_VERSION         17
@@ -34,13 +34,13 @@
 #define ROW_DATA_OFFSET         11
 #define MAX_SEARCH_RESULTS 		100000
 
-// Окно статистики
+// Statistics window
 #define STATS_W                 150
 #define STATS_H                 36
 #define LEFT_W          		55
 #define RIGHT_W         		(STATS_W - LEFT_W - 5)
 
-// Гистограмма и статистика
+// Histogram and statistics
 #define MAX_BINS        		30
 #define TOP_FREQ_COUNT  		10
 #define BAR_MAX_WIDTH   		35
@@ -48,12 +48,12 @@
 #define MAX_AGG 				100000
 #define MAX_SAVED_FILTERS 		50
 
-// Графики
+// Graphs
 #define GRAPH_COLOR_BASE 		10
 #define ANOMALY_THRESHOLD 		3.0
 
 // ────────────────────────────────────────────────
-// Перечисления (enum)
+// Enumerations (enum)
 // ────────────────────────────────────────────────
 
 typedef enum {
@@ -83,12 +83,12 @@ typedef enum {
 } GraphScale;
 
 // ────────────────────────────────────────────────
-// Структуры
+// Structures
 // ────────────────────────────────────────────────
 
 typedef struct {
-    int truncate_len;       // 0 = не обрезать, >0 = макс. кол-во символов
-    int decimal_places;     // -1 = авто, 0..8 = фиксированное
+    int truncate_len;       // 0 = no truncation, >0 = max number of characters
+    int decimal_places;     // -1 = auto, 0..8 = fixed
     char date_format[32];   // "YYYY-MM-DD", "DD.MM.YYYY", etc.
 } ColumnFormat;
 
@@ -152,10 +152,10 @@ typedef struct {
 } PivotSettings;
 
 // ────────────────────────────────────────────────
-// Глобальные переменные (только объявления — extern)
+// Global variables (declarations only — extern)
 // ────────────────────────────────────────────────
 
-// Фильтры и поиск
+// Filters and search
 extern char *saved_filters[MAX_SAVED_FILTERS];
 extern int saved_filter_count;
 
@@ -171,7 +171,7 @@ extern char filter_query[256];
 extern int in_filter_mode;
 extern int filter_active;
 
-// Навигация и отображение
+// Navigation and display
 extern int cur_display_row;
 extern int top_display_row;
 extern int cur_real_row;
@@ -180,7 +180,7 @@ extern int left_col;
 
 extern char file_size_str[32];
 
-// Столбцы и заголовки
+// Columns and headers
 extern char *column_names[MAX_COLS];
 extern ColType col_types[MAX_COLS];
 extern ColumnFormat col_formats[MAX_COLS];
@@ -188,7 +188,7 @@ extern int col_count;
 extern int use_headers;
 extern int col_widths[MAX_COLS];
 
-// Сортировка
+// Sorting
 extern int sort_col;
 extern int sort_order;
 
@@ -200,12 +200,12 @@ extern int       sort_level_count;
 extern int *sorted_rows;
 extern int sorted_count;
 
-// Общие данные файла
+// General file data
 extern int row_count;
 extern RowIndex *rows;
 extern FILE *f;
 
-// Графики
+// Graphs
 extern int in_graph_mode;
 extern int graph_col_list[10];
 extern int graph_col_count;
@@ -226,7 +226,7 @@ extern double *graph_anomalies;
 extern bool show_anomalies;
 extern bool show_graph_cursor;
 
-// Временное сохранение состояния сортировки/фильтра
+// Temporary save of sort/filter state
 extern int save_sort_col;
 extern int save_sort_order;
 extern int save_sort_level_count;
@@ -235,26 +235,26 @@ extern int *save_sorted_rows;
 extern int save_filtered_count;
 extern int *save_filtered_rows;
 
-// Разделитель полей: ',' — CSV (default), '\t' — TSV, '|' — PSV и т.д.
+// Field delimiter: ',' — CSV (default), '\t' — TSV, '|' — PSV, etc.
 extern char csv_delimiter;
 
-// Заморозка столбцов: первые N столбцов всегда видны (не прокручиваются)
+// Column freeze: first N columns are always visible (not scrolled)
 extern int freeze_cols;
 
-// Скрытие столбцов: 1 = столбец скрыт (не отображается)
+// Column hiding: 1 = column is hidden (not displayed)
 extern int col_hidden[MAX_COLS];
 
-// Относительная нумерация строк: 0 = абсолютная, 1 = относительная
+// Relative line numbers: 0 = absolute, 1 = relative
 extern int relative_line_numbers;
 
-// Закладки (vim-style): индекс 0–25 = буквы a–z, значение = real row index (-1 = не задана)
+// Bookmarks (vim-style): index 0–25 = letters a–z, value = real row index (-1 = not set)
 extern int bookmarks[26];
 
-// Drill-down из pivot: после Enter на ячейке здесь хранится фильтр для основной таблицы
-// Пустая строка = нет drill-down, заполненная = надо применить фильтр
+// Drill-down from pivot: after pressing Enter on a cell, the filter for the main table is stored here
+// Empty string = no drill-down, non-empty = filter needs to be applied
 extern char pivot_drilldown_filter[512];
 
-// Комментарии: строки файла начинающиеся с '#'
+// Comments: file lines starting with '#'
 #define MAX_COMMENT_LINES   10000
 extern int   skip_comments;
 extern char *comment_lines[MAX_COMMENT_LINES];

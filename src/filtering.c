@@ -1,7 +1,7 @@
 /**
  * filtering.c
  *
- * Модуль фильтрации строк в таблице CSV.
+ * Row filtering module for CSV tables.
  */
 
 #include "csvview_defs.h"
@@ -332,12 +332,12 @@ void apply_filter(RowIndex *rows_arg, FILE *f_arg, int row_count_arg)
 }
 
 /**
- * @brief Загружает сохранённые фильтры из файла <csv_filename>
+ * @brief Loads saved filters from file <csv_filename>
  *
- * Файл ищется как <csv_filename> (без расширения .csvf).
- * Формат строки: "filter: запрос"
+ * The file is looked up as <csv_filename> (without .csvf extension).
+ * Line format: "filter: query"
  *
- * @param csv_filename  Имя исходного CSV-файла
+ * @param csv_filename  Name of the source CSV file
  */
 void load_saved_filters(const char *csv_filename)
 {
@@ -357,7 +357,7 @@ void load_saved_filters(const char *csv_filename)
         {
             char *query = line + 8;
 
-            // Проверяем дубликат
+            // Check for duplicate
             int dup = 0;
             for (int j = 0; j < saved_filter_count; j++)
             {
@@ -379,10 +379,10 @@ void load_saved_filters(const char *csv_filename)
 }
 
 /**
- * @brief Сохраняет текущий фильтр в файл <csv_filename>.csvf и в память
+ * @brief Saves the current filter to file <csv_filename>.csvf and into memory
  *
- * @param csv_filename  Имя исходного CSV-файла
- * @param query         Строка фильтра для сохранения
+ * @param csv_filename  Name of the source CSV file
+ * @param query         Filter string to save
  */
 void save_filter(const char *csv_filename, const char *query)
 {
@@ -401,7 +401,7 @@ void save_filter(const char *csv_filename, const char *query)
     fprintf(fp, "filter: %s\n", query);
     fclose(fp);
 
-    // Добавляем в память (для быстрого доступа в UI)
+    // Add to memory (for quick access in UI)
     if (saved_filter_count < MAX_SAVED_FILTERS)
     {
         saved_filters[saved_filter_count++] = strdup(query);

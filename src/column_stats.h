@@ -1,54 +1,54 @@
 /**
  * column_stats.h
  *
- * Интерфейс модуля статистики по столбцу
- * Объявление функции отображения и расчёта статистики выбранного столбца
+ * Interface for the column statistics module
+ * Declaration of the display and calculation function for the selected column's statistics
  */
 
 #ifndef COLUMN_STATS_H
 #define COLUMN_STATS_H
 
-#include "csvview_defs.h"   // RowIndex, ColType, ColumnFormat и глобальные переменные
-#include "utils.h"          // get_column_value, trim, col_letter и т.д.
+#include "csvview_defs.h"   // RowIndex, ColType, ColumnFormat and global variables
+#include "utils.h"          // get_column_value, trim, col_letter, etc.
 #include "sorting.h"
 
 // ────────────────────────────────────────────────
-// Публичные функции модуля
+// Public module functions
 // ────────────────────────────────────────────────
 
 /**
- * @brief Показывает окно статистики по выбранному столбцу с реальным расчётом
+ * @brief Shows the statistics window for the selected column with actual calculations
  *
- * Выводит подробную статистику столбца col_idx:
- *   - общие метрики (всего ячеек, валидных, пустых)
- *   - для чисел: сумма, среднее, медиана, мин/макс, мода
- *   - для дат: распределение по месяцам/кварталам/годам/векам
- *   - для всех типов: топ-10 самых частых значений + гистограмма
+ * Displays detailed statistics for column col_idx:
+ *   - general metrics (total cells, valid, empty)
+ *   - for numbers: sum, mean, median, min/max, mode
+ *   - for dates: distribution by month/quarter/year/century
+ *   - for all types: top-10 most frequent values + histogram
  *
- * Расчёт делается в один проход по всем видимым строкам (с учётом фильтра).
- * Поддерживает ленивую загрузку строк в кэш.
+ * Calculation is done in a single pass over all visible rows (respecting the filter).
+ * Supports lazy loading of rows into cache.
  *
- * @param col_idx   Индекс столбца (0-based), для которого показываем статистику
+ * @param col_idx   Column index (0-based) for which to display statistics
  *
  * @note
- *   - Окно центрируется по экрану (STATS_W × STATS_H)
- *   - Показывает прогресс обработки при большом количестве строк
- *   - Для чисел строит гистограмму по MAX_BINS бинам
- *   - Для дат автоматически выбирает масштаб (месяц/квартал/год/век)
- *   - Закрывается любой клавишей
+ *   - Window is centered on screen (STATS_W x STATS_H)
+ *   - Shows processing progress for large row counts
+ *   - For numbers, builds a histogram with MAX_BINS bins
+ *   - For dates, automatically selects scale (month/quarter/year/century)
+ *   - Closes on any keypress
  *
  * @warning
- *   - Зависит от глобальных: col_count, column_names, col_types, col_formats,
+ *   - Depends on globals: col_count, column_names, col_types, col_formats,
  *     use_headers, filter_active, filtered_count, filtered_rows, row_count,
- *     rows, f, MAX_LINE_LEN, MAX_BINS и т.д.
- *   - Выделяет временную память для numeric_values и freqs — освобождает в конце
- *   - При очень большом файле может занять время и память
- *   - Если столбец не существует — просто возвращается
+ *     rows, f, MAX_LINE_LEN, MAX_BINS, etc.
+ *   - Allocates temporary memory for numeric_values and freqs — freed at the end
+ *   - For very large files may take time and memory
+ *   - If the column does not exist — simply returns
  *
  * @see
- *   - get_column_value() — получение значения ячейки
- *   - get_real_row() — преобразование видимого индекса в реальный
- *   - draw_table_body() — место вызова этой функции (обычно по клавише 'D')
+ *   - get_column_value() — retrieve cell value
+ *   - get_real_row() — convert visible index to real index
+ *   - draw_table_body() — call site of this function (typically triggered by key 'D')
  */
 void show_column_stats(int col_idx);
 

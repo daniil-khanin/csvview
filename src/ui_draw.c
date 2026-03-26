@@ -1,22 +1,22 @@
 /**
  * ui_draw.c
  *
- * Реализация функций отрисовки интерфейса таблицы и элементов UI
+ * Implementation of table interface and UI element rendering functions
  */
 
 #include "ui_draw.h"
-#include "utils.h"          // col_letter, format_cell_value, truncate_string и т.д.
-#include "csvview_defs.h"   // globals (cur_col, cur_display_row и т.д.)
+#include "utils.h"          // col_letter, format_cell_value, truncate_string, etc.
+#include "csvview_defs.h"   // globals (cur_col, cur_display_row, etc.)
 
-#include <ncurses.h>        // все функции ncurses
+#include <ncurses.h>        // all ncurses functions
 #include <string.h>         // strlen, strncpy
 #include <stdio.h>          // snprintf
 
-#include "column_format.h"   // для format_cell_value()
-#include "sorting.h"         // для get_real_row()
-#include "filtering.h"       // для apply_filter()
+#include "column_format.h"   // for format_cell_value()
+#include "sorting.h"         // for get_real_row()
+#include "filtering.h"       // for apply_filter()
 // ────────────────────────────────────────────────
-// Отрисовка меню
+// Menu rendering
 // ────────────────────────────────────────────────
 
 void draw_menu(int y, int x, int w, int menu_type)
@@ -39,7 +39,7 @@ void draw_menu(int y, int x, int w, int menu_type)
 }
 
 // ────────────────────────────────────────────────
-// Увеличенное окно ячейки
+// Enlarged cell window
 // ────────────────────────────────────────────────
 
 void draw_cell_view(int y, const char *col_name, int row_num, const char *raw_content, int width)
@@ -55,7 +55,7 @@ void draw_cell_view(int y, const char *col_name, int row_num, const char *raw_co
     mvaddch(y, width - 1, ACS_VLINE);
     attroff(COLOR_PAIR(6));
 
-    // Форматируем значение
+    // Format the value
     char *display_content = format_cell_value(raw_content, cur_col);
 
     if (in_search_mode) {
@@ -111,7 +111,7 @@ void draw_cell_view(int y, const char *col_name, int row_num, const char *raw_co
 }
 
 // ────────────────────────────────────────────────
-// Внешняя рамка таблицы
+// Table outer border
 // ────────────────────────────────────────────────
 
 void draw_table_border(int top, int height, int width)
@@ -137,9 +137,9 @@ void draw_table_border(int top, int height, int width)
 }
 
 // ────────────────────────────────────────────────
-// Заголовки таблицы
+// Table headers
 // ────────────────────────────────────────────────
-// Вспомогательная отрисовка одного заголовка столбца
+// Helper: draw a single column header
 static void draw_one_header(int top, int current_x, int col_idx, int cur_col)
 {
     char name[64] = {0};
@@ -194,21 +194,21 @@ void draw_table_headers(int top, int offset __attribute__((unused)), int visible
 
     int current_x = ROW_NUMBER_WIDTH + 2;
 
-    // === Замороженные столбцы (0..freeze_cols-1) ===
+    // === Frozen columns (0..freeze_cols-1) ===
     for (int fc = 0; fc < freeze_cols && fc < col_count; fc++) {
         if (col_hidden[fc]) continue;
         draw_one_header(top, current_x, fc, cur_col);
         current_x += col_widths[fc] + 2;
     }
 
-    // === Сепаратор заморозки ===
+    // === Freeze separator ===
     if (freeze_cols > 0 && freeze_cols < col_count) {
         attron(COLOR_PAIR(6) | A_BOLD);
         mvaddch(top + 1, current_x - 1, ACS_VLINE);
         attroff(COLOR_PAIR(6) | A_BOLD);
     }
 
-    // === Скроллируемые столбцы, начиная с left_col ===
+    // === Scrollable columns, starting from left_col ===
     int col_idx = left_col;
     int drawn_sc = 0;
     while (col_idx < col_count) {
@@ -224,7 +224,7 @@ void draw_table_headers(int top, int offset __attribute__((unused)), int visible
 }
 
 // ────────────────────────────────────────────────
-// Тело таблицы (видимые строки)
+// Table body (visible rows)
 // ────────────────────────────────────────────────
 void draw_table_body(int top, int offset __attribute__((unused)), int visible_rows,
                      int top_display_row, int cur_display_row, int cur_col,
@@ -241,7 +241,7 @@ void draw_table_body(int top, int offset __attribute__((unused)), int visible_ro
         int display_pos = top_display_row + i;
         int real_row = get_real_row(display_pos);
 
-        // Подсветка номера строки
+        // Highlight the row number
         int is_cur = (display_pos == cur_display_row);
 
         if (any_bm) {
@@ -282,7 +282,7 @@ void draw_table_body(int top, int offset __attribute__((unused)), int visible_ro
             attroff(COLOR_PAIR(3) | COLOR_PAIR(6) | A_BOLD);
         }
 
-        // Ленивая загрузка строки
+        // Lazy row loading
         if (!rows[real_row].line_cache)
         {
             fseek(f, rows[real_row].offset, SEEK_SET);
@@ -298,19 +298,19 @@ void draw_table_body(int top, int offset __attribute__((unused)), int visible_ro
             }
         }
 
-        // Парсим строку с помощью новой функции
+        // Parse the row using the new function
         int field_count = 0;
         char **fields = parse_csv_line(rows[real_row].line_cache, &field_count);
 
         if (!fields) {
-            // если ошибка парсинга — рисуем пустую строку
+            // on parse error — draw an empty row
             continue;
         }
 
         int current_x = ROW_NUMBER_WIDTH + 2;
         int row_y = top + 2 + i;
 
-        // === Замороженные столбцы (0..freeze_cols-1) ===
+        // === Frozen columns (0..freeze_cols-1) ===
         for (int fc = 0; fc < freeze_cols && fc < col_count; fc++) {
             if (col_hidden[fc]) continue;
 
@@ -319,7 +319,7 @@ void draw_table_body(int top, int offset __attribute__((unused)), int visible_ro
             char display_cell[MAX_LINE_LEN];
             strncpy(display_cell, raw, sizeof(display_cell) - 1);
             display_cell[sizeof(display_cell) - 1] = '\0';
-            if (strlen(display_cell) > 200) strcpy(display_cell, "(очень длинный текст)");
+            if (strlen(display_cell) > 200) strcpy(display_cell, "(very long text)");
 
             char *display_val = format_cell_value(display_cell, fc);
 
@@ -340,14 +340,14 @@ void draw_table_body(int top, int offset __attribute__((unused)), int visible_ro
             free(display_val);
         }
 
-        // === Сепаратор заморозки ===
+        // === Freeze separator ===
         if (freeze_cols > 0 && freeze_cols < col_count) {
             attron(COLOR_PAIR(6));
             mvaddch(row_y, current_x - 1, ACS_VLINE);
             attroff(COLOR_PAIR(6));
         }
 
-        // === Скроллируемые столбцы, начиная с left_col ===
+        // === Scrollable columns, starting from left_col ===
         int sc_col = left_col;
         int drawn_sc = 0;
         while (sc_col < col_count) {
@@ -359,7 +359,7 @@ void draw_table_body(int top, int offset __attribute__((unused)), int visible_ro
             char display_cell[MAX_LINE_LEN];
             strncpy(display_cell, raw, sizeof(display_cell) - 1);
             display_cell[sizeof(display_cell) - 1] = '\0';
-            if (strlen(display_cell) > 200) strcpy(display_cell, "(очень длинный текст)");
+            if (strlen(display_cell) > 200) strcpy(display_cell, "(very long text)");
 
             char *display_val = format_cell_value(display_cell, sc_col);
 
@@ -382,7 +382,7 @@ void draw_table_body(int top, int offset __attribute__((unused)), int visible_ro
             drawn_sc++;
         }
 
-        // Освобождаем память после парсинга
+        // Free memory after parsing
         for (int k = 0; k < field_count; k++) {
             free(fields[k]);
         }
@@ -391,11 +391,11 @@ void draw_table_body(int top, int offset __attribute__((unused)), int visible_ro
 }
 
 // ────────────────────────────────────────────────
-// Статус-бар внизу экрана
+// Status bar at the bottom of the screen
 // ────────────────────────────────────────────────
 void draw_status_bar(int y, int x, const char *filename, int row_count, const char *size_str)
 {
-    // Имя файла 
+    // File name
     attron(COLOR_PAIR(6));
     mvprintw(1, 2, "[ ");
     attroff(COLOR_PAIR(6));
@@ -414,7 +414,7 @@ void draw_status_bar(int y, int x, const char *filename, int row_count, const ch
     mvprintw(1, 4 + dispw, " ]");
     attroff(COLOR_PAIR(6));
 
-    // Число строк в файле и вес
+    // Row count and file size
     char row_buf[32];
     format_number_with_spaces(row_count, row_buf, sizeof(row_buf));
 
@@ -436,7 +436,7 @@ void draw_status_bar(int y, int x, const char *filename, int row_count, const ch
 }
 
 // ────────────────────────────────────────────────
-// Окно со списком сохраненных фильтров
+// Window with the list of saved filters
 // ────────────────────────────────────────────────
 void show_saved_filters_window(const char *csv_filename)
 {
@@ -507,18 +507,18 @@ void show_saved_filters_window(const char *csv_filename)
             if (selected < saved_filter_count - 1) selected++;
             if (selected >= top + visible) top = selected - visible + 1;
         }
-        else if (ch == 10 || ch == KEY_ENTER || ch == 343) // 343 = Shift+Enter на некоторых терминалах
+        else if (ch == 10 || ch == KEY_ENTER || ch == 343) // 343 = Shift+Enter on some terminals
         {
             strncpy(filter_query, saved_filters[selected], sizeof(filter_query) - 1);
             filter_query[sizeof(filter_query) - 1] = '\0';
             in_filter_mode = 1;
 
-            // Закрываем окно списка
+            // Close the list window
             delwin(win);
             touchwin(stdscr);
             refresh();
 
-            // Обновляем статус-бар и применяем фильтр
+            // Update the status bar and apply the filter
             draw_status_bar(LINES - 1, 1, csv_filename, row_count, file_size_str);
             attron(COLOR_PAIR(3));
             printw(" | Filtering... ");
@@ -532,7 +532,7 @@ void show_saved_filters_window(const char *csv_filename)
         {
             if (selected < 0 || selected >= saved_filter_count) continue;
 
-            // Удаляем из памяти
+            // Remove from memory
             free(saved_filters[selected]);
             for (int j = selected; j < saved_filter_count - 1; j++)
             {
@@ -544,11 +544,11 @@ void show_saved_filters_window(const char *csv_filename)
             if (top > saved_filter_count - visible) top = saved_filter_count - visible;
             if (top < 0) top = 0;
 
-            // Перезаписываем .csvf-файл без удалённого фильтра
+            // Rewrite the .csvf file without the deleted filter
             char cfg_path[1024];
             snprintf(cfg_path, sizeof(cfg_path), "%s.csvf", csv_filename);
 
-            // Читаем весь файл в память
+            // Read the entire file into memory
             FILE *fp_in = fopen(cfg_path, "r");
             if (!fp_in) continue;
 
@@ -576,7 +576,7 @@ void show_saved_filters_window(const char *csv_filename)
             }
             fclose(fp_in);
 
-            // Перезаписываем без удалённого
+            // Rewrite without the deleted entry
             FILE *fp_out = fopen(cfg_path, "w");
             if (fp_out)
             {
@@ -610,8 +610,8 @@ void show_saved_filters_window(const char *csv_filename)
 }
 
 // -----------------------------------------------------------------------------
-// Получает содержимое ячейки по номеру столбца (cur_col) из строки
-// Возвращает новую строку (нужно free), всегда корректно обрабатывает ,, и "текст, с запятой"
+// Gets the cell content for a given column number (cur_col) from a line
+// Returns a new string (must be freed), always correctly handles ,, and "text, with comma"
 // -----------------------------------------------------------------------------
 char *get_cell_content(const char *line, int target_col)
 {
@@ -640,11 +640,11 @@ char *get_cell_content(const char *line, int target_col)
 
         if (*p == csv_delimiter && !in_quotes)
         {
-            // Конец текущего поля
+            // End of the current field
             if (col == target_col)
             {
                 result[pos] = '\0';
-                // убираем ведущие/конечные пробелы, если нужно
+                // strip leading/trailing whitespace if needed
                 // char *trimmed = trim(result);
                 // free(result);
                 // return trimmed;
@@ -656,7 +656,7 @@ char *get_cell_content(const char *line, int target_col)
             continue;
         }
 
-        // Пишем символ в результат, только если это нужный столбец
+        // Write the character to the result only if this is the target column
         if (col == target_col)
         {
             if (pos < MAX_LINE_LEN - 1)
@@ -667,20 +667,20 @@ char *get_cell_content(const char *line, int target_col)
         p++;
     }
 
-    // Последнее поле (если строка не закончилась запятой)
+    // Last field (if the line did not end with a delimiter)
     if (col == target_col)
     {
         result[pos] = '\0';
         return result;
     }
 
-    // Если дошли сюда — столбец не найден
+    // If we reached here — the column was not found
     free(result);
     return strdup("");
 }
 
 // ────────────────────────────────────────────────
-// Спиннер прогресса (правый угол статус-бара)
+// Progress spinner (right corner of the status bar)
 // ────────────────────────────────────────────────
 
 static int spinner_state = 0;
@@ -703,7 +703,7 @@ void spinner_clear(void)
 }
 
 // ────────────────────────────────────────────────
-// Окно просмотра строк-комментариев (#)
+// Comment lines viewer window (#)
 // ────────────────────────────────────────────────
 
 void show_comments_window(void)
@@ -720,29 +720,29 @@ void show_comments_window(void)
     WINDOW *win = newwin(height, width, start_y, start_x);
     wbkgd(win, COLOR_PAIR(1));
 
-    int visible = height - 3;   // строки данных (за вычетом рамки + footer)
+    int visible = height - 3;   // data rows (excluding border + footer)
     int top     = 0;
     int cur     = 0;
     int ch;
 
-    // Ширина поля номера строки
+    // Row number field width
     char num_fmt[16];
     int  num_w = 1;
     { int tmp = comment_count; while (tmp >= 10) { num_w++; tmp /= 10; } }
     snprintf(num_fmt, sizeof(num_fmt), "%%%dd", num_w);
 
-    // Ширина текста: width - border(2) - num_w - " # "(3) - pad(1)
+    // Text width: width - border(2) - num_w - " # "(3) - pad(1)
     int text_w = width - 2 - num_w - 4;
     if (text_w < 10) text_w = 10;
 
     while (1) {
-        // ── Рамка ──
+        // ── Border ──
         werase(win);
         wattron(win, COLOR_PAIR(6));
         box(win, 0, 0);
         wattroff(win, COLOR_PAIR(6));
 
-        // ── Заголовок ──
+        // ── Title ──
         char title[64];
         snprintf(title, sizeof(title), " # File Comments (%d) ", comment_count);
         int tx = (width - (int)strlen(title)) / 2;
@@ -751,16 +751,16 @@ void show_comments_window(void)
         mvwprintw(win, 0, tx, "%s", title);
         wattroff(win, COLOR_PAIR(3) | A_BOLD);
 
-        // ── Строки ──
+        // ── Rows ──
         for (int i = 0; i < visible; i++) {
             int idx = top + i;
             if (idx >= comment_count) break;
 
             const char *raw = comment_lines[idx];
-            // Пропускаем ведущий '#' для красивого отображения
+            // Skip the leading '#' for cleaner display
             const char *text = raw;
             if (text[0] == '#') text++;
-            // Убираем пробел сразу после '#' если есть
+            // Strip the space immediately after '#' if present
             if (text[0] == ' ') text++;
 
             int row_y = 1 + i;
@@ -768,21 +768,21 @@ void show_comments_window(void)
 
             if (idx == cur) wattron(win, COLOR_PAIR(2));
 
-            // Номер строки
+            // Row number
             if (idx != cur) wattron(win, COLOR_PAIR(6));
             mvwprintw(win, row_y, col_x, num_fmt, idx + 1);
             if (idx != cur) wattroff(win, COLOR_PAIR(6));
 
             col_x += num_w + 1;
 
-            // Символ '#'
+            // The '#' character
             if (idx != cur) wattron(win, COLOR_PAIR(3) | A_BOLD);
             mvwprintw(win, row_y, col_x, "#");
             if (idx != cur) wattroff(win, COLOR_PAIR(3) | A_BOLD);
 
             col_x += 2;
 
-            // Текст комментария
+            // Comment text
             if (idx != cur) wattron(win, COLOR_PAIR(1));
             mvwprintw(win, row_y, col_x, "%-.*s", text_w, text);
             if (idx != cur) wattroff(win, COLOR_PAIR(1));
@@ -790,7 +790,7 @@ void show_comments_window(void)
             if (idx == cur) wattroff(win, COLOR_PAIR(2));
         }
 
-        // ── Полоса прокрутки (правый край) ──
+        // ── Scroll bar (right edge) ──
         if (comment_count > visible) {
             int bar_h = visible * visible / comment_count;
             if (bar_h < 1) bar_h = 1;

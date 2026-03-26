@@ -1,85 +1,85 @@
 /**
  * ui_draw.h
  *
- * Интерфейс модуля отрисовки интерфейса таблицы и элементов UI
- * Содержит функции рисования меню, ячеек, рамок, заголовков, тела таблицы и статус-бара
+ * Interface for the table rendering module and UI elements
+ * Contains functions for drawing menus, cells, borders, headers, table body, and the status bar
  */
 
 #ifndef UI_DRAW_H
 #define UI_DRAW_H
 
-#include "csvview_defs.h"   // RowIndex, globals (cur_col, cur_display_row и т.д.)
-#include "utils.h"          // col_letter, format_cell_value и т.д.
+#include "csvview_defs.h"   // RowIndex, globals (cur_col, cur_display_row, etc.)
+#include "utils.h"          // col_letter, format_cell_value, etc.
 
 // ────────────────────────────────────────────────
-// Публичные функции модуля
+// Public module functions
 // ────────────────────────────────────────────────
 
 /**
- * @brief Рисует строку меню внизу экрана
+ * @brief Draws the menu bar at the bottom of the screen
  *
- * @param y         Вертикальная позиция (обычно LINES - 1)
- * @param x         Горизонтальная позиция (обычно 0)
- * @param w         Ширина экрана (COLS)
- * @param menu_type 1 = основное меню, 2 = контекстное меню
+ * @param y         Vertical position (usually LINES - 1)
+ * @param x         Horizontal position (usually 0)
+ * @param w         Screen width (COLS)
+ * @param menu_type 1 = main menu, 2 = context menu
  */
 void draw_menu(int y, int x, int w, int menu_type);
 
 /**
- * @brief Рисует увеличенное окно с содержимым одной ячейки
+ * @brief Draws an enlarged window showing the content of a single cell
  *
- * @param y           Вертикальная позиция верхнего левого угла
- * @param x           Горизонтальная позиция верхнего левого угла
- * @param col_name    Имя столбца
- * @param row_num     Номер строки (видимый)
- * @param raw_content Исходное содержимое ячейки
- * @param width       Ширина окна
+ * @param y           Vertical position of the top-left corner
+ * @param x           Horizontal position of the top-left corner
+ * @param col_name    Column name
+ * @param row_num     Row number (visible)
+ * @param raw_content Raw cell content
+ * @param width       Window width
  */
 void draw_cell_view(int y, const char *col_name, int row_num, const char *raw_content, int width);
 
 /**
- * @brief Рисует внешнюю рамку таблицы
+ * @brief Draws the outer border of the table
  *
- * @param top     Вертикальная позиция верхней линии
- * @param height  Высота рамки
- * @param width   Ширина рамки
+ * @param top     Vertical position of the top line
+ * @param height  Border height
+ * @param width   Border width
  */
 void draw_table_border(int top, int height, int width);
 
 /**
- * @brief Рисует строку заголовков таблицы
+ * @brief Draws the table header row
  *
- * Подсвечивает текущий столбец и стрелку сортировки (если есть)
+ * Highlights the current column and the sort arrow (if any)
  *
- * @param top          Вертикальная позиция строки заголовков
- * @param offset       Не используется (оставлен для совместимости)
- * @param visible_cols Количество видимых столбцов
- * @param left_col     Первый видимый столбец
- * @param cur_col      Текущий (выделенный) столбец
+ * @param top          Vertical position of the header row
+ * @param offset       Unused (kept for compatibility)
+ * @param visible_cols Number of visible columns
+ * @param left_col     First visible column
+ * @param cur_col      Current (selected) column
  */
 void draw_table_headers(int top, int offset, int visible_cols,
                         int left_col, int cur_col);
 
 /**
- * @brief Рисует тело таблицы (видимую часть строк)
+ * @brief Draws the table body (the visible portion of rows)
  *
- * Поддерживает:
- *   - подсветку текущей строки/столбца/ячейки
- *   - форматирование ячеек (format_cell_value)
- *   - ленивую загрузку строк
- *   - горизонтальную прокрутку
+ * Supports:
+ *   - highlighting of the current row/column/cell
+ *   - cell formatting (format_cell_value)
+ *   - lazy row loading
+ *   - horizontal scrolling
  *
- * @param top            Вертикальная позиция начала тела
- * @param offset         Не используется (оставлен для совместимости)
- * @param visible_rows   Количество видимых строк
- * @param top_display_row Первый видимый индекс
- * @param cur_display_row Текущий видимый индекс курсора
- * @param cur_col        Текущий столбец
- * @param left_col       Первый видимый столбец
- * @param visible_cols   Количество видимых столбцов
- * @param rows           Массив индексов строк
- * @param f              FILE* исходного файла
- * @param row_count      Общее количество строк
+ * @param top             Vertical position where the body starts
+ * @param offset          Unused (kept for compatibility)
+ * @param visible_rows    Number of visible rows
+ * @param top_display_row First visible index
+ * @param cur_display_row Current visible cursor index
+ * @param cur_col         Current column
+ * @param left_col        First visible column
+ * @param visible_cols    Number of visible columns
+ * @param rows            Array of row indices
+ * @param f               FILE* of the source file
+ * @param row_count       Total number of rows
  */
 void draw_table_body(int top, int offset, int visible_rows,
                      int top_display_row, int cur_display_row, int cur_col,
@@ -87,74 +87,74 @@ void draw_table_body(int top, int offset, int visible_rows,
                      RowIndex *rows, FILE *f, int row_count);
 
 /**
- * @brief Рисует статус-бар внизу экрана
+ * @brief Draws the status bar at the bottom of the screen
  *
- * @param y           Вертикальная позиция (обычно LINES - 1)
- * @param x           Горизонтальная позиция (обычно 0)
- * @param filename    Имя открытого файла
- * @param row_count   Количество строк
- * @param size_str    Размер файла (строка, например "неизв.")
+ * @param y           Vertical position (usually LINES - 1)
+ * @param x           Horizontal position (usually 0)
+ * @param filename    Name of the open file
+ * @param row_count   Number of rows
+ * @param size_str    File size as a string (e.g. "unknown")
  */
 void draw_status_bar(int y, int x, const char *filename,
                      int row_count, const char *size_str);
 
 /**
- * @brief Показывает окно со списком сохранённых фильтров
+ * @brief Shows a window with the list of saved filters
  *
- * Отображает список всех сохранённых фильтров (`saved_filters[]`).
- * Поддерживает:
- *   - навигацию ↑↓
- *   - Enter — вставить фильтр в filter_query и применить
- *   - Shift+Enter — применить без вставки (если нужно)
- *   - D/d — удалить выбранный фильтр (из памяти и файла .csvf)
- *   - Esc/q — закрыть окно
+ * Displays a list of all saved filters (`saved_filters[]`).
+ * Supports:
+ *   - ↑↓ navigation
+ *   - Enter — insert filter into filter_query and apply
+ *   - Shift+Enter — apply without inserting (if needed)
+ *   - D/d — delete the selected filter (from memory and the .csvf file)
+ *   - Esc/q — close the window
  *
- * @param csv_filename  Имя исходного CSV-файла (для .csvf)
+ * @param csv_filename  Name of the source CSV file (for .csvf)
  *
  * @note
- *   - Если сохранённых фильтров нет — показывает сообщение и выходит
- *   - Окно центрируется, размер адаптируется под количество фильтров
- *   - После выбора/применения вызывает apply_filter() и обновляет статус-бар
- *   - Удаление фильтра перезаписывает весь .csvf-файл (с сохранением других строк)
+ *   - If there are no saved filters — shows a message and returns
+ *   - Window is centered; size adapts to the number of filters
+ *   - After selecting/applying, calls apply_filter() and refreshes the status bar
+ *   - Deleting a filter rewrites the entire .csvf file (preserving other lines)
  *
  * @warning
- *   - Зависит от глобальных: saved_filters, saved_filter_count, filter_query,
+ *   - Depends on globals: saved_filters, saved_filter_count, filter_query,
  *     in_filter_mode, filter_active, rows, f, row_count
- *   - Перезаписывает .csvf-файл при удалении — осторожно с большими файлами
- *   - Не проверяет права на запись в файл
+ *   - Rewrites the .csvf file on deletion — be careful with large files
+ *   - Does not check write permissions on the file
  *
  * @see
- *   - apply_filter() — применяется после выбора фильтра
- *   - save_filter() / load_saved_filters() — работа с сохранением
+ *   - apply_filter() — called after a filter is selected
+ *   - save_filter() / load_saved_filters() — persistence helpers
  */
 void show_saved_filters_window(const char *csv_filename);
 
 // -----------------------------------------------------------------------------
-// Получает содержимое ячейки по номеру столбца (cur_col) из строки
-// Возвращает новую строку (нужно free), всегда корректно обрабатывает ,, и "текст, с запятой"
+// Gets the cell content for a given column number (cur_col) from a line
+// Returns a new string (must be freed), always correctly handles ,, and "text, with comma"
 // -----------------------------------------------------------------------------
 char *get_cell_content(const char *line, int target_col);
 
 /**
- * @brief Рисует один кадр спиннера [ |/-\ ] в правом углу статус-бара
+ * @brief Draws one frame of the spinner [ |/-\ ] in the right corner of the status bar
  *
- * Вызывать каждые ~5000 строк во время длительных операций.
- * Анимирует символы | / - \ по кругу.
+ * Call every ~5000 rows during long-running operations.
+ * Cycles through the characters | / - \ in order.
  */
 void spinner_tick(void);
 
 /**
- * @brief Убирает спиннер (стирает символы)
+ * @brief Clears the spinner (erases the characters)
  *
- * Вызывать после завершения длительной операции.
+ * Call after a long-running operation completes.
  */
 void spinner_clear(void);
 
 /**
- * @brief Показывает окно просмотра строк-комментариев (строки начинающиеся с '#')
+ * @brief Shows a window for browsing comment lines (lines starting with '#')
  *
- * Доступно когда skip_comments=1 и comment_count>0.
- * Вызывается по клавише '#' в главном виде.
+ * Available when skip_comments=1 and comment_count>0.
+ * Invoked by pressing '#' in the main view.
  */
 void show_comments_window(void);
 

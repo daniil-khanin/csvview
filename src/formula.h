@@ -4,56 +4,56 @@
 /**
  * formula.h
  *
- * Вычисление формул для команды :cf
+ * Formula evaluation for the :cf command
  *
- * Синтаксис:
+ * Syntax:
  *   :cf price * qty
  *   :cf round((revenue - cost) / revenue * 100, 2)
  *   :cf if(qty > 0, revenue / qty, 0)
  *   :cf col_sum(amount) - col_sum_all(amount)
  *
- * Операторы:   + - * /  ( )  унарный -
- * Сравнения:   = != < <= > >=   (используются в if())
- * Функции:     round(x,n)  abs(x)  floor(x)  ceil(x)  mod(x,y)  pow(x,y)
+ * Operators:   + - * /  ( )  unary -
+ * Comparisons: = != < <= > >=   (used inside if())
+ * Functions:   round(x,n)  abs(x)  floor(x)  ceil(x)  mod(x,y)  pow(x,y)
  *              if(cond, val_true, val_false)  empty(col)
- * Агрегаты (по фильтру):
+ * Aggregates (over the active filter):
  *   col_sum col_avg col_min col_max col_count
  *   col_median  col_percentile(col,p)  col_stddev  col_var
  *   col_rank(col)  col_pct(col)
- * Агрегаты (по всему файлу, суффикс _all):
+ * Aggregates (over the whole file, suffix _all):
  *   col_sum_all ... col_rank_all  col_pct_all
  */
 
 typedef struct Formula Formula;
 
-/* Прогресс-колбэк: вызывается с текстом сообщения */
+/* Progress callback: called with a status message */
 typedef void (*FormulaProgressFn)(const char *msg);
 
-/* Компилировать формулу. Вернуть NULL при OOM.
-   При синтаксической ошибке возвращает объект, formula_error() != NULL */
+/* Compile a formula. Returns NULL on OOM.
+   On syntax error, returns an object where formula_error() != NULL */
 Formula *formula_compile(const char *expr);
 
-/* Текст последней ошибки, или NULL если всё в порядке */
+/* Text of the last error, or NULL if everything is fine */
 const char *formula_error(const Formula *f);
 
-/* Предвычислить все агрегаты.
-   disp_rows[0..disp_count-1] — реальные индексы строк текущего вида (filtered/sorted).
-   Возвращает 0 при успехе. */
+/* Pre-compute all aggregates.
+   disp_rows[0..disp_count-1] — real row indices of the current view (filtered/sorted).
+   Returns 0 on success. */
 int formula_precompute(Formula *f,
                        int *disp_rows, int disp_count,
                        FormulaProgressFn cb);
 
-/* Вычислить формулу для одной строки.
-   real_row — индекс в rows[]; disp_idx — позиция в disp_rows (-1 если вне вида).
-   line — CSV-строка этой строки (уже прочитана).
-   out — результат.
-   Возвращает 0 при успехе, 1 если результат неопределён (деление на 0, пустое поле). */
+/* Evaluate the formula for a single row.
+   real_row — index into rows[]; disp_idx — position in disp_rows (-1 if outside view).
+   line — CSV line for this row (already read).
+   out — result.
+   Returns 0 on success, 1 if result is undefined (division by zero, empty field). */
 int formula_eval_row(const Formula *f,
                      int real_row, int disp_idx,
                      const char *line,
                      double *out);
 
-/* Освободить память */
+/* Free memory */
 void formula_free(Formula *f);
 
 #endif /* FORMULA_H */

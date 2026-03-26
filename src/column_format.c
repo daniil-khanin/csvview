@@ -1,7 +1,7 @@
 /**
  * column_format.c
  *
- * Реализация форматирования и настройки отображения столбцов
+ * Implementation of column formatting and display settings
  */
 
 #define _XOPEN_SOURCE 700  /* strptime on Linux */
@@ -14,25 +14,25 @@
 #include <stdlib.h>         // malloc, free, strtod
 #include <string.h>         // strlen, strcpy, strncpy
 #include <time.h>           // struct tm, strptime, strftime
-#include <math.h>           // INFINITY (если нужно)
+#include <math.h>           // INFINITY (if needed)
 
 // ────────────────────────────────────────────────
-// Инициализация форматов столбцов
+// Column format initialization
 // ────────────────────────────────────────────────
 
 void init_column_formats(void)
 {
     for (int i = 0; i < col_count; i++)
     {
-        col_formats[i].truncate_len   = 0;        // не обрезать строки
-        col_formats[i].decimal_places = -1;       // авто для чисел
-        col_formats[i].date_format[0] = '\0';     // без формата даты
-        col_widths[i] = CELL_WIDTH;               // ширина по умолчанию
+        col_formats[i].truncate_len   = 0;        // do not truncate strings
+        col_formats[i].decimal_places = -1;       // auto for numbers
+        col_formats[i].date_format[0] = '\0';     // no date format
+        col_widths[i] = CELL_WIDTH;               // default width
     }
 }
 
 // ────────────────────────────────────────────────
-// Обрезка строки с добавлением "..."
+// String truncation with "..." appended
 // ────────────────────────────────────────────────
 
 char *truncate_string(const char *str, int max_len)
@@ -46,7 +46,7 @@ char *truncate_string(const char *str, int max_len)
         return strdup(str);
     }
 
-    char *result = malloc(max_len + 4); // +3 для "..." и \0
+    char *result = malloc(max_len + 4); // +3 for "..." and \0
     if (!result) {
         return strdup(str);
     }
@@ -58,7 +58,7 @@ char *truncate_string(const char *str, int max_len)
 }
 
 // ────────────────────────────────────────────────
-// Форматирование числа
+// Number formatting
 // ────────────────────────────────────────────────
 
 char *format_number(const char *raw_str, int decimals)
@@ -70,13 +70,13 @@ char *format_number(const char *raw_str, int decimals)
     char *endptr;
     double num = parse_double(raw_str, &endptr);
     if (*endptr != '\0' && *endptr != '\n') {
-        // Не чистое число — возвращаем как есть
+        // Not a clean number — return as-is
         return strdup(raw_str);
     }
 
     char fmt[16];
     if (decimals < 0) {
-        // Авто-режим: до 6 знаков, без лишних нулей
+        // Auto mode: up to 6 digits, no trailing zeros
         snprintf(fmt, sizeof(fmt), "%%.6g");
     } else {
         snprintf(fmt, sizeof(fmt), "%%.%df", decimals);
@@ -85,7 +85,7 @@ char *format_number(const char *raw_str, int decimals)
     char buf[64];
     snprintf(buf, sizeof(buf), fmt, num);
 
-    // В авто-режиме убираем лишние нули после точки
+    // In auto mode, strip trailing zeros after the decimal point
     if (decimals < 0)
     {
         char *dot = strchr(buf, '.');
@@ -105,7 +105,7 @@ char *format_number(const char *raw_str, int decimals)
 }
 
 // ────────────────────────────────────────────────
-// Форматирование даты
+// Date formatting
 // ────────────────────────────────────────────────
 
 char *format_date(const char *date_str, const char *target_format)
@@ -146,12 +146,12 @@ char *format_date(const char *date_str, const char *target_format)
         }
     }
 
-    // Не удалось распознать — возвращаем как есть
+    // Could not parse — return as-is
     return strdup(date_str);
 }
 
 // ────────────────────────────────────────────────
-// Главная функция форматирования ячейки
+// Main cell formatting function
 // ────────────────────────────────────────────────
 
 char *format_cell_value(const char *raw_value, int col_idx)
@@ -205,7 +205,7 @@ char *format_cell_value(const char *raw_value, int col_idx)
 }
 
 // ────────────────────────────────────────────────
-// Автоопределение типов столбцов по сэмплу строк
+// Auto-detection of column types from a row sample
 // ────────────────────────────────────────────────
 
 #define AUTODETECT_SAMPLE_ROWS 200
@@ -221,7 +221,7 @@ void auto_detect_column_types(void)
     int sample_size = sample_end - data_start;
     if (sample_size <= 0) return;
 
-    // Поддерживаемые форматы дат (strptime и строка для date_format)
+    // Supported date formats (for strptime and date_format string)
     const char *date_fmts[] = {
         "%Y-%m-%d",
         "%d.%m.%Y",
@@ -238,7 +238,7 @@ void auto_detect_column_types(void)
         int total    = 0;
 
         for (int r = data_start; r < sample_end; r++) {
-            // Загружаем строку в кэш если нужно
+            // Load line into cache if needed
             if (!rows[r].line_cache) {
                 fseek(f, rows[r].offset, SEEK_SET);
                 char line_buf[MAX_LINE_LEN];
@@ -256,7 +256,7 @@ void auto_detect_column_types(void)
 
             const char *val = (c < field_count) ? fields[c] : "";
 
-            // Пропускаем пустые и null-подобные значения
+            // Skip empty and null-like values
             int is_empty = (!val || !*val ||
                 strcmp(val, "NA") == 0 || strcmp(val, "na") == 0 ||
                 strcmp(val, "N/A") == 0 || strcmp(val, "n/a") == 0 ||
@@ -266,7 +266,7 @@ void auto_detect_column_types(void)
             if (!is_empty) {
                 total++;
 
-                // Числовая проверка: parse_double + нет ведущих нулей
+                // Numeric check: parse_double + no leading zeros
                 int leading_zero = (val[0] == '0' && val[1] != '\0' &&
                                     val[1] != '.' && val[1] != ',');
                 if (!leading_zero) {
@@ -276,7 +276,7 @@ void auto_detect_column_types(void)
                     if (*endptr == '\0') num_ok++;
                 }
 
-                // Проверка дат
+                // Date check
                 for (int d = 0; d < n_date_fmts; d++) {
                     struct tm tm = {0};
                     char *end = strptime(val, date_fmts[d], &tm);
@@ -290,7 +290,7 @@ void auto_detect_column_types(void)
 
         if (total == 0) continue;
 
-        // Лучший формат даты
+        // Best matching date format
         int best_date_fmt = -1;
         int best_date_count = 0;
         for (int d = 0; d < n_date_fmts; d++) {
@@ -300,7 +300,7 @@ void auto_detect_column_types(void)
             }
         }
 
-        // Даты имеют приоритет над числами (напр. "2026-01-15" парсится и так и так)
+        // Dates take priority over numbers (e.g. "2026-01-15" parses as both)
         if (best_date_fmt >= 0 &&
             (double)best_date_count / total >= AUTODETECT_THRESHOLD) {
             col_types[c] = COL_DATE;
@@ -310,7 +310,7 @@ void auto_detect_column_types(void)
         } else if ((double)num_ok / total >= AUTODETECT_THRESHOLD) {
             col_types[c] = COL_NUM;
         }
-        // иначе остаётся COL_STR
+        // otherwise stays COL_STR
     }
 }
 
@@ -328,14 +328,14 @@ void save_column_settings(const char *csv_filename)
         return;
     }
 
-    // Основные настройки
+    // Global settings
     fprintf(fp, "use_headers:%d\n", use_headers);
     fprintf(fp, "col_count:%d\n", col_count);
     fprintf(fp, "freeze:%d\n", freeze_cols);
     fprintf(fp, "delimiter:%d\n", (int)(unsigned char)csv_delimiter);
     fprintf(fp, "skip_comments:%d\n", skip_comments);
 
-    // Настройки каждого столбца
+    // Per-column settings
     for (int i = 0; i < col_count; i++)
     {
         char type_char = 'S';
@@ -350,7 +350,7 @@ void save_column_settings(const char *csv_filename)
                 col_formats[i].date_format);
     }
 
-    // Скрытые столбцы
+    // Hidden columns
     int has_hidden = 0;
     for (int i = 0; i < col_count; i++) if (col_hidden[i]) { has_hidden = 1; break; }
     if (has_hidden) {
@@ -366,7 +366,7 @@ void save_column_settings(const char *csv_filename)
         fprintf(fp, "\n");
     }
 
-    // Ширины столбцов
+    // Column widths
     fprintf(fp, "widths:");
     for (int i = 0; i < col_count; i++)
     {
@@ -375,7 +375,7 @@ void save_column_settings(const char *csv_filename)
     }
     fprintf(fp, "\n");
 
-    // Сохранённые фильтры (в том же файле)
+    // Saved filters (stored in the same file)
     for (int f = 0; f < saved_filter_count; f++)
     {
         if (saved_filters[f]) {
@@ -383,7 +383,7 @@ void save_column_settings(const char *csv_filename)
         }
     }
 
-    // Закладки
+    // Bookmarks
     for (int i = 0; i < 26; i++) {
         if (bookmarks[i] >= 0)
             fprintf(fp, "mark: %c %d\n", 'a' + i, bookmarks[i]);
@@ -427,10 +427,10 @@ int load_column_settings(const char *csv_filename)
 
     FILE *fp = fopen(csvf_path, "r");
     if (!fp) {
-        return 0; // файла нет — оставляем дефолт
+        return 0; // file not found — keep defaults
     }
 
-    // Сбрасываем скрытые столбцы перед загрузкой
+    // Reset hidden columns before loading
     memset(col_hidden, 0, sizeof(col_hidden));
 
     char line[256];
@@ -441,7 +441,7 @@ int load_column_settings(const char *csv_filename)
     {
         line[strcspn(line, "\n")] = '\0';
 
-        // Закладки
+        // Bookmarks
         if (strncmp(line, "mark: ", 6) == 0) {
             char lc; int rr;
             if (sscanf(line + 6, "%c %d", &lc, &rr) == 2 && lc >= 'a' && lc <= 'z')
@@ -449,7 +449,7 @@ int load_column_settings(const char *csv_filename)
             continue;
         }
 
-        // Фильтры загружаем отдельно (как раньше)
+        // Filters are loaded separately (as before)
         if (strncmp(line, "filter: ", 8) == 0)
         {
             if (saved_filter_count < MAX_SAVED_FILTERS) {
@@ -458,7 +458,7 @@ int load_column_settings(const char *csv_filename)
             continue;
         }
 
-        // Ширины столбцов
+        // Column widths
         if (strncmp(line, "widths:", 7) == 0)
         {
             char *p = line + 7;
@@ -472,7 +472,7 @@ int load_column_settings(const char *csv_filename)
             continue;
         }
 
-        // Основные параметры
+        // Global parameters
         if (strncmp(line, "use_headers:", 12) == 0)
         {
             temp_use_headers = atoi(line + 12);
@@ -504,13 +504,13 @@ int load_column_settings(const char *csv_filename)
         else if (strncmp(line, "col_count:", 10) == 0)
         {
             loaded_count = atoi(line + 10);
-            // Не прерываемся — продолжаем читать глобальные настройки
-            // (use_headers, freeze, delimiter, skip_comments). Несовпадение
-            // col_count означает только что per-column форматы неприменимы.
+            // Do not break — continue reading global settings
+            // (use_headers, freeze, delimiter, skip_comments). A mismatch in
+            // col_count only means per-column formats cannot be applied.
         }
         else
         {
-            // Формат строки столбца: idx:type:truncate:decimals:date_format
+            // Column row format: idx:type:truncate:decimals:date_format
             int idx, truncate, decimals;
             char type_char, date_fmt[32] = {0};
             if (sscanf(line, "%d:%c:%d:%d:%31[^\n]",
@@ -532,15 +532,15 @@ int load_column_settings(const char *csv_filename)
 
     fclose(fp);
 
-    // Глобальные настройки (use_headers) применяем всегда — даже при несовпадении col_count
+    // Global settings (use_headers) are always applied — even when col_count does not match
     use_headers = temp_use_headers;
 
     if (loaded_count == col_count)
-        return 1;   // полный успех: и глобальные, и per-column настройки применены
+        return 1;   // full success: both global and per-column settings applied
 
-    // col_count изменился (например из-за skip_comments) — per-column форматы уже
-    // загружены выше в цикле, но могут быть частично применены.
-    // Возвращаем 2 = "частичная загрузка": popup не нужен, но auto_detect стоит запустить.
+    // col_count changed (e.g. due to skip_comments) — per-column formats were already
+    // loaded in the loop above but may be only partially applied.
+    // Return 2 = "partial load": no popup needed, but auto_detect should be run.
     return loaded_count == 0 ? 0 : 2;
 }
 
@@ -552,20 +552,20 @@ int show_column_setup(const char *csv_filename)
     int win_top = 2;
     int win_height = height - 4;
     int win_width = width - 4;
-    int vis_lines = win_height - 10; // место для заголовков + подсказок
+    int vis_lines = win_height - 10; // space for headers + hints
 
     int top_item = 0;
     int cur_item = 0;
-    int cur_field = 0; // 0 = тип, 1 = формат
+    int cur_field = 0; // 0 = type, 1 = format
 
-    // Превью — массив сырых значений из первой строки данных
+    // Preview — array of raw values from the first data row
     char preview_values[MAX_COLS][MAX_LINE_LEN] = {{0}};
     int preview_valid = 0;
 
-    // Загружаем превью один раз при входе (первая строка данных)
+    // Load preview once on entry (first data row)
     if (row_count > (use_headers ? 1 : 0))
     {
-        int preview_row = use_headers ? 1 : 0; // пропускаем заголовок, если он есть
+        int preview_row = use_headers ? 1 : 0; // skip header if present
 
         if (!rows[preview_row].line_cache)
         {
@@ -582,7 +582,7 @@ int show_column_setup(const char *csv_filename)
             }
         }
 
-        // Парсим строку с помощью новой функции
+        // Parse the line using the new function
         int field_count = 0;
         char **fields = parse_csv_line(rows[preview_row].line_cache, &field_count);
 
@@ -595,7 +595,7 @@ int show_column_setup(const char *csv_filename)
             }
             preview_valid = 1;
 
-            // Освобождаем память
+            // Free memory
             for (int k = 0; k < field_count; k++) free(fields[k]);
             free(fields);
         }
@@ -605,7 +605,7 @@ int show_column_setup(const char *csv_filename)
     {
         clear();
 
-        // Рамка окна
+        // Window border
         attron(COLOR_PAIR(6));
         mvaddch(win_top, 1, ACS_ULCORNER);
         for (int x = 2; x < win_width; x++) {
@@ -623,7 +623,7 @@ int show_column_setup(const char *csv_filename)
         mvaddch(win_top + win_height - 2, win_width, ACS_LRCORNER);
         attroff(COLOR_PAIR(6));
 
-        // Заголовки таблицы
+        // Table headers
         attron(COLOR_PAIR(5) | A_BOLD);
         mvprintw(win_top + 1, 3,   "Column");
         mvprintw(win_top + 1, 65,  "Type");
@@ -631,7 +631,7 @@ int show_column_setup(const char *csv_filename)
         mvprintw(win_top + 1, 110, "Preview (first data row)");
         attroff(COLOR_PAIR(5) | A_BOLD);
 
-        // Вывод списка столбцов + превью
+        // Column list + preview output
         for (int i = 0; i < vis_lines && top_item + i < col_count; i++)
         {
             int idx = top_item + i;
@@ -665,7 +665,7 @@ int show_column_setup(const char *csv_filename)
                 }
             }
 
-            // Превью — применяем текущий формат
+            // Preview — apply current format
             char preview[128] = "(no data)";
             if (preview_valid && idx < col_count && preview_values[idx][0])
             {
@@ -674,7 +674,7 @@ int show_column_setup(const char *csv_filename)
                 preview[sizeof(preview) - 1] = '\0';
                 free(formatted);
 
-                // Обрезаем превью
+                // Truncate preview
                 if (strlen(preview) > 60) {
                     preview[57] = '.';
                     preview[58] = '.';
@@ -695,14 +695,14 @@ int show_column_setup(const char *csv_filename)
             attroff(A_REVERSE);
         }
 
-        // Подсказки
+        // Hints
         int info_y = win_top + win_height - 7;
         attron(COLOR_PAIR(5));
-        mvprintw(info_y, 3, "↑↓ — выбрать столбец    ←→/Tab — Тип ↔ Формат");
-        mvprintw(info_y + 1, 3, "S/N/D — быстрый выбор типа");
-        mvprintw(info_y + 2, 3, "Enter — сохранить и выйти");
-        mvprintw(info_y + 3, 3, "H — включить заголовки");
-        mvprintw(info_y + 4, 3, "Esc/q — отмена");
+        mvprintw(info_y, 3, "↑↓ — select column    ←→/Tab — Type ↔ Format");
+        mvprintw(info_y + 1, 3, "S/N/D — quick type selection");
+        mvprintw(info_y + 2, 3, "Enter — save and exit");
+        mvprintw(info_y + 3, 3, "H — enable headers");
+        mvprintw(info_y + 4, 3, "Esc/q — cancel");
         attroff(COLOR_PAIR(5));
 
         refresh();
@@ -732,20 +732,20 @@ int show_column_setup(const char *csv_filename)
         else if (ch == 'd' || ch == 'D') { col_types[cur_item] = COL_DATE; }
         else if (ch == '\n' || ch == KEY_ENTER)
         {
-            if (cur_field == 1) // редактирование формата
+            if (cur_field == 1) // format editing
             {
                 echo();
                 curs_set(1);
                 char buf[64] = "";
                 const char *prompt = "";
                 if (col_types[cur_item] == COL_STR) {
-                    prompt = "Обрезать до (0=все): ";
+                    prompt = "Truncate to (0=all): ";
                     snprintf(buf, sizeof(buf), "%d", col_formats[cur_item].truncate_len);
                 } else if (col_types[cur_item] == COL_NUM) {
-                    prompt = "Знаков после точки (-1=авто): ";
+                    prompt = "Decimal places (-1=auto): ";
                     snprintf(buf, sizeof(buf), "%d", col_formats[cur_item].decimal_places);
                 } else if (col_types[cur_item] == COL_DATE) {
-                    prompt = "Формат даты (%%Y-%%m-%%d и т.п.): ";
+                    prompt = "Date format (%%Y-%%m-%%d etc.): ";
                     strncpy(buf, col_formats[cur_item].date_format, sizeof(buf) - 1);
                     buf[sizeof(buf) - 1] = '\0';
                 }
@@ -837,11 +837,11 @@ int show_column_setup(const char *csv_filename)
     int top_item = 0;
     int cur_item = 0;
 
-    // Превью — сырые значения из первой строки данных (уже распарсенные)
+    // Preview — raw values from the first data row (already parsed)
     char preview_values[MAX_COLS][MAX_LINE_LEN] = {{0}};
     int preview_valid = 0;
 
-    // Загрузка превью (один раз)
+    // Load preview (once)
     if (row_count > (use_headers ? 1 : 0))
     {
         int preview_row = use_headers ? 1 : 0;
@@ -880,7 +880,7 @@ int show_column_setup(const char *csv_filename)
     {
         clear();
 
-        // Рамка
+        // Border
         attron(COLOR_PAIR(6));
         mvaddch(win_top, 1, ACS_ULCORNER);
         for (int x = 2; x < win_width; x++) mvaddch(win_top, x, ACS_HLINE);
@@ -894,12 +894,12 @@ int show_column_setup(const char *csv_filename)
         mvaddch(win_top + win_height - 2, win_width, ACS_LRCORNER);
         attroff(COLOR_PAIR(6));
 
-        // Статус заголовков
+        // Headers status
         attron(COLOR_PAIR(use_headers ? 3 : 2) | A_BOLD);
         mvprintw(win_top + 1, 3, "Headers: %s", use_headers ? "ON  [H to toggle]" : "OFF [H to toggle]");
         attroff(COLOR_PAIR(use_headers ? 3 : 2) | A_BOLD);
 
-        // Текущий разделитель
+        // Current delimiter
         {
             const char *delim_name;
             switch (csv_delimiter) {
@@ -914,7 +914,7 @@ int show_column_setup(const char *csv_filename)
             attroff(COLOR_PAIR(3) | A_BOLD);
         }
 
-        // Заголовки столбцов
+        // Column headers
         attron(COLOR_PAIR(5) | A_BOLD);
         mvprintw(win_top + 2, 3,   "Column");
         mvprintw(win_top + 2, 65,  "Type");
@@ -922,7 +922,7 @@ int show_column_setup(const char *csv_filename)
         mvprintw(win_top + 2, 107, "Preview (first data row)");
         attroff(COLOR_PAIR(5) | A_BOLD);
 
-        // Список столбцов
+        // Column list
         for (int i = 0; i < vis_lines && top_item + i < col_count; i++)
         {
             int idx = top_item + i;
@@ -963,7 +963,7 @@ int show_column_setup(const char *csv_filename)
 
             if (idx == cur_item) attron(A_REVERSE);
 
-            // Имя столбца с маркером скрытия
+            // Column name with hidden marker
             if (col_hidden[idx]) {
                 attron(COLOR_PAIR(2));
                 mvprintw(win_top + 4 + i, 3, "[H] %-56s", name);
@@ -978,7 +978,7 @@ int show_column_setup(const char *csv_filename)
             attroff(A_REVERSE);
         }
 
-        // Подсказки (обновлённые)
+        // Hints (updated)
         char hint[128];
         snprintf(hint, sizeof(hint),
                  "[ ↑↓/jk move • S/N/D type • X hide/show • Enter edit • H headers • C separator • q/Esc save ]");
@@ -1022,7 +1022,7 @@ int show_column_setup(const char *csv_filename)
         }
         else if (ch == '\n' || ch == KEY_ENTER)
         {
-            // Вход в редактирование формата текущего столбца
+            // Enter format editing for the current column
             echo();
             curs_set(1);
             char buf[64] = "";
@@ -1055,7 +1055,7 @@ int show_column_setup(const char *csv_filename)
                 int key = getch();
                 if (key == '\n' || key == KEY_ENTER)
                 {
-                    // Применяем
+                    // Apply
                     if (col_types[cur_item] == COL_STR) {
                         col_formats[cur_item].truncate_len = atoi(buf);
                     } else if (col_types[cur_item] == COL_NUM) {
@@ -1067,7 +1067,7 @@ int show_column_setup(const char *csv_filename)
                     }
                     done = 1;
                 }
-                else if (key == 27) { // Esc — отмена редактирования
+                else if (key == 27) { // Esc — cancel editing
                     done = 1;
                 }
                 else if (key == KEY_BACKSPACE || key == 127)
@@ -1083,7 +1083,7 @@ int show_column_setup(const char *csv_filename)
                     buf[pos] = '\0';
                 }
 
-                // Перерисовка поля ввода
+                // Redraw input field
                 mvprintw(win_top + 4 + (cur_item - top_item), 82, "%s", prompt);
                 clrtoeol();
                 printw("%s", buf);
@@ -1104,7 +1104,7 @@ int show_column_setup(const char *csv_filename)
             use_headers = !use_headers;
             save_column_settings(csv_filename);
 
-            // Перезагружаем превью для новой строки
+            // Reload preview for the new row
             memset(preview_values, 0, sizeof(preview_values));
             preview_valid = 0;
             if (row_count > (use_headers ? 1 : 0))
@@ -1142,7 +1142,7 @@ int show_column_setup(const char *csv_filename)
         }
         else if (ch == 'c' || ch == 'C')
         {
-            // Цикл разделителей: , → ; → \t → | → ,
+            // Delimiter cycle: , → ; → \t → | → ,
             switch (csv_delimiter) {
                 case ',':  csv_delimiter = ';';  break;
                 case ';':  csv_delimiter = '\t'; break;
@@ -1151,7 +1151,7 @@ int show_column_setup(const char *csv_filename)
             }
             save_column_settings(csv_filename);
 
-            // Перепарсить имена столбцов из строки 0
+            // Re-parse column names from row 0
             for (int i = 0; i < col_count; i++) {
                 free(column_names[i]);
                 column_names[i] = NULL;
@@ -1159,11 +1159,11 @@ int show_column_setup(const char *csv_filename)
             col_count = 0;
             memset(col_hidden, 0, sizeof(col_hidden));
 
-            // Очищаем кэш строки 0, чтобы она была перечитана свежей
+            // Clear row 0 cache so it is re-read fresh
             free(rows[0].line_cache);
             rows[0].line_cache = NULL;
 
-            // Перечитываем строку 0
+            // Re-read row 0
             if (f) {
                 fseek(f, rows[0].offset, SEEK_SET);
                 char line_buf[MAX_LINE_LEN];
@@ -1175,7 +1175,7 @@ int show_column_setup(const char *csv_filename)
                 }
             }
 
-            // Парсим заголовки с новым разделителем
+            // Parse headers with the new delimiter
             if (rows[0].line_cache) {
                 int hdr_count = 0;
                 char **hdr_fields = parse_csv_line(rows[0].line_cache, &hdr_count);
@@ -1192,12 +1192,12 @@ int show_column_setup(const char *csv_filename)
             }
             init_column_formats();
 
-            // Обновляем превью
+            // Update preview
             memset(preview_values, 0, sizeof(preview_values));
             preview_valid = 0;
             if (row_count > (use_headers ? 1 : 0)) {
                 int preview_row = use_headers ? 1 : 0;
-                // Очищаем кэш строки превью, чтобы перечитать с новым разделителем
+                // Clear preview row cache to re-read with the new delimiter
                 free(rows[preview_row].line_cache);
                 rows[preview_row].line_cache = NULL;
                 if (f) {
@@ -1224,7 +1224,7 @@ int show_column_setup(const char *csv_filename)
                     }
                 }
             }
-            // Сигнализируем вызывающему о смене разделителя — нужна полная перезагрузка
+            // Signal to caller that the delimiter changed — a full reload is required
             save_column_settings(csv_filename);
             return 1;
         }

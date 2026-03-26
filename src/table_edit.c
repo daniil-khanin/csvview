@@ -1,26 +1,26 @@
 /**
  * table_edit.c
  *
- * Реализация редактирования структуры таблицы CSV
- * Добавление/удаление столбцов, заполнение значениями, пересборка заголовка
+ * Implementation of CSV table structure editing
+ * Adding/removing columns, filling with values, rebuilding the header
  */
 
 #include "table_edit.h"
-#include "csvview_defs.h"     // глобальные переменные и константы
-#include "utils.h"            // save_file, col_letter и т.д.
+#include "csvview_defs.h"     // global variables and constants
+#include "utils.h"            // save_file, col_letter, etc.
 #include "column_format.h"    // save_column_settings()
 #include "formula.h"          // formula_compile / eval
 #include "filtering.h"        // filtered_rows, filtered_count, filter_active
 #include "sorting.h"          // sorted_rows, sorted_count, sort_col
 
-#include <ncurses.h>          // ← это главное! mvprintw, refresh, getch, LINES, COLOR_PAIR и т.д.
+#include <ncurses.h>          // main ncurses header: mvprintw, refresh, getch, LINES, COLOR_PAIR, etc.
 #include <stdio.h>            // fopen, fprintf, rename
 #include <stdlib.h>           // malloc, free, atoi
 #include <string.h>           // strcpy, strncpy, strlen
 #include <math.h>             // floor, fabs
 
 // ────────────────────────────────────────────────
-// Добавление нового столбца
+// Add a new column
 // ────────────────────────────────────────────────
 
 void add_column_and_save(int insert_pos, const char *new_name, const char *csv_filename)
@@ -33,7 +33,7 @@ void add_column_and_save(int insert_pos, const char *new_name, const char *csv_f
         return;
     }
 
-    // Сдвигаем массивы вправо начиная с insert_pos
+    // Shift arrays to the right starting from insert_pos
     for (int i = col_count; i > insert_pos; i--)
     {
         column_names[i] = column_names[i - 1];
@@ -42,7 +42,7 @@ void add_column_and_save(int insert_pos, const char *new_name, const char *csv_f
         col_formats[i]  = col_formats[i - 1];
     }
 
-    // Новый столбец
+    // New column
     column_names[insert_pos] = strdup(new_name && *new_name ? new_name : "untitled");
     col_types[insert_pos]    = COL_STR;
     col_widths[insert_pos]   = 12;
@@ -52,7 +52,7 @@ void add_column_and_save(int insert_pos, const char *new_name, const char *csv_f
 
     col_count++;
 
-    // Перезаписываем файл с новым столбцом
+    // Rewrite the file with the new column
     char temp_name[1024];
     snprintf(temp_name, sizeof(temp_name), "%s.tmp", csv_filename);
 
@@ -67,7 +67,7 @@ void add_column_and_save(int insert_pos, const char *new_name, const char *csv_f
 
     for (int r = 0; r < row_count; r++)
     {
-        char buf[MAX_LINE_LEN];  /* объявлен здесь — действует весь цикл */
+        char buf[MAX_LINE_LEN];  /* declared here — valid for the entire loop */
         const char *line = rows[r].line_cache ? rows[r].line_cache : "";
         if (!rows[r].line_cache)
         {
@@ -82,7 +82,7 @@ void add_column_and_save(int insert_pos, const char *new_name, const char *csv_f
             }
         }
 
-        // Вставляем новый столбец
+        // Insert the new column
         char new_line[MAX_LINE_LEN * 2] = {0};
         int pos = 0;
         int col = 0;
@@ -93,14 +93,14 @@ void add_column_and_save(int insert_pos, const char *new_name, const char *csv_f
         {
             if (col == insert_pos)
             {
-                // Вставляем значение + хвостовую запятую (разделитель до следующего поля)
+                // Insert value + trailing comma (separator before the next field)
                 const char *val = (r == 0 && use_headers) ? new_name : "";
                 strcpy(new_line + pos, val);
                 pos += strlen(val);
                 new_line[pos++] = ',';
             }
 
-            // Копируем текущее поле
+            // Copy the current field
             while (*p)
             {
                 if (*p == '"' && !in_quotes) in_quotes = 1;
@@ -116,7 +116,7 @@ void add_column_and_save(int insert_pos, const char *new_name, const char *csv_f
             col++;
         }
 
-        // Если новый столбец в конце строки
+        // If the new column is at the end of the line
         if (insert_pos >= col)
         {
             while (col < insert_pos)
@@ -124,7 +124,7 @@ void add_column_and_save(int insert_pos, const char *new_name, const char *csv_f
                 new_line[pos++] = ',';
                 col++;
             }
-            new_line[pos++] = ','; // запятая перед новым значением
+            new_line[pos++] = ','; // comma before the new value
             const char *val = (r == 0 && use_headers) ? new_name : "";
             strcpy(new_line + pos, val);
             pos += strlen(val);
@@ -136,7 +136,7 @@ void add_column_and_save(int insert_pos, const char *new_name, const char *csv_f
 
     fclose(out);
 
-    // Заменяем оригинальный файл
+    // Replace the original file
     if (rename(temp_name, csv_filename) != 0)
     {
         mvprintw(LINES - 1, 0, "Failed to rename temp file");
@@ -145,7 +145,7 @@ void add_column_and_save(int insert_pos, const char *new_name, const char *csv_f
         return;
     }
 
-    // Переиндексация offsets и кэша
+    // Re-index offsets and cache
     free(rows);
     rows = NULL;
     row_count = 0;
@@ -172,13 +172,13 @@ void add_column_and_save(int insert_pos, const char *new_name, const char *csv_f
         row_count++;
     }
 
-    // Сохраняем новые настройки
+    // Save new settings
     save_column_settings(csv_filename);
     refresh();
 }
 
 // ────────────────────────────────────────────────
-// Заполнение столбца значениями
+// Fill a column with values
 // ────────────────────────────────────────────────
 
 static void fill_progress(const char *msg) {
@@ -201,7 +201,7 @@ void fill_column(int col_idx, const char *arg, const char *csv_filename)
     int start = 0;
     int step = 1;
 
-    // Парсим аргумент
+    // Parse the argument
     if (arg[0] == '"' && arg[strlen(arg)-1] == '"')
     {
         strncpy(value, arg + 1, strlen(arg) - 2);
@@ -293,7 +293,7 @@ void fill_column(int col_idx, const char *arg, const char *csv_filename)
         long done = 0, errors = 0;
 
         for (int r = row_start; r < row_count; r++) {
-            /* lazy load — всегда нужен для save даже для строк вне вида */
+            /* lazy load — always needed for save even for rows outside the view */
             if (!rows[r].line_cache) {
                 fseek(f, rows[r].offset, SEEK_SET);
                 char ln_buf[MAX_LINE_LEN];
@@ -307,7 +307,7 @@ void fill_column(int col_idx, const char *arg, const char *csv_filename)
 
             int di = row_to_disp[r];
 
-            /* строки вне текущего вида не трогаем — сохраняем исходное содержимое */
+            /* rows outside the current view are left unchanged — preserve original content */
             if (di < 0) {
                 done++;
                 continue;
@@ -317,7 +317,7 @@ void fill_column(int col_idx, const char *arg, const char *csv_filename)
             {
                 double result;
                 if (formula_eval_row(fml, r, di, rows[r].line_cache, &result) == 0) {
-                    /* формат: целое если без дроби, иначе до 10 значащих цифр */
+                    /* format: integer if no fractional part, otherwise up to 10 significant digits */
                     if (result == floor(result) && fabs(result) < 1e15)
                         snprintf(temp_val, sizeof(temp_val), "%.0f", result);
                     else
@@ -327,7 +327,7 @@ void fill_column(int col_idx, const char *arg, const char *csv_filename)
                 }
             }
 
-            /* реконструируем строку с temp_val в col_idx */
+            /* reconstruct the line with temp_val at col_idx */
             char new_line[MAX_LINE_LEN * 2] = {0};
             int  pos = 0;
             const char *p = rows[r].line_cache;
@@ -386,14 +386,14 @@ void fill_column(int col_idx, const char *arg, const char *csv_filename)
         goto save_and_reindex;
     }
 
-    // Заполняем столбец (text / num modes)
+    // Fill the column (text / num modes)
     {
     int row_start = use_headers ? 1 : 0;
     int num = start;
 
     for (int r = row_start; r < row_count; r++)
     {
-        // Ленивая загрузка строки
+        // Lazy-load the row
         if (!rows[r].line_cache)
         {
             fseek(f, rows[r].offset, SEEK_SET);
@@ -409,7 +409,7 @@ void fill_column(int col_idx, const char *arg, const char *csv_filename)
             }
         }
 
-        // Формируем новую строку с заменённым значением
+        // Build the new line with the replaced value
         char new_line[MAX_LINE_LEN * 2] = {0};
         int pos = 0;
         const char *p = rows[r].line_cache;
@@ -420,7 +420,7 @@ void fill_column(int col_idx, const char *arg, const char *csv_filename)
         {
             if (current_col == col_idx)
             {
-                // Пропускаем старое значение (до запятой или конца)
+                // Skip the old value (up to comma or end of line)
                 while (*p)
                 {
                     if (*p == '"' && !in_quotes) in_quotes = 1;
@@ -432,7 +432,7 @@ void fill_column(int col_idx, const char *arg, const char *csv_filename)
                     p++;
                 }
 
-                // Вставляем новое значение
+                // Insert the new value
                 char temp_val[256];
                 if (strncmp(arg, "num(", 4) == 0)
                 {
@@ -448,14 +448,14 @@ void fill_column(int col_idx, const char *arg, const char *csv_filename)
                 strcpy(new_line + pos, temp_val);
                 pos += strlen(temp_val);
 
-                // Запятая после значения (если не последний столбец)
+                // Comma after the value (if not the last column)
                 if (current_col < col_count - 1) {
                     new_line[pos++] = ',';
                 }
             }
             else
             {
-                // Копируем поле как есть
+                // Copy the field as-is
                 while (*p)
                 {
                     if (*p == '"' && !in_quotes) in_quotes = 1;
@@ -471,7 +471,7 @@ void fill_column(int col_idx, const char *arg, const char *csv_filename)
             current_col++;
         }
 
-        // Если столбец в конце строки
+        // If the column is at the end of the line
         if (current_col <= col_idx)
         {
             while (current_col < col_idx)
@@ -502,14 +502,14 @@ void fill_column(int col_idx, const char *arg, const char *csv_filename)
 
         new_line[pos] = '\0';
 
-        // Заменяем кэш строки
+        // Replace the row cache
         free(rows[r].line_cache);
         rows[r].line_cache = strdup(new_line);
     }
     } /* end text/num block */
 
     save_and_reindex:
-    // Сохраняем изменения в файл
+    // Save changes to file
     if (save_file(csv_filename, f, rows, row_count) != 0)
     {
         mvprintw(LINES - 1, 0, "Failed to save file");
@@ -518,7 +518,7 @@ void fill_column(int col_idx, const char *arg, const char *csv_filename)
         return;
     }
 
-    // Переиндексация offsets и кэша
+    // Re-index offsets and cache
     free(rows);
     rows = NULL;
     row_count = 0;
@@ -550,12 +550,12 @@ void fill_column(int col_idx, const char *arg, const char *csv_filename)
 }
 
 // ────────────────────────────────────────────────
-// Удаление столбца
+// Delete a column
 // ────────────────────────────────────────────────
 
 void delete_column(int col_idx, const char *arg, const char *csv_filename)
 {
-    // Проверка, что курсор на нужном столбце (если arg передан)
+    // Check that the cursor is on the expected column (if arg is provided)
     if (arg && *arg)
     {
         const char *current_name = (use_headers && column_names[col_idx]) ? column_names[col_idx] : "";
@@ -572,10 +572,10 @@ void delete_column(int col_idx, const char *arg, const char *csv_filename)
         }
     }
 
-    // Освобождаем имя столбца
+    // Free the column name
     free(column_names[col_idx]);
 
-    // Сдвигаем массивы влево
+    // Shift arrays to the left
     for (int i = col_idx; i < col_count - 1; i++)
     {
         column_names[i] = column_names[i + 1];
@@ -586,10 +586,10 @@ void delete_column(int col_idx, const char *arg, const char *csv_filename)
 
     col_count--;
 
-    // Перемещаем курсор на предыдущий столбец
+    // Move cursor to the previous column
     if (cur_col > 0) cur_col--;
 
-    // Перезаписываем файл без удалённого столбца
+    // Rewrite the file without the deleted column
     char temp_name[1024];
     snprintf(temp_name, sizeof(temp_name), "%s.tmp", csv_filename);
 
@@ -604,7 +604,7 @@ void delete_column(int col_idx, const char *arg, const char *csv_filename)
 
     for (int r = 0; r < row_count; r++)
     {
-        char buf[MAX_LINE_LEN];  /* объявлен здесь — действует весь цикл */
+        char buf[MAX_LINE_LEN];  /* declared here — valid for the entire loop */
         const char *line = rows[r].line_cache ? rows[r].line_cache : "";
         if (!rows[r].line_cache)
         {
@@ -619,7 +619,7 @@ void delete_column(int col_idx, const char *arg, const char *csv_filename)
             }
         }
 
-        // Формируем новую строку без col_idx
+        // Build the new line without col_idx
         char new_line[MAX_LINE_LEN * 2] = {0};
         int pos = 0;
         const char *p = line;
@@ -630,7 +630,7 @@ void delete_column(int col_idx, const char *arg, const char *csv_filename)
         {
             if (current_col == col_idx)
             {
-                // Пропускаем удаляемый столбец
+                // Skip the column being deleted
                 while (*p)
                 {
                     if (*p == '"' && !in_quotes) in_quotes = 1;
@@ -644,7 +644,7 @@ void delete_column(int col_idx, const char *arg, const char *csv_filename)
             }
             else
             {
-                // Копируем поле
+                // Copy the field
                 while (*p)
                 {
                     if (*p == '"' && !in_quotes) in_quotes = 1;
@@ -666,7 +666,7 @@ void delete_column(int col_idx, const char *arg, const char *csv_filename)
 
     fclose(out);
 
-    // Заменяем оригинальный файл
+    // Replace the original file
     if (rename(temp_name, csv_filename) != 0)
     {
         mvprintw(LINES - 1, 0, "Failed to rename temp file");
@@ -675,7 +675,7 @@ void delete_column(int col_idx, const char *arg, const char *csv_filename)
         return;
     }
 
-    // Переиндексация offsets
+    // Re-index offsets
     free(rows);
     rows = NULL;
     row_count = 0;
@@ -708,7 +708,7 @@ void delete_column(int col_idx, const char *arg, const char *csv_filename)
 }
 
 // ────────────────────────────────────────────────
-// Пересборка заголовка после изменения имён столбцов
+// Rebuild the header row after column renames
 // ────────────────────────────────────────────────
 
 void rebuild_header_row(void)

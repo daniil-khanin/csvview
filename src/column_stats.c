@@ -1,22 +1,22 @@
 /**
  * column_stats.c
  *
- * Реализация окна статистики по столбцу с расчётом всех метрик
+ * Implementation of the column statistics window with calculation of all metrics
  */
 
 #include "column_stats.h"
-#include "utils.h"          // get_column_value, trim, col_letter и т.д.
+#include "utils.h"          // get_column_value, trim, col_letter, etc.
 #include "csv_mmap.h"
 
-#include <ncurses.h>        // newwin, mvwprintw, wrefresh и т.д.
+#include <ncurses.h>        // newwin, mvwprintw, wrefresh, etc.
 #include <stdlib.h>         // malloc, realloc, free, qsort
 #include <string.h>         // strcpy, strncpy, strcmp, strlen
 #include <stdio.h>          // snprintf, sscanf
 #include <math.h>           // INFINITY, strtod
-#include <limits.h>         // для INT_MAX/INT_MIN если нужно
+#include <limits.h>         // for INT_MAX/INT_MIN if needed
 
 // ────────────────────────────────────────────────
-// Вспомогательные структуры (только внутри модуля)
+// Helper structures (internal to this module only)
 // ────────────────────────────────────────────────
 
 typedef struct {
@@ -27,7 +27,7 @@ typedef struct {
 typedef struct {
     char label[16];
     long count;
-    int sort_key;           // для сортировки: year*100 + month и т.д.
+    int sort_key;           // for sorting: year*100 + month, etc.
 } DateGroup;
 
 #define MAX_UNIQUE 100000
@@ -78,17 +78,17 @@ static int freq_lookup_insert(Freq *freqs, long *freq_count, long *ht, const cha
 }
 
 // ────────────────────────────────────────────────
-// Основная функция статистики столбца
+// Main column statistics function
 // ────────────────────────────────────────────────
 
 void show_column_stats(int col_idx)
 {
-    // Проверка корректности столбца
+    // Validate column index
     if (col_idx < 0 || col_idx >= col_count) {
         return;
     }
 
-    // Создаём центрированное окно статистики
+    // Create a centered statistics window
     int sy = (LINES - STATS_H) / 2;
     int sx = (COLS - STATS_W) / 2;
     WINDOW *win = newwin(STATS_H, STATS_W, sy, sx);
@@ -102,12 +102,12 @@ void show_column_stats(int col_idx)
     box(win, 0, 0);
     wattroff(win, COLOR_PAIR(6));
 
-    // Заголовок окна
+    // Window title
     wattron(win, COLOR_PAIR(3) | A_BOLD);
     mvwprintw(win, 0, (STATS_W - 20) / 2, " Column Statistics ");
     wattroff(win, COLOR_PAIR(3) | A_BOLD);
 
-    // Имя столбца
+    // Column name
     char col_name[64];
     if (use_headers && column_names[col_idx]) {
         strncpy(col_name, column_names[col_idx], sizeof(col_name)-1);
@@ -123,17 +123,17 @@ void show_column_stats(int col_idx)
 
     wrefresh(win);
 
-    // Показываем текущий фильтр, если он активен
+    // Show current filter if one is active
     if (filter_active && filter_query[0] != '\0') {
         char filtered_str[128];
         snprintf(filtered_str, sizeof(filtered_str), "Filtered by: %s", filter_query);
-        wattron(win, COLOR_PAIR(5));  // Цвет ввода фильтра (замени на свой)
+        wattron(win, COLOR_PAIR(5));  // Filter input color (replace with your own)
         mvwprintw(win, 2, 2, "%s", filtered_str);
         wattroff(win, COLOR_PAIR(5));
     }
 
     // ────────────────────────────────────────────────
-    // Подсчёт статистики — один проход по всем видимым строкам
+    // Calculate statistics — single pass over all visible rows
     // ────────────────────────────────────────────────
 
     long total_cells = row_count - (use_headers ? 1 : 0);
@@ -147,19 +147,19 @@ void show_column_stats(int col_idx)
     double min_val = INFINITY;
     double max_val = -INFINITY;
 
-    // Для чисел — сохраняем только валидные значения (для медианы и гистограммы)
+    // For numbers — store only valid values (for median and histogram)
     double *numeric_values = NULL;
     long numeric_capacity = 0;
     long numeric_count = 0;
 
-    // Для дат — частоты по месяцам
+    // For dates — frequency counts by month
     #define MAX_DATE_GROUPS 360
     DateGroup monthly_groups[MAX_DATE_GROUPS];
     int monthly_group_count = 0;
     int min_year = 9999, min_month = 99;
     int max_year = 0, max_month = 0;
 
-    // Частоты для топ-10 и моды (всегда как строки)
+    // Frequencies for top-10 and mode (always as strings)
     Freq *freqs = calloc(MAX_UNIQUE, sizeof(Freq));
     long freq_count = 0;
     /* Hash table for O(1) freq lookup (initialized to -1 = empty) */
@@ -195,12 +195,12 @@ void show_column_stats(int col_idx)
             }
         }
 
-        // Получаем значение ячейки
+        // Get cell value
         char *cell = get_column_value(rows[real_row].line_cache,
                                       column_names[col_idx] ? column_names[col_idx] : "",
                                       use_headers);
 
-        // Пустая или NULL ячейка
+        // Empty or NULL cell
         if (!cell || !*cell || strcmp(trim(cell), "") == 0)
         {
             empty_count++;
@@ -211,7 +211,7 @@ void show_column_stats(int col_idx)
 
         valid_count++;
 
-        // Частоты значений (всегда как строка)
+        // Value frequencies (always as string)
         if (freq_ht) {
             freq_lookup_insert(freqs, &freq_count, freq_ht, cell);
         } else {
@@ -227,7 +227,7 @@ void show_column_stats(int col_idx)
             }
         }
 
-        // ── Специальная обработка по типу столбца ──
+        // ── Type-specific processing ──
         if (col_types[col_idx] == COL_NUM)
         {
             char *endptr;
@@ -238,7 +238,7 @@ void show_column_stats(int col_idx)
                 if (val < min_val) min_val = val;
                 if (val > max_val) max_val = val;
 
-                // Сохраняем для медианы и гистограммы
+                // Store for median and histogram
                 if (numeric_count >= numeric_capacity)
                 {
                     long new_cap = numeric_capacity ? numeric_capacity * 2 : 32768;
@@ -262,7 +262,7 @@ void show_column_stats(int col_idx)
             if (sscanf(cell, "%d-%d", &year, &month) == 2 &&
                 year >= 1900 && year <= 9999 && month >= 1 && month <= 12)
             {
-                // Обновляем глобальный диапазон дат
+                // Update global date range
                 if (year < min_year || (year == min_year && month < min_month))
                 {
                     min_year = year;
@@ -274,11 +274,11 @@ void show_column_stats(int col_idx)
                     max_month = month;
                 }
 
-                // Ключ по месяцу
+                // Month key
                 char label[16];
                 snprintf(label, sizeof(label), "%04d-%02d", year, month);
 
-                // Добавляем или увеличиваем счётчик группы
+                // Add or increment group counter
                 int found = 0;
                 for (int g = 0; g < monthly_group_count; g++)
                 {
@@ -302,7 +302,7 @@ void show_column_stats(int col_idx)
         free(cell);
         count_processed++;
 
-        // Показываем прогресс обработки (каждые 1% для скорости)
+        // Show processing progress (every 1% for performance)
         if (count_processed % (total_cells / 100 + 1) == 0)
         {
             int pct = (int)((count_processed * 100LL) / total_cells);
@@ -314,10 +314,10 @@ void show_column_stats(int col_idx)
 skip_num_alloc:
 
     // ────────────────────────────────────────────────
-    // Сортировка частот (топ-10) и групп дат
+    // Sort frequencies (top-10) and date groups
     // ────────────────────────────────────────────────
 
-    // Сортируем частоты по убыванию (пузырьком — просто и достаточно)
+    // Sort frequencies in descending order (bubble sort — simple and sufficient)
     for (long i = 0; i < freq_count - 1; i++)
     {
         for (long j = i + 1; j < freq_count; j++)
@@ -331,7 +331,7 @@ skip_num_alloc:
         }
     }
 
-    // Сортируем месячные группы по времени
+    // Sort monthly groups chronologically
     for (int i = 0; i < monthly_group_count - 1; i++)
     {
         for (int j = i + 1; j < monthly_group_count; j++)
@@ -346,7 +346,7 @@ skip_num_alloc:
     }
 
     // ────────────────────────────────────────────────
-    // Вывод левой части — числовые метрики и топ-10
+    // Render left panel — numeric metrics and top-10
     // ────────────────────────────────────────────────
 
     int y = (filter_active && filter_query[0] != '\0') ? 4 : 3;
@@ -392,7 +392,7 @@ skip_num_alloc:
                   max_val > -INFINITY ? max_val : 0);
     }
 
-    // Топ-10 значений
+    // Top-10 values
     y += 1;
     mvwprintw(win, y++, 2, "Top 10 most frequent values:");
 
@@ -414,7 +414,7 @@ skip_num_alloc:
     }
 
     // ────────────────────────────────────────────────
-    // Правая часть — гистограмма
+    // Right panel — histogram
     // ────────────────────────────────────────────────
 
     int hist_y = (filter_active && filter_query[0] != '\0') ? 4 : 3;
@@ -467,9 +467,9 @@ skip_num_alloc:
     }
     else if (col_types[col_idx] == COL_DATE && monthly_group_count > 0)
     {
-        // Определяем масштаб группировки
+        // Determine grouping scale
         long total_months = (max_year - min_year) * 12LL + (max_month - min_month) + 1;
-        int group_type = 0; // 0=месяцы, 1=кварталы, 2=годы, 3=века
+        int group_type = 0; // 0=months, 1=quarters, 2=years, 3=centuries
 
         if (total_months <= 20) {
             group_type = 0;
@@ -481,7 +481,7 @@ skip_num_alloc:
             group_type = 3;
         }
 
-        // Агрегируем группы
+        // Aggregate groups
         DateGroup agg_groups[MAX_DATE_GROUPS];
         int agg_count = 0;
         memset(agg_groups, 0, sizeof(agg_groups));
@@ -530,7 +530,7 @@ skip_num_alloc:
             }
         }
 
-        // Сортируем агрегированные группы
+        // Sort aggregated groups
         for (int i = 0; i < agg_count - 1; i++)
         {
             for (int j = i + 1; j < agg_count; j++)
@@ -544,7 +544,7 @@ skip_num_alloc:
             }
         }
 
-        // Выводим агрегированные группы
+        // Render aggregated groups
         long max_bin = 0;
         for (int g = 0; g < agg_count; g++) {
             if (agg_groups[g].count > max_bin) max_bin = agg_groups[g].count;
@@ -574,15 +574,15 @@ skip_num_alloc:
         mvwprintw(win, hist_y++, hist_x, "(Not applicable for this column type)");
     }
 
-    // Подсказка закрытия
+    // Close hint
     mvwprintw(win, STATS_H - 2, 2, "Press any key to close");
     wrefresh(win);
 
-    // Ожидание нажатия клавиши
+    // Wait for keypress
     wgetch(win);
 
     // ────────────────────────────────────────────────
-    // Очистка памяти
+    // Free memory
     // ────────────────────────────────────────────────
 
     free(numeric_values);

@@ -1,83 +1,83 @@
 /**
  * search.h
  *
- * Интерфейс модуля поиска по содержимому таблицы CSV
- * Объявления функций выполнения поиска и перехода к результату
+ * Interface for the CSV table search module
+ * Declarations for search execution and navigation to a result
  */
 
 #ifndef SEARCH_H
 #define SEARCH_H
 
-#include "csvview_defs.h"   // RowIndex, SearchResult, search_results и глобальные переменные
-#include "utils.h"          // strcasestr_custom и т.д.
+#include "csvview_defs.h"   // RowIndex, SearchResult, search_results and global variables
+#include "utils.h"          // strcasestr_custom, etc.
 
 // ────────────────────────────────────────────────
-// Публичные функции модуля
+// Public module functions
 // ────────────────────────────────────────────────
 
 /**
- * @brief Выполняет поиск подстроки search_query по всем ячейкам таблицы
+ * @brief Searches for the substring search_query across all cells in the table
  *
- * Ищет регистронезависимо (strcasestr_custom) по всем ячейкам всех строк данных.
- * Результат сохраняется в глобальный массив search_results[] и search_count.
- * Каждый найденный результат — это пара (row, col).
+ * Searches case-insensitively (strcasestr_custom) across all cells of all data rows.
+ * Results are stored in the global array search_results[] and search_count.
+ * Each found result is a (row, col) pair.
  *
- * @param rows          Массив индексов строк (с offset и line_cache)
- * @param f             Открытый FILE* исходного CSV
- * @param row_count     Общее количество строк в файле (включая заголовок)
+ * @param rows          Array of row indices (with offset and line_cache)
+ * @param f             Open FILE* of the source CSV
+ * @param row_count     Total number of rows in the file (including the header)
  *
  * @note
- *   - Пропускает строку-заголовок (если use_headers == 1)
- *   - Лениво загружает строки в line_cache, если их ещё нет
- *   - Ограничивает количество результатов до MAX_SEARCH_RESULTS
- *   - После вызова search_count и search_results готовы к использованию
- *   - search_index сбрасывается в -1 (нет текущего результата)
+ *   - Skips the header row (if use_headers == 1)
+ *   - Lazily loads rows into line_cache if not already cached
+ *   - Limits the number of results to MAX_SEARCH_RESULTS
+ *   - After the call, search_count and search_results are ready to use
+ *   - search_index is reset to -1 (no current result)
  *
  * @warning
- *   - Зависит от глобальных: search_query, search_results, search_count, search_index,
+ *   - Depends on globals: search_query, search_results, search_count, search_index,
  *     use_headers, col_count, MAX_SEARCH_RESULTS
- *   - Может загрузить много строк в кэш при большом файле и коротком запросе
- *   - Не учитывает активный фильтр — ищет по всему файлу
+ *   - May load many rows into cache for large files with short queries
+ *   - Does not consider the active filter — searches the entire file
  *
  * @see
- *   - goto_search_result() — переход к найденному результату
- *   - strcasestr_custom() — регистронезависимый поиск подстроки
+ *   - goto_search_result() — navigate to a found result
+ *   - strcasestr_custom() — case-insensitive substring search
  */
 void perform_search(RowIndex *rows, FILE *f, int row_count);
 
 /**
- * @brief Переходит к указанному результату поиска и прокручивает таблицу
+ * @brief Navigates to the specified search result and scrolls the table
  *
- * Устанавливает курсор на найденную ячейку (search_results[index]),
- * корректирует видимую область (top_display_row, left_col),
- * чтобы целевая строка была примерно посередине экрана.
+ * Moves the cursor to the found cell (search_results[index]),
+ * adjusts the visible area (top_display_row, left_col)
+ * so that the target row is approximately in the middle of the screen.
  *
- * Учитывает:
- *   - активный фильтр (ищет позицию в filtered_rows[])
- *   - наличие заголовка (use_headers)
+ * Takes into account:
+ *   - active filter (looks up position in filtered_rows[])
+ *   - presence of a header (use_headers)
  *
- * @param index             Индекс результата в search_results[] (0..search_count-1)
- * @param cur_display_row   [out] Указатель на текущую видимую позицию курсора
- * @param top_display_row   [out] Указатель на первую видимую строку
- * @param cur_col           [out] Указатель на текущий столбец
- * @param left_col          [out] Указатель на левый видимый столбец
- * @param visible_rows      Количество видимых строк на экране
- * @param visible_cols      Количество видимых столбцов на экране
- * @param row_count         Общее количество строк в файле
+ * @param index             Index of the result in search_results[] (0..search_count-1)
+ * @param cur_display_row   [out] Pointer to the current visible cursor position
+ * @param top_display_row   [out] Pointer to the first visible row
+ * @param cur_col           [out] Pointer to the current column
+ * @param left_col          [out] Pointer to the leftmost visible column
+ * @param visible_rows      Number of visible rows on screen
+ * @param visible_cols      Number of visible columns on screen
+ * @param row_count         Total number of rows in the file
  *
  * @note
- *   - Если index некорректен — функция просто возвращается
- *   - Если строка не прошла текущий фильтр — не прыгает
- *   - Прокрутка центрирует строку по вертикали и горизонтали
+ *   - If index is out of range — the function simply returns
+ *   - If the row did not pass the current filter — does not jump
+ *   - Scrolling centers the row vertically and horizontally
  *
  * @warning
- *   - Зависит от глобальных: search_results, search_index, filter_active,
+ *   - Depends on globals: search_results, search_index, filter_active,
  *     filtered_rows, filtered_count, use_headers, col_count
- *   - НЕ проверяет, что visible_rows/visible_cols корректны (предполагается, что да)
+ *   - Does NOT validate that visible_rows/visible_cols are valid (assumes they are)
  *
  * @see
- *   - perform_search() — заполняет массив результатов
- *   - draw_table_body() — использует обновлённые cur_display_row и top_display_row
+ *   - perform_search() — populates the results array
+ *   - draw_table_body() — uses the updated cur_display_row and top_display_row
  */
 void goto_search_result(int index,
                         int *cur_display_row,

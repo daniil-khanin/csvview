@@ -2,21 +2,21 @@
 #define SPLIT_FILE_H
 
 /**
- * Разбивает один CSV-файл на несколько по уникальным значениям столбца.
+ * Splits one CSV file into multiple files based on unique values of a column.
  *
- * Использование:
+ * Usage:
  *   csvview --split --by=region sales.csv
- *   csvview --split --by=2 sales.csv              (2 = номер столбца, 1-based)
+ *   csvview --split --by=2 sales.csv              (2 = column number, 1-based)
  *   csvview --split --by=region --output-dir=./parts sales.csv
  *
- * Каждый выходной файл: <basename>_<value>.csv
- * Заголовок копируется в каждый выходной файл.
+ * Each output file: <basename>_<value>.csv
+ * The header is copied to every output file.
  *
- * @param input_path   путь к входному CSV файлу
- * @param by_col       имя столбца или его номер (1-based) для группировки
- * @param output_dir   каталог для выходных файлов (NULL = рядом с входным)
- * @param drop_col     1 — удалить столбец-разделитель из выходных файлов, 0 — оставить
- * @return 0 — успех, иначе код ошибки
+ * @param input_path   path to the input CSV file
+ * @param by_col       column name or column number (1-based) to group by
+ * @param output_dir   directory for output files (NULL = same directory as the input)
+ * @param drop_col     1 — remove the split column from output files, 0 — keep it
+ * @return 0 — success, otherwise an error code
  */
 int split_file(const char *input_path, const char *by_col, const char *output_dir, int drop_col);
 

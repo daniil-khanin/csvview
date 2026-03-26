@@ -22,25 +22,25 @@ double parse_double(const char *s, char **endptr)
 }
 
 /**
- * @brief Преобразует номер столбца (0-based) в буквенное обозначение Excel-стиля
+ * @brief Converts a column number (0-based) to an Excel-style letter designation
  *
- * Преобразует целочисленный индекс столбца (начиная с 0) в строку вида:
+ * Converts an integer column index (starting from 0) to a string of the form:
  *   0  → "A"
  *   1  → "B"
  *   25 → "Z"
  *   26 → "AA"
- *   702 → "AAA"  и т.д.
+ *   702 → "AAA"  etc.
  *
- * @param col       Номер столбца (0 = A, 1 = B, ..., 25 = Z, 26 = AA, ...)
- *                  Если col < 0 — функция просто очищает буфер и возвращается
- * @param buf       Указатель на буфер, куда будет записан результат (строка с нулевым терминатором)
- *                  Буфер должен быть достаточно большим (рекомендуется ≥ 16 байт)
+ * @param col       Column number (0 = A, 1 = B, ..., 25 = Z, 26 = AA, ...)
+ *                  If col < 0 — the function simply clears the buffer and returns
+ * @param buf       Pointer to the buffer where the result will be written (null-terminated string)
+ *                  The buffer must be large enough (recommended ≥ 16 bytes)
  *
  * @note
- *   - Функция записывает результат в виде строки в верхнем регистре
- *   - Максимально поддерживаемый номер столбца зависит от размера буфера
- *     (при buf[16] — до "XFD" ≈ 16383 столбец, как в Excel 2007+)
- *   - Если передан отрицательный номер — буфер очищается (пустая строка)
+ *   - The function writes the result as an uppercase string
+ *   - The maximum supported column number depends on the buffer size
+ *     (with buf[16] — up to "XFD" ≈ column 16383, as in Excel 2007+)
+ *   - If a negative number is passed — the buffer is cleared (empty string)
  *
  * @example
  *   char buf[16];
@@ -50,8 +50,8 @@ double parse_double(const char *s, char **endptr)
  *   col_letter(701, buf); // buf → "ZZ"
  *   col_letter(702, buf); // buf → "AAA"
  *
- * @warning Буфер должен быть инициализирован и иметь размер не менее 8–16 байт
- *          в зависимости от того, насколько большие номера столбцов вы ожидаете.
+ * @warning The buffer must be initialised and at least 8–16 bytes in size
+ *          depending on how large the column numbers you expect are.
  */
 void col_letter(int col, char *buf)
 {
@@ -61,14 +61,14 @@ void col_letter(int col, char *buf)
     char temp[16];
     int i = 0;
 
-    // Преобразуем число в систему счисления base-26, но с особенностью Excel:
-    // нет "нулевого" символа, поэтому делаем col / 26 - 1
+    // Convert the number to base-26, but with the Excel quirk:
+    // there is no "zero" digit, so we do col / 26 - 1
     do {
         temp[i++] = 'A' + (col % 26);
         col = col / 26 - 1;
     } while (col >= 0);
 
-    // Разворачиваем результат (т.к. мы собирали символы с младшего разряда)
+    // Reverse the result (since we collected characters from the least significant digit)
     int j = 0;
     while (i > 0) {
         buf[j++] = temp[--i];
@@ -77,10 +77,10 @@ void col_letter(int col, char *buf)
 }
 
 /**
- * @brief Преобразует буквенное обозначение столбца Excel-стиля в его числовой индекс (0-based)
+ * @brief Converts an Excel-style column letter designation to its numeric index (0-based)
  *
- * Преобразует строку вида "A", "B", "Z", "AA", "AB", "ZZ", "AAA" и т.д. в номер столбца,
- * где:
+ * Converts a string such as "A", "B", "Z", "AA", "AB", "ZZ", "AAA", etc. to a column number,
+ * where:
  *   "A"   → 0
  *   "B"   → 1
  *   "Z"   → 25
@@ -89,19 +89,19 @@ void col_letter(int col, char *buf)
  *   "ZZ"  → 701
  *   "AAA" → 702
  *
- * @param label     Указатель на строку с обозначением столбца (например "AB", "ZZ")
- *                  Допускаются только заглавные буквы A–Z
- *                  Пустая строка или NULL → возврат -1
+ * @param label     Pointer to a string with the column designation (e.g. "AB", "ZZ")
+ *                  Only uppercase letters A–Z are accepted
+ *                  Empty string or NULL → returns -1
  *
  * @return
- *   ≥ 0    — успешное преобразование, номер столбца (0-based)
- *   -1     — ошибка: неверный формат, пустая строка, содержит недопустимые символы
+ *   ≥ 0    — successful conversion, column number (0-based)
+ *   -1     — error: invalid format, empty string, or contains disallowed characters
  *
  * @note
- *   - Функция строго проверяет, что строка состоит ТОЛЬКО из заглавных букв A–Z
- *   - Алгоритм соответствует системе нумерации столбцов Microsoft Excel / Google Sheets
- *   - Максимально допустимое значение зависит от длины строки и размера int
- *     (при 32-битном int обычно до ~7 букв ≈ столбец 8 млрд)
+ *   - The function strictly checks that the string consists ONLY of uppercase letters A–Z
+ *   - The algorithm matches the column numbering used by Microsoft Excel / Google Sheets
+ *   - The maximum allowed value depends on the string length and the size of int
+ *     (with a 32-bit int typically up to ~7 letters ≈ column 8 billion)
  *
  * @example
  *   col_to_num("A")    // → 0
@@ -110,132 +110,132 @@ void col_letter(int col, char *buf)
  *   col_to_num("AZ")   // → 51
  *   col_to_num("ZZ")   // → 701
  *   col_to_num("AAA")  // → 702
- *   col_to_num("abc")  // → -1 (маленькие буквы)
- *   col_to_num("A1")   // → -1 (цифры недопустимы)
+ *   col_to_num("abc")  // → -1 (lowercase letters)
+ *   col_to_num("A1")   // → -1 (digits not allowed)
  *   col_to_num("")     // → -1
  *   col_to_num(NULL)   // → -1
  *
- * @see col_letter() — обратная функция (число → буквы)
+ * @see col_letter() — inverse function (number → letters)
  */
 int col_to_num(const char *label)
 {
-    // Проверка на NULL или пустую строку
+    // Guard against NULL or empty string
     if (!label || !*label) {
         return -1;
     }
 
     int num = 0;
 
-    // Проходим по каждому символу строки
+    // Iterate over each character of the string
     while (*label) {
-        // Проверяем, что символ — строго заглавная буква A–Z
+        // Check that the character is strictly an uppercase letter A–Z
         if (*label < 'A' || *label > 'Z') {
             return -1;
         }
 
-        // Преобразуем в систему счисления base-26
+        // Convert to base-26
         // ('A' = 1, 'B' = 2, ..., 'Z' = 26)
         num = num * 26 + (*label - 'A' + 1);
         label++;
     }
 
-    // Excel-нумерация начинается с 1 внутри системы base-26,
-    // поэтому отнимаем 1, чтобы получить 0-based индекс
+    // Excel numbering starts at 1 inside the base-26 system,
+    // so subtract 1 to get a 0-based index
     return num - 1;
 }
 
 /**
- * @brief Находит номер столбца (0-based) по его текстовому имени (заголовку)
+ * @brief Finds a column number (0-based) by its text name (header)
  *
- * Производит поиск среди всех известных имён столбцов (из заголовка CSV-файла)
- * и возвращает индекс первого столбца, у которого имя совпадает с переданной строкой.
- * Сравнение выполняется с учётом регистра (case-sensitive).
+ * Searches among all known column names (from the CSV file header)
+ * and returns the index of the first column whose name matches the given string.
+ * The comparison is case-sensitive.
  *
- * @param name      Указатель на строку с именем столбца (например "Дата", "Revenue", "User_ID")
- *                  Если name == NULL или строка пустая — функция вернёт -1
+ * @param name      Pointer to a string with the column name (e.g. "Date", "Revenue", "User_ID")
+ *                  If name == NULL or the string is empty — the function returns -1
  *
  * @return
- *   ≥ 0    — индекс столбца (0-based), у которого совпадает имя
- *   -1     — столбец с таким именем не найден (или name == NULL / пустая строка)
+ *   ≥ 0    — column index (0-based) whose name matches
+ *   -1     — no column with that name was found (or name == NULL / empty string)
  *
  * @note
- *   - Функция работает только если заголовки столбцов были успешно прочитаны
- *     (т.е. массив column_names[] заполнен, а col_count > 0)
- *   - Сравнение строгое: strcmp() → различает "revenue" и "Revenue"
- *   - Если в таблице несколько столбцов с одинаковым именем — возвращается первый найденный
- *   - Используется в фильтрах, командах :cf, :cal, :fq и других местах, где нужно
- *     обращаться к столбцу по человеческому имени, а не по букве (A/B/C)
+ *   - The function only works if column headers have been successfully read
+ *     (i.e. the column_names[] array is populated and col_count > 0)
+ *   - The comparison is strict: strcmp() → distinguishes "revenue" from "Revenue"
+ *   - If the table has multiple columns with the same name — the first match is returned
+ *   - Used in filters, :cf, :cal, :fq commands and other places where a column must be
+ *     referenced by its human-readable name rather than a letter (A/B/C)
  *
  * @example
- *   // Предположим, заголовки: "ID", "Name", "Price", "Date"
+ *   // Assume headers: "ID", "Name", "Price", "Date"
  *   col_name_to_num("Price")   // → 2
- *   col_name_to_num("DATE")    // → -1 (регистр не совпадает)
- *   col_name_to_num("id")      // → -1 (регистр не совпадает)
+ *   col_name_to_num("DATE")    // → -1 (case mismatch)
+ *   col_name_to_num("id")      // → -1 (case mismatch)
  *   col_name_to_num("Unknown") // → -1
  *   col_name_to_num("")        // → -1
  *   col_name_to_num(NULL)      // → -1
  *
  * @see
- *   - col_to_num()     — преобразование буквенного обозначения "AA" → номер
- *   - get_column_value() — получение значения ячейки по имени столбца
+ *   - col_to_num()     — convert letter designation "AA" → number
+ *   - get_column_value() — get a cell value by column name
  */
 int col_name_to_num(const char *name)
 {
-    // Быстрая защита от некорректного ввода
+    // Fast guard against invalid input
     if (!name || !*name) {
         return -1;
     }
 
-    // Линейный поиск по массиву имён столбцов
+    // Linear search through the column name array
     for (int c = 0; c < col_count; c++) {
-        // Проверяем, что имя столбца существует и совпадает
+        // Check that the column name exists and matches
         if (column_names[c] && strcmp(column_names[c], name) == 0) {
-            return c;  // Нашли — возвращаем индекс (0-based)
+            return c;  // Found — return index (0-based)
         }
     }
 
-    // Не нашли ни одного совпадения
+    // No match found
     return -1;
 }
 
 /**
- * @brief Сохраняет текущее состояние таблицы (все строки) в указанный CSV-файл
+ * @brief Saves the current state of the table (all rows) to the specified CSV file
  *
- * Создаёт временный файл, записывает в него все строки из индекса `rows`,
- * затем атомарно заменяет оригинальный файл на новый с помощью rename().
- * 
- * Если у строки есть кэш (`line_cache`), используется он.
- * Если кэша нет — строка читается из оригинального файла по смещению `offset`.
+ * Creates a temporary file, writes all rows from the `rows` index into it,
+ * then atomically replaces the original file with the new one using rename().
  *
- * @param filename      Полный путь к целевому CSV-файлу (куда сохраняем)
- * @param orig_f        Открытый FILE* исходного файла (нужен для чтения строк,
- *                      у которых ещё нет line_cache). Должен быть открыт в режиме "r".
- * @param rows          Массив индексов строк (RowIndex), содержащий либо кэш строки,
- *                      либо смещение в исходном файле
- * @param row_count     Количество строк в массиве rows, которые нужно сохранить
- *                      (обычно равно глобальной переменной row_count)
+ * If a row has a cache (`line_cache`), that is used.
+ * If there is no cache — the row is read from the original file at the stored `offset`.
+ *
+ * @param filename      Full path to the target CSV file (where we save)
+ * @param orig_f        Open FILE* of the source file (needed to read rows that do not
+ *                      yet have a line_cache). Must be opened in "r" mode.
+ * @param rows          Array of row indices (RowIndex), containing either a cached row
+ *                      or an offset into the source file
+ * @param row_count     Number of rows in the rows array to save
+ *                      (usually equals the global variable row_count)
  *
  * @return
- *    0    — успех: файл успешно перезаписан
- *   -1    — ошибка:
- *           • не удалось создать/открыть временный файл
- *           • ошибка чтения из orig_f (fseek/fgets)
- *           • не удалось переименовать временный файл в целевой (rename)
+ *    0    — success: file was successfully rewritten
+ *   -1    — error:
+ *           • could not create/open the temporary file
+ *           • read error from orig_f (fseek/fgets)
+ *           • could not rename the temporary file to the target (rename)
  *
  * @note
- *   - Функция **атомарна** на уровне файловой системы благодаря rename()
- *     (либо старый файл остаётся, либо сразу появляется новый)
- *   - Все строки записываются с добавлением '\n' в конец
- *   - Если строка была пустой или не прочиталась → записывается пустая строка + '\n'
- *   - Оригинальный файл **не закрывается** внутри функции — ответственность вызывающего кода
- *   - Используется при:
- *     • удалении строк (:dr)
- *     • переименовании столбца (:cr)
- *     • изменении содержимого столбца (:cf)
- *     • добавлении столбца (:cal / :car)
+ *   - The function is **atomic** at the filesystem level thanks to rename()
+ *     (either the old file remains, or the new one appears immediately)
+ *   - All rows are written with a trailing '\n'
+ *   - If a row was empty or could not be read → an empty string + '\n' is written
+ *   - The original file is **not closed** inside the function — that is the caller's responsibility
+ *   - Used when:
+ *     • deleting rows (:dr)
+ *     • renaming a column (:cr)
+ *     • modifying column content (:cf)
+ *     • adding a column (:cal / :car)
  *
  * @example
- *    // Пример: сохранить все строки после удаления одной
+ *    // Example: save all rows after deleting one
  *    if (save_file("data.csv", original_file, rows, new_row_count) == 0) {
  *        printf("File saved successfully\n");
  *    } else {
@@ -243,14 +243,14 @@ int col_name_to_num(const char *name)
  *    }
  *
  * @warning
- *   - Если orig_f повреждён или смещения в rows некорректны — часть строк может быть потеряна
- *   - Не проверяется, существует ли директория и есть ли права на запись
- *   - При ошибке rename() временный файл (.tmp) остаётся на диске
- *     (рекомендуется в вызывающем коде удалять его при ошибке)
+ *   - If orig_f is corrupt or offsets in rows are invalid — some rows may be lost
+ *   - Does not check whether the directory exists or whether write permission is granted
+ *   - On rename() failure the temporary file (.tmp) remains on disk
+ *     (it is recommended to delete it in the calling code on error)
  *
  * @see
- *   - load_saved_filters(), save_filter() — похожая логика работы с конфигом
- *   - apply_filter(), build_sorted_index() — часто вызывают save_file после изменений
+ *   - load_saved_filters(), save_filter() — similar logic for working with config
+ *   - apply_filter(), build_sorted_index() — often call save_file after changes
  */
 int save_file(const char *filename, FILE *orig_f, RowIndex *rows, int row_count)
 {
@@ -264,82 +264,83 @@ int save_file(const char *filename, FILE *orig_f, RowIndex *rows, int row_count)
 
     for (int r = 0; r < row_count; r++)
     {
-        /* buf объявлен здесь — действует весь цикл, line не станет visage-указателем */
+        /* buf is declared here — valid for the whole loop, line will not become a dangling pointer */
         char buf[MAX_LINE_LEN];
         const char *line = rows[r].line_cache ? rows[r].line_cache : "";
 
-        // Если кэша нет — читаем строку из оригинального файла
+        // If there is no cache — read the row from the original file
         if (!rows[r].line_cache)
         {
             if (fseek(orig_f, rows[r].offset, SEEK_SET) == 0)
             {
                 if (fgets(buf, sizeof(buf), orig_f))
                 {
-                    // Убираем \r\n (fprintf ниже сам добавит \n)
+                    // Strip \r\n (fprintf below will add \n itself)
                     buf[strcspn(buf, "\r\n")] = '\0';
                     line = buf;
                 }
             }
         }
 
-        // Записываем строку + перевод строки
+        // Write the row + newline
         fprintf(out, "%s\n", line);
     }
 
     fclose(out);
 
-    // Атомарная замена оригинального файла
+    // Atomically replace the original file
     if (rename(temp_name, filename) == 0) {
         return 0;
     }
 
-    // Если rename не удался — временный файл остаётся
+    // If rename failed — the temporary file remains
     return -1;
 }
 
 /**
- * @brief Регистронезависимый поиск подстроки (аналог strcasestr, но portable-версия)
+ * @brief Case-insensitive substring search (portable equivalent of strcasestr)
  *
- * Ищет первое вхождение подстроки `needle` в строке `haystack`, игнорируя регистр символов.
- * Сравнение выполняется с помощью `strncasecmp` (POSIX), поэтому работает на большинстве
- * UNIX-подобных систем и совместима с большинством компиляторов.
+ * Searches for the first occurrence of substring `needle` in string `haystack`,
+ * ignoring character case.
+ * The comparison uses `strncasecmp` (POSIX), so it works on most UNIX-like systems
+ * and is compatible with most compilers.
  *
- * @param haystack  Указатель на строку, в которой выполняется поиск (может быть NULL)
- * @param needle    Указатель на искомую подстроку (что ищем)
- *                  Если needle == NULL или needle — пустая строка → возвращается haystack
+ * @param haystack  Pointer to the string to search in (may be NULL)
+ * @param needle    Pointer to the substring to search for
+ *                  If needle == NULL or needle is an empty string → haystack is returned
  *
  * @return
- *   - Указатель на первое вхождение подстроки в haystack (регистр не учитывается)
- *   - NULL, если подстрока не найдена
- *   - Сам haystack, если needle — пустая строка или NULL
+ *   - Pointer to the first occurrence of the substring in haystack (case-insensitive)
+ *   - NULL if the substring is not found
+ *   - haystack itself if needle is an empty string or NULL
  *
  * @note
- *   - Функция **не** изменяет исходные строки
- *   - Возвращаемый указатель указывает внутрь haystack (не нужно free)
- *   - Сравнение идёт посимвольно с помощью strncasecmp → зависит от текущей локали
- *   - Эффективность: O(n·m) в худшем случае (где n = strlen(haystack), m = strlen(needle))
- *   - Это кастомная реализация, потому что strcasestr есть не везде (например, в glibc есть,
- *     но в некоторых BSD, Windows MSVC её нет по умолчанию)
+ *   - The function does **not** modify the input strings
+ *   - The returned pointer points inside haystack (no free needed)
+ *   - Comparison is character-by-character using strncasecmp → depends on the current locale
+ *   - Complexity: O(n·m) in the worst case (where n = strlen(haystack), m = strlen(needle))
+ *   - This is a custom implementation because strcasestr is not available everywhere
+ *     (it exists in glibc, but not in some BSDs or Windows MSVC by default)
  *
  * @example
  *   const char *text = "Hello World, hello again!";
  *   char *pos;
  *
- *   pos = strcasestr_custom(text, "hello");     // → указатель на "hello" (второй раз)
- *   pos = strcasestr_custom(text, "WORLD");     // → указатель на "World"
- *   pos = strcasestr_custom(text, "");          // → text (само начало строки)
+ *   pos = strcasestr_custom(text, "hello");     // → pointer to "hello" (second occurrence)
+ *   pos = strcasestr_custom(text, "WORLD");     // → pointer to "World"
+ *   pos = strcasestr_custom(text, "");          // → text (start of string)
  *   pos = strcasestr_custom(text, "python");    // → NULL
- *   pos = strcasestr_custom(NULL, "test");      // → NULL (хотя haystack NULL)
- *   pos = strcasestr_custom("AbC", NULL);       // → "AbC" (needle пустое)
+ *   pos = strcasestr_custom(NULL, "test");      // → NULL (haystack is NULL)
+ *   pos = strcasestr_custom("AbC", NULL);       // → "AbC" (needle is empty)
  *
  * @see
- *   - strcasestr()   — POSIX-расширение (есть не везде)
- *   - strstr()       — регистрозависимый аналог
- *   - strncasecmp()  — используется внутри для сравнения
+ *   - strcasestr()   — POSIX extension (not available everywhere)
+ *   - strstr()       — case-sensitive equivalent
+ *   - strncasecmp()  — used internally for comparison
  */
 char *strcasestr_custom(const char *haystack, const char *needle)
 {
-    // Специальный случай: пустая или NULL подстрока → возвращаем начало haystack
+    // Special case: empty or NULL needle → return start of haystack
     if (!needle || !*needle) {
         return (char *)haystack;
     }
@@ -347,205 +348,206 @@ char *strcasestr_custom(const char *haystack, const char *needle)
     size_t nlen = strlen(needle);
     const char *p = haystack;
 
-    // Ищем посимвольно, сравнивая подстроку длиной nlen
+    // Search character by character, comparing a substring of length nlen
     while (*p) {
-        // Регистронезависимое сравнение первых nlen символов
+        // Case-insensitive comparison of the first nlen characters
         if (strncasecmp(p, needle, nlen) == 0) {
-            return (char *)p;  // Нашли — возвращаем указатель на начало вхождения
+            return (char *)p;  // Found — return pointer to the start of the match
         }
         p++;
     }
 
-    // Не нашли ни одного вхождения
+    // No occurrence found
     return NULL;
 }
 
 /**
- * @brief Удаляет начальные и конечные пробельные символы из строки (in-place)
+ * @brief Removes leading and trailing whitespace characters from a string (in-place)
  *
- * Модифицирует переданную строку, убирая все пробельные символы (пробел, таб, перевод строки и т.д.)
- * слева и справа. Результат записывается в ту же память, возвращается указатель на начало
- * очищенной строки (может быть сдвинут вправо).
+ * Modifies the given string by stripping all whitespace characters (space, tab, newline, etc.)
+ * from both ends. The result is written back into the same memory; a pointer to the start
+ * of the trimmed string is returned (it may be shifted to the right).
  *
- * @param str    Указатель на строку, которую нужно обрезать (null-terminated)
- *               Если str == NULL или строка пустая — возвращается без изменений
+ * @param str    Pointer to the string to trim (null-terminated)
+ *               If str == NULL or the string is empty — returned unchanged
  *
  * @return
- *   - Указатель на начало очищенной строки (часто тот же, что str, но может быть сдвинут)
- *   - Сам str, если вход был NULL или пустая строка
+ *   - Pointer to the start of the trimmed string (often the same as str, but may be shifted)
+ *   - str itself if the input was NULL or an empty string
  *
  * @note
- *   - Функция работает **in-place** — изменяет содержимое исходного буфера
- *   - Использует isspace() → удаляет все символы, считающиеся пробельными в текущей локали
- *     (пробел ' ', табуляция '\t', новая строка '\n', возврат каретки '\r', вертикальный таб и т.д.)
- *   - Если после обрезки строка становится пустой — возвращается указатель на '\0'
- *   - Безопасна для пустых строк и строк, состоящих только из пробелов
- *   - НЕ выделяет новую память — НЕ нужно free() возвращаемый указатель
+ *   - The function works **in-place** — it modifies the content of the original buffer
+ *   - Uses isspace() → removes all characters considered whitespace in the current locale
+ *     (space ' ', tab '\t', newline '\n', carriage return '\r', vertical tab, etc.)
+ *   - If the string becomes empty after trimming — a pointer to '\0' is returned
+ *   - Safe for empty strings and strings consisting entirely of whitespace
+ *   - Does NOT allocate new memory — do NOT free() the returned pointer
  *
  * @example
  *   char s1[] = "   Hello World   ";
- *   trim(s1);               // s1 → "Hello World\0"   (возвращает &s1[3])
+ *   trim(s1);               // s1 → "Hello World\0"   (returns &s1[3])
  *
  *   char s2[] = "   \t\n  ";
- *   trim(s2);               // s2 → "\0"   (пустая строка)
+ *   trim(s2);               // s2 → "\0"   (empty string)
  *
  *   char s3[] = "NoSpacesHere";
- *   trim(s3);               // s3 остаётся "NoSpacesHere"
+ *   trim(s3);               // s3 remains "NoSpacesHere"
  *
  *   char *s4 = NULL;
- *   trim(s4);               // возвращает NULL
+ *   trim(s4);               // returns NULL
  *
  *   char s5[] = "";
- *   trim(s5);               // возвращает s5 (указатель на '\0')
+ *   trim(s5);               // returns s5 (pointer to '\0')
  *
  * @warning
- *   - Строка должна быть в изменяемой памяти (не строковый литерал "const char*")
- *     Иначе → segmentation fault при попытке записи
- *     Пример плохого использования:
- *       char *bad = "   test   ";   // строковый литерал, обычно в read-only памяти
+ *   - The string must be in writable memory (not a string literal "const char*")
+ *     Otherwise → segmentation fault on write attempt
+ *     Example of bad usage:
+ *       char *bad = "   test   ";   // string literal, usually in read-only memory
  *       trim(bad);                  // → UB (undefined behavior)
- *   - Если строка очень длинная — strlen() вызывается один раз, но всё равно O(n)
+ *   - For very long strings — strlen() is called once, but it is still O(n)
  *
  * @see
- *   - Многие реализации trim в других языках (Python .strip(), Java .trim())
- *   - ltrim(), rtrim() — если нужно отдельно убрать только слева или только справа
+ *   - Equivalent trim implementations in other languages (Python .strip(), Java .trim())
+ *   - ltrim(), rtrim() — if only leading or only trailing removal is needed
  */
 char *trim(char *str)
 {
-    // Если NULL или уже пустая строка — возвращаем как есть
+    // If NULL or already an empty string — return as-is
     if (!str || !*str) {
         return str;
     }
 
-    // Убираем пробелы (и другие isspace-символы) слева
+    // Strip spaces (and other isspace characters) from the left
     while (isspace((unsigned char)*str)) {
         str++;
     }
 
-    // Если после удаления слева строка закончилась — возвращаем указатель на '\0'
+    // If after stripping from the left the string is empty — return pointer to '\0'
     if (*str == '\0') {
         return str;
     }
 
-    // Ищем конец строки
+    // Find the end of the string
     char *end = str + strlen(str) - 1;
 
-    // Убираем пробелы справа, двигаясь влево
+    // Strip spaces from the right, moving left
     while (end > str && isspace((unsigned char)*end)) {
         end--;
     }
 
-    // Ставим нулевой терминатор сразу после последнего непробельного символа
+    // Place the null terminator immediately after the last non-whitespace character
     *(end + 1) = '\0';
 
-    // Возвращаем указатель на начало очищенной строки
+    // Return a pointer to the start of the trimmed string
     return str;
 }
 
 /**
- * @brief Парсит строку фильтра в структурированное выражение (FilterExpr)
+ * @brief Parses a filter string into a structured expression (FilterExpr)
  *
- * Разбирает пользовательский запрос фильтра в формате:
+ * Parses a user filter query of the form:
  *   [ ! ] column1 >= 100 AND column2 = "Active" OR column3 != "Blocked"
  *
- * Поддерживает:
- *   - Отрицание всего выражения через ! в начале
- *   - Операторы: =, !=, >, >=, <, <=
- *   - Логические связки: AND, OR (регистронезависимо)
- *   - Значения в кавычках (удаляются автоматически)
- *   - Пробелы в любом разумном количестве
+ * Supports:
+ *   - Negation of the entire expression via ! at the beginning
+ *   - Operators: =, !=, >, >=, <, <=
+ *   - Logical connectives: AND, OR (case-insensitive)
+ *   - Quoted values (quotes are stripped automatically)
+ *   - Any reasonable amount of whitespace
  *
- * @param query     Указатель на строку с запросом фильтра (например "Price > 500 AND Status = Active")
- *                  Может быть NULL или пустой — тогда возврат -1
- * @param expr      Указатель на структуру FilterExpr, в которую будет записан результат разбора
- *                  Поля expr->conditions и expr->logic_ops выделяются динамически внутри функции
- *                  (их нужно освободить через free_filter_expr() после использования!)
+ * @param query     Pointer to the filter query string (e.g. "Price > 500 AND Status = Active")
+ *                  May be NULL or empty — returns -1 in that case
+ * @param expr      Pointer to the FilterExpr structure where the parsed result will be stored
+ *                  Fields expr->conditions and expr->logic_ops are allocated dynamically inside
+ *                  (they must be freed via free_filter_expr() after use!)
  *
  * @return
- *    0    — успех: выражение успешно распарсено, expr заполнен
- *   -1    — ошибка:
- *           • query == NULL или пустая строка
- *           • не удалось выделить память (strdup/malloc)
- *           • не найдено ни одного корректного условия
- *           • синтаксическая ошибка (нет оператора, некорректное имя столбца и т.д.)
+ *    0    — success: expression successfully parsed, expr is populated
+ *   -1    — error:
+ *           • query == NULL or empty string
+ *           • memory allocation failed (strdup/malloc)
+ *           • no valid condition was found
+ *           • syntax error (missing operator, invalid column name, etc.)
  *
  * @note
- *   - Выделяет память под имена столбцов и значения (strdup) — нужно освободить через free_filter_expr(expr)
- *   - Поддерживает до 64 условий (ограничение temp_conds[64])
- *   - Значения автоматически определяются как числовые (strtod), если возможно
- *   - Кавычки (" или ') вокруг значений снимаются автоматически
- *   - Логические операторы AND/OR должны быть отделены пробелами (или концом строки)
- *   - Отрицание (!) применяется ко всему выражению, а не к отдельным условиям
+ *   - Allocates memory for column names and values (strdup) — must free via free_filter_expr(expr)
+ *   - Supports up to 64 conditions (limit of temp_conds[64])
+ *   - Values are automatically detected as numeric (strtod) when possible
+ *   - Quotes (" or ') around values are stripped automatically
+ *   - AND/OR logical operators must be separated by spaces (or end of string)
+ *   - Negation (!) applies to the entire expression, not to individual conditions
  *
  * @example
  *   FilterExpr expr = {0};
  *   int res = parse_filter_expression("Age >= 18 AND City = \"Moscow\" OR Status != Blocked", &expr);
- *   // res == 0 → expr содержит 3 условия, 2 оператора (AND, OR)
+ *   // res == 0 → expr contains 3 conditions, 2 operators (AND, OR)
  *
  *   parse_filter_expression("! Price < 100", &expr);
- *   // → expr->negated == 1, одно условие Price < 100
+ *   // → expr->negated == 1, one condition Price < 100
  *
  *   parse_filter_expression("Status = Active", &expr);
- *   // → одно условие, negated == 0
+ *   // → one condition, negated == 0
  *
  *   parse_filter_expression("", &expr);           // → -1
- *   parse_filter_expression("Age >", &expr);      // → -1 (нет значения)
- *   parse_filter_expression("x = y AND", &expr);  // → -1 (неполное выражение)
+ *   parse_filter_expression("Age >", &expr);      // → -1 (no value)
+ *   parse_filter_expression("x = y AND", &expr);  // → -1 (incomplete expression)
  *
  * @warning
- *   - Если функция вернула 0 — обязательно вызовите free_filter_expr(expr) после использования,
- *     иначе будет утечка памяти!
- *   - Не поддерживает вложенные скобки, приоритеты или сложные выражения — только линейная цепочка AND/OR
- *   - Имена столбцов не могут содержать символы ><=! (и пробелы — обрезаются trim)
+ *   - If the function returned 0 — you MUST call free_filter_expr(expr) after use,
+ *     otherwise there will be a memory leak!
+ *   - Does not support nested parentheses, operator precedence, or complex expressions —
+ *     only a linear chain of AND/OR
+ *   - Column names must not contain ><=! characters (spaces are stripped by trim)
  *
  * @see
- *   - free_filter_expr()    — обязательная очистка после использования
- *   - row_matches_filter()  — применение распарсенного выражения к строке
- *   - apply_filter()        — основной потребитель результата этой функции
+ *   - free_filter_expr()    — mandatory cleanup after use
+ *   - row_matches_filter()  — applies the parsed expression to a row
+ *   - apply_filter()        — main consumer of this function's result
  */
 int parse_filter_expression(const char *query, FilterExpr *expr)
 {
-    // Защита от пустого или некорректного ввода
+    // Guard against empty or invalid input
     if (!query || !*query) {
         return -1;
     }
 
-    // Делаем рабочую копию строки, чтобы можно было модифицировать
+    // Make a working copy of the string so we can modify it
     char *input = strdup(query);
     if (!input) {
         return -1;
     }
 
-    // Убираем лишние пробелы в начале и конце
+    // Strip leading and trailing whitespace
     char *p = trim(input);
 
-    // Поддержка скобок: заменяем ( и ) пробелами перед парсингом.
-    // При левостороннем вычислении (A OR B) AND C корректно раскрывается
-    // в A OR B AND C → результат тот же.
+    // Bracket support: replace ( and ) with spaces before parsing.
+    // With left-to-right evaluation, (A OR B) AND C correctly reduces
+    // to A OR B AND C → same result.
     for (char *pp = p; *pp; pp++) {
         if (*pp == '(' || *pp == ')') *pp = ' ';
     }
     p = trim(p);
 
-    // Проверяем отрицание всего выражения
+    // Check for negation of the entire expression
     expr->negated = 0;
     if (*p == '!') {
         expr->negated = 1;
         p = trim(p + 1);
     }
 
-    Condition temp_conds[64];           // временный массив условий (макс. 64)
-    LogicOperator temp_ops[63];         // операторы между ними (на один меньше)
+    Condition temp_conds[64];           // temporary condition array (max 64)
+    LogicOperator temp_ops[63];         // operators between them (one fewer)
     int cond_count = 0;
 
-    // Основной цикл парсинга
+    // Main parsing loop
     while (*p && cond_count < 64)
     {
-        // Пропускаем лишние пробелы
+        // Skip extra whitespace
         while (isspace(*p)) p++;
         if (!*p) break;
 
-        // Проверяем, не логический ли это оператор (AND / OR)
+        // Check whether this is a logical operator (AND / OR)
         if (strncasecmp(p, "AND", 3) == 0 && (isspace(p[3]) || !p[3])) {
             if (cond_count > 0) temp_ops[cond_count-1] = LOGIC_AND;
             p += 3;
@@ -557,7 +559,7 @@ int parse_filter_expression(const char *query, FilterExpr *expr)
             continue;
         }
 
-        // Парсим условие: имя_столбца [пробелы] оператор [пробелы] значение
+        // Parse condition: column_name [spaces] operator [spaces] value
         char col_name[128] = {0};
         char *col_start = p;
         while (*p && !strchr("><=! \t", *p)) p++;
@@ -566,32 +568,32 @@ int parse_filter_expression(const char *query, FilterExpr *expr)
         strncpy(col_name, col_start, col_len);
         trim(col_name);
 
-        if (!*col_name) break;  // пустое имя столбца — конец разбора
+        if (!*col_name) break;  // empty column name — end of parsing
 
-        // Пропускаем пробелы перед оператором
+        // Skip whitespace before the operator
         while (isspace(*p)) p++;
 
-        // Определяем оператор сравнения (двухсимвольные проверяем первыми!)
+        // Determine the comparison operator (check two-character ones first!)
         CompareOp op = -1;
         int op_len = 0;
         if      (p[0] == '>' && p[1] == '=') { op = OP_GE; op_len = 2; }
         else if (p[0] == '<' && p[1] == '=') { op = OP_LE; op_len = 2; }
         else if (p[0] == '!' && p[1] == '=') { op = OP_NE; op_len = 2; }
-        else if (p[0] == '=' && p[1] == '=') { op = OP_EQ; op_len = 2; } // редкий случай
+        else if (p[0] == '=' && p[1] == '=') { op = OP_EQ; op_len = 2; } // rare case
         else if (p[0] == '>')                { op = OP_GT; op_len = 1; }
         else if (p[0] == '<')                { op = OP_LT; op_len = 1; }
         else if (p[0] == '=')                { op = OP_EQ; op_len = 1; }
 
         if ((int)op == -1) {
-            break;  // нет оператора — синтаксическая ошибка
+            break;  // no operator — syntax error
         }
 
         p += op_len;
 
-        // Пропускаем пробелы перед значением
+        // Skip whitespace before the value
         while (isspace(*p)) p++;
 
-        // Считываем значение до следующего AND/OR или конца строки
+        // Read the value until the next AND/OR or end of string
         char val_buf[256] = {0};
         char *val_start = p;
         while (*p) {
@@ -603,7 +605,7 @@ int parse_filter_expression(const char *query, FilterExpr *expr)
         strncpy(val_buf, val_start, val_len);
         trim(val_buf);
 
-        // Убираем кавычки, если они есть
+        // Strip quotes if present
         if ((val_buf[0] == '"' || val_buf[0] == '\'') &&
             val_buf[strlen(val_buf)-1] == val_buf[0])
         {
@@ -611,14 +613,14 @@ int parse_filter_expression(const char *query, FilterExpr *expr)
             val_buf[strlen(val_buf) - 2] = '\0';
         }
 
-        // Заполняем временную структуру условия
+        // Populate the temporary condition structure
         temp_conds[cond_count].column       = strdup(col_name);
         temp_conds[cond_count].op           = op;
         temp_conds[cond_count].value        = strdup(val_buf);
         temp_conds[cond_count].value_is_num = 0;
         temp_conds[cond_count].value_num    = 0.0;
 
-        // Пытаемся распознать число
+        // Try to parse the value as a number
         char *endptr;
         double num = parse_double(val_buf, &endptr);
         if (endptr != val_buf && *endptr == '\0') {
@@ -628,17 +630,17 @@ int parse_filter_expression(const char *query, FilterExpr *expr)
 
         cond_count++;
 
-        // Пропускаем пробелы после значения (перед следующим AND/OR)
+        // Skip whitespace after the value (before the next AND/OR)
         while (isspace(*p)) p++;
     }
 
-    // Если не удалось распарсить ни одного условия — ошибка
+    // If no condition was successfully parsed — error
     if (cond_count == 0) {
         free(input);
         return -1;
     }
 
-    // Копируем результат в выходную структуру
+    // Copy the result into the output structure
     expr->cond_count = cond_count;
     expr->conditions = malloc(cond_count * sizeof(Condition));
     if (!expr->conditions) {
@@ -647,7 +649,7 @@ int parse_filter_expression(const char *query, FilterExpr *expr)
     }
     memcpy(expr->conditions, temp_conds, cond_count * sizeof(Condition));
 
-    // Логические операторы (если условий больше одного)
+    // Logical operators (if there is more than one condition)
     expr->logic_ops = NULL;
     if (cond_count > 1) {
         expr->logic_ops = malloc((cond_count - 1) * sizeof(LogicOperator));
@@ -664,58 +666,58 @@ int parse_filter_expression(const char *query, FilterExpr *expr)
 }
 
 /**
- * @brief Извлекает значение ячейки из строки CSV по имени столбца
+ * @brief Extracts a cell value from a CSV row by column name
  *
- * Парсит одну строку CSV и возвращает значение поля, соответствующего указанному имени столбца.
- * Поддерживает корректную работу с экранированными кавычками (стандарт RFC 4180).
- * Возвращает новую выделенную строку (malloc), которую **обязательно** нужно освободить через free().
+ * Parses a single CSV row and returns the value of the field that corresponds to the
+ * specified column name. Correctly handles escaped quotes (RFC 4180).
+ * Returns a newly allocated string (malloc) that **must** be freed with free().
  *
- * @param line          Указатель на строку CSV (одна запись, null-terminated)
- *                      Может содержать экранированные кавычки и запятые внутри полей
- * @param col_name      Имя столбца, значение которого нужно найти
- *                      Сравнение регистронезависимое (strcasecmp)
- *                      Если col_name пустое или NULL → возвращается пустая строка
- * @param use_headers   Флаг использования заголовков:
- *                        1 — имена столбцов берутся из массива column_names[]
- *                        0 — имена генерируются как A, B, C, ..., AA, AB и т.д.
+ * @param line          Pointer to the CSV row (one record, null-terminated)
+ *                      May contain escaped quotes and commas inside fields
+ * @param col_name      Name of the column whose value should be found
+ *                      Comparison is case-insensitive (strcasecmp)
+ *                      If col_name is empty or NULL → an empty string is returned
+ * @param use_headers   Header usage flag:
+ *                        1 — column names are taken from the column_names[] array
+ *                        0 — names are generated as A, B, C, ..., AA, AB, etc.
  *
  * @return
- *   - Новая строка (malloc), содержащая значение ячейки (без кавычек)
- *   - Пустая строка "" (тоже через strdup), если:
- *     • столбец не найден
- *     • строка пустая / некорректная
- *     • ошибка выделения памяти
- *     • переданы NULL или пустые аргументы
+ *   - New string (malloc) containing the cell value (without quotes)
+ *   - Empty string "" (also via strdup) if:
+ *     • column not found
+ *     • row is empty / invalid
+ *     • memory allocation failed
+ *     • NULL or empty arguments were passed
  *
  * @note
- *   - Функция **всегда** возвращает новую выделенную память → нужно free() результат!
- *   - Парсер учитывает экранирование кавычек внутри полей ("He said ""hello""")
- *   - Сравнение имени столбца регистронезависимое (strcasecmp) — удобно для пользователей
- *   - Если use_headers=1, но column_names[col_idx] == NULL — переключается на буквенное имя
- *   - Максимальное количество столбцов ограничено MAX_COLS
+ *   - The function **always** returns newly allocated memory → result must be free()d!
+ *   - The parser handles quote escaping inside fields ("He said ""hello""")
+ *   - Column name comparison is case-insensitive (strcasecmp) — convenient for users
+ *   - If use_headers=1 but column_names[col_idx] == NULL — falls back to letter name
+ *   - Maximum number of columns is limited by MAX_COLS
  *
  * @example
- *   // Предположим заголовки: "ID", "Name", "Price"
+ *   // Assume headers: "ID", "Name", "Price"
  *   char *line = "101,\"Anna Smith\",29.99";
  *
- *   char *val1 = get_column_value(line, "Price", 1);     // → "29.99" (нужно free)
- *   char *val2 = get_column_value(line, "name", 1);      // → "Anna Smith" (регистр не важен)
- *   char *val3 = get_column_value(line, "C", 0);         // → "29.99" (столбец C = третий)
+ *   char *val1 = get_column_value(line, "Price", 1);     // → "29.99" (must free)
+ *   char *val2 = get_column_value(line, "name", 1);      // → "Anna Smith" (case insensitive)
+ *   char *val3 = get_column_value(line, "C", 0);         // → "29.99" (column C = third)
  *   char *val4 = get_column_value(line, "Unknown", 1);   // → ""
  *
- *   free(val1); free(val2); free(val3); free(val4);      // обязательно!
+ *   free(val1); free(val2); free(val3); free(val4);      // mandatory!
  *
  * @warning
- *   - Возвращаемый указатель **всегда** нужно освободить через free(),
- *     даже если вернулась пустая строка ("")
- *   - Не модифицирует исходную строку line
- *   - При очень длинных строках (> MAX_LINE_LEN в других частях кода) может работать некорректно,
- *     но внутри использует только strdup(line), так что ограничена доступной памятью
+ *   - The returned pointer **always** must be freed with free(),
+ *     even if an empty string ("") was returned
+ *   - Does not modify the source string line
+ *   - For very long strings (> MAX_LINE_LEN elsewhere in the code) behaviour may be incorrect,
+ *     but internally only strdup(line) is used, so it is bounded by available memory
  *
  * @see
- *   - col_name_to_num()     — получение индекса столбца по имени
- *   - evaluate_condition()  — использует эту функцию при проверке фильтров
- *   - row_matches_filter()  — основной потребитель
+ *   - col_name_to_num()     — get column index by name
+ *   - evaluate_condition()  — uses this function when checking filters
+ *   - row_matches_filter()  — main consumer
  */
 char *get_column_value(const char *line, const char *col_name, int use_headers)
 {
@@ -755,84 +757,84 @@ char *get_column_value(const char *line, const char *col_name, int use_headers)
 }
 
 /**
- * @brief Проверяет, удовлетворяет ли значение ячейки заданному условию сравнения
+ * @brief Checks whether a cell value satisfies a given comparison condition
  *
- * Сравнивает значение ячейки (`cell`) с условием из структуры `Condition`.
- * Поддерживает два режима сравнения:
- *   - числовое (если значение в условии удалось распарсить как double)
- *   - строковое (лексикографическое, с помощью strcmp)
+ * Compares a cell value (`cell`) against a condition from the `Condition` structure.
+ * Supports two comparison modes:
+ *   - numeric (if the condition value was successfully parsed as a double)
+ *   - string (lexicographic, using strcmp)
  *
- * @param cell      Указатель на строку — значение ячейки из CSV (может быть NULL)
- *                  Если cell == NULL, считается пустой строкой ""
- * @param cond      Указатель на структуру условия (Condition), содержащую:
- *                    • op          — оператор сравнения (OP_EQ, OP_NE, OP_GT и т.д.)
- *                    • value       — строка-значение для сравнения
- *                    • value_is_num — флаг, что значение числовое
- *                    • value_num   — числовое представление (если value_is_num == 1)
+ * @param cell      Pointer to the string — cell value from CSV (may be NULL)
+ *                  If cell == NULL, it is treated as an empty string ""
+ * @param cond      Pointer to the condition structure (Condition) containing:
+ *                    • op          — comparison operator (OP_EQ, OP_NE, OP_GT, etc.)
+ *                    • value       — string value to compare against
+ *                    • value_is_num — flag indicating the value is numeric
+ *                    • value_num   — numeric representation (if value_is_num == 1)
  *
  * @return
- *    1    — условие выполнено (ячейка соответствует условию)
- *    0    — условие НЕ выполнено ИЛИ произошла ошибка:
- *           • неизвестный оператор
- *           • ячейка не удалось распарсить как число (при числовом сравнении)
- *           • передан NULL в cond (но это не проверяется явно)
+ *    1    — condition is satisfied (cell matches the condition)
+ *    0    — condition is NOT satisfied OR an error occurred:
+ *           • unknown operator
+ *           • cell could not be parsed as a number (in numeric comparison mode)
+ *           • NULL was passed for cond (not checked explicitly)
  *
  * @note
- *   - При **числовом** сравнении:
- *     • Если ячейка не является валидным числом (например "abc", "12.3.4", "")
- *       → условие считается ложным (возврат 0)
- *     • Используется strtod → учитывает локаль (десятичный разделитель . или ,)
- *   - При **строковом** сравнении:
- *     • Поддерживаются все операторы, но >, <, >=, <= имеют смысл только для
- *       лексикографически упорядоченных данных (даты в ISO, коды и т.п.)
- *     • Сравнение регистрозависимое (strcmp)
- *   - Функция **не** выделяет память и **не** модифицирует входные данные
- *   - Очень важная внутренняя функция — используется в row_matches_filter()
+ *   - In **numeric** comparison mode:
+ *     • If the cell is not a valid number (e.g. "abc", "12.3.4", "")
+ *       → the condition is considered false (returns 0)
+ *     • Uses strtod → respects locale (decimal separator . or ,)
+ *   - In **string** comparison mode:
+ *     • All operators are supported, but >, <, >=, <= only make sense for
+ *       lexicographically ordered data (ISO dates, codes, etc.)
+ *     • Comparison is case-sensitive (strcmp)
+ *   - The function does **not** allocate memory and does **not** modify the input data
+ *   - A very important internal function — used in row_matches_filter()
  *
  * @example
  *   Condition cond = { .op = OP_GT, .value = "100", .value_is_num = 1, .value_num = 100.0 };
  *
  *   evaluate_condition("150", &cond)    → 1   (150 > 100)
  *   evaluate_condition("99", &cond)     → 0
- *   evaluate_condition("abc", &cond)    → 0   (не число)
+ *   evaluate_condition("abc", &cond)    → 0   (not a number)
  *   evaluate_condition("", &cond)       → 0
  *
  *   Condition cond2 = { .op = OP_EQ, .value = "Active", .value_is_num = 0 };
- *   evaluate_condition("active", &cond2) → 0   (регистр важен)
+ *   evaluate_condition("active", &cond2) → 0   (case matters)
  *   evaluate_condition("Active", &cond2) → 1
  *
  * @warning
- *   - При строковом сравнении с операторами >/< результат может быть неожиданным
- *     для пользователя (например "10" < "2" → true, потому что '1' < '2')
- *   - Нет поддержки частичного соответствия, LIKE, регулярных выражений и т.п.
- *     (это только точное сравнение)
+ *   - In string comparison with >/< operators the result may be surprising
+ *     (e.g. "10" < "2" → true, because '1' < '2')
+ *   - No support for partial matching, LIKE, regular expressions, etc.
+ *     (only exact comparison)
  *
  * @see
- *   - row_matches_filter()   — основное место использования
- *   - parse_filter_expression() — откуда берётся структура Condition
- *   - apply_filter()         — весь процесс фильтрации
+ *   - row_matches_filter()   — main usage site
+ *   - parse_filter_expression() — where the Condition structure comes from
+ *   - apply_filter()         — the full filtering process
  */
 int evaluate_condition(const char *cell, const Condition *cond)
 {
-    // Защита: если ячейка NULL — считаем пустой строкой
+    // Guard: if cell is NULL — treat as empty string
     if (!cell) {
         cell = "";
     }
 
     int col_num = col_name_to_num(cond->column);
     if (col_num < 0) {
-        // столбец не найден → считаем, что условие не выполнено
+        // column not found → treat condition as not satisfied
         return 0;
     }
 
     if (cond->value_is_num)
     {
-        // Числовое сравнение
+        // Numeric comparison
         char *endptr;
         double cell_num = parse_double(cell, &endptr);
 
-        // Если не удалось полностью распарсить строку как число
-        // (остались символы после числа или строка вообще не начиналась с числа)
+        // If the string could not be fully parsed as a number
+        // (characters remain after the number, or the string did not start with a number)
         if (*endptr != '\0' || endptr == cell) {
             return 0;
         }
@@ -845,16 +847,16 @@ int evaluate_condition(const char *cell, const Condition *cond)
             case OP_GE: return cell_num >= cond->value_num;
             case OP_LT: return cell_num <  cond->value_num;
             case OP_LE: return cell_num <= cond->value_num;
-            default:    return 0;  // неизвестный оператор
+            default:    return 0;  // unknown operator
         }
     }
     else if (col_types[col_num] == COL_DATE)
     {
-        // Убираем лишние пробелы, если вдруг парсер добавил
+        // Strip any extra whitespace that the parser may have added
         char val_trimmed[256];
         strncpy(val_trimmed, cond->value, sizeof(val_trimmed)-1);
         val_trimmed[sizeof(val_trimmed)-1] = '\0';
-        trim(val_trimmed);   // твоя функция trim
+        trim(val_trimmed);   // custom trim function
 
         size_t val_len  = strlen(val_trimmed);
         size_t cell_len = strlen(cell);
@@ -899,15 +901,15 @@ int evaluate_condition(const char *cell, const Condition *cond)
 
         if (cond->op == OP_EQ)
         {
-            // Самый частый случай: ищем месяц "2026-01"
+            // Most common case: matching a month "2026-01"
             if (val_len == 7 && cell_len >= 10 &&
                 strncmp(cell, val_trimmed, 7) == 0 &&
                 cell[7] == '-')
             {
-                return 1;   // да, это январь 2026 (или любой день этого месяца)
+                return 1;   // yes, this is January 2026 (or any day in that month)
             }
 
-            // Если ввели полную дату — обычное равенство
+            // If a full date was entered — ordinary equality
             return strcmp(cell, val_trimmed) == 0;
         }
 
@@ -928,7 +930,7 @@ int evaluate_condition(const char *cell, const Condition *cond)
             }
         }
 
-        // Все остальные операторы (>= > <= < !=) — лексикографическое сравнение строк
+        // All other operators (>= > <= < !=) — lexicographic string comparison
         int cmp = strcmp(cell, val_trimmed);
 
         switch (cond->op)
@@ -943,99 +945,99 @@ int evaluate_condition(const char *cell, const Condition *cond)
     }    
     else
     {
-        // Строковое сравнение
+        // String comparison
         switch (cond->op)
         {
             case OP_EQ: return strcmp(cell, cond->value) == 0;
             case OP_NE: return strcmp(cell, cond->value) != 0;
 
-            // Лексикографическое сравнение (может быть полезно для дат ISO, кодов и т.п.)
+            // Lexicographic comparison (can be useful for ISO dates, codes, etc.)
             case OP_GT: return strcmp(cell, cond->value) > 0;
             case OP_GE: return strcmp(cell, cond->value) >= 0;
             case OP_LT: return strcmp(cell, cond->value) < 0;
             case OP_LE: return strcmp(cell, cond->value) <= 0;
 
-            default:    return 0;  // неизвестный оператор
+            default:    return 0;  // unknown operator
         }
     }
 
-    // Сюда попадаем только при неизвестном операторе (на всякий случай)
+    // We only reach here with an unknown operator (just in case)
     return 0;
 }
 
 /**
- * @brief Проверяет, соответствует ли одна строка CSV заданному фильтру
+ * @brief Checks whether a single CSV row matches a given filter
  *
- * Применяет полностью распарсенное выражение фильтра (FilterExpr) к одной строке CSV.
- * Возвращает 1, если строка проходит все условия фильтра (с учётом AND/OR и отрицания !).
+ * Applies a fully parsed filter expression (FilterExpr) to one CSV row.
+ * Returns 1 if the row passes all filter conditions (respecting AND/OR and negation !).
  *
- * @param line      Указатель на строку CSV (одна запись, null-terminated)
- *                  Должна быть валидной CSV-строкой (с запятыми, возможными кавычками)
- * @param expr      Указатель на распарсенное выражение фильтра (FilterExpr)
- *                  Если expr == NULL или в нём 0 условий → возвращается 1 (все строки проходят)
+ * @param line      Pointer to the CSV row (one record, null-terminated)
+ *                  Must be a valid CSV string (with commas, possible quotes)
+ * @param expr      Pointer to the parsed filter expression (FilterExpr)
+ *                  If expr == NULL or it has 0 conditions → returns 1 (all rows pass)
  *
  * @return
- *    1    — строка соответствует фильтру (все условия выполнены)
- *    0    — строка НЕ соответствует фильтру (хотя бы одно условие ложно)
+ *    1    — row matches the filter (all conditions satisfied)
+ *    0    — row does NOT match the filter (at least one condition is false)
  *
  * @note
- *   - Если фильтр пустой (cond_count == 0) или expr == NULL → возвращает 1
- *     (это важно для логики "без фильтра — показываем всё")
- *   - Условия применяются слева направо с учётом приоритета AND/OR
- *     (без скобок — просто последовательное вычисление)
- *   - При логическом AND, если промежуточный результат уже false — дальнейшие условия
- *     НЕ проверяются (ранний выход — оптимизация)
- *   - Отрицание (!) применяется ко **всему** выражению в целом
- *   - Для каждого условия вызывается get_column_value() → выделяет память,
- *     поэтому каждый вызов сопровождается free(val)
+ *   - If the filter is empty (cond_count == 0) or expr == NULL → returns 1
+ *     (important for the "no filter — show everything" logic)
+ *   - Conditions are applied left-to-right respecting AND/OR precedence
+ *     (without parentheses — simply sequential evaluation)
+ *   - For logical AND, if the intermediate result is already false — further conditions
+ *     are NOT checked (early exit — optimisation)
+ *   - Negation (!) applies to the **entire** expression as a whole
+ *   - get_column_value() is called for each condition → allocates memory,
+ *     so each call is paired with free(val)
  *
  * @example
- *   // Предположим expr: "Age >= 18 AND City = \"Moscow\""
+ *   // Assume expr: "Age >= 18 AND City = \"Moscow\""
  *   row_matches_filter("101,Anna,25,Moscow", &expr)   → 1
- *   row_matches_filter("102,Bob,17,Moscow", &expr)    → 0  (возраст < 18)
- *   row_matches_filter("103,John,30,Kyiv", &expr)     → 0  (город не Moscow)
+ *   row_matches_filter("102,Bob,17,Moscow", &expr)    → 0  (age < 18)
+ *   row_matches_filter("103,John,30,Kyiv", &expr)     → 0  (city is not Moscow)
  *
- *   // expr с отрицанием: "! Status = Blocked"
+ *   // expr with negation: "! Status = Blocked"
  *   row_matches_filter("...,Active", &expr)   → 1
  *   row_matches_filter("...,Blocked", &expr)  → 0
  *
- *   // Пустой фильтр
+ *   // Empty filter
  *   FilterExpr empty = {0};
- *   row_matches_filter(any_line, &empty) → 1 (всегда проходит)
+ *   row_matches_filter(any_line, &empty) → 1 (always passes)
  *
  * @warning
- *   - Функция **выделяет и освобождает** память для каждого значения ячейки
- *     (get_column_value → strdup внутри, free здесь)
- *   - Если строка CSV некорректна (незакрытые кавычки и т.п.) — поведение
- *     get_column_value может быть непредсказуемым, но обычно вернёт "" или часть строки
- *   - Нет защиты от очень большого количества условий (хотя парсер ограничивает 64)
+ *   - The function **allocates and frees** memory for each cell value
+ *     (get_column_value → strdup inside, free here)
+ *   - If the CSV row is malformed (unclosed quotes, etc.) — behaviour of
+ *     get_column_value may be unpredictable, but will usually return "" or a partial string
+ *   - No protection against a very large number of conditions (though the parser limits to 64)
  *
  * @see
- *   - parse_filter_expression() — создание структуры FilterExpr из строки
- *   - evaluate_condition()      — проверка одного условия
- *   - get_column_value()        — получение значения ячейки по имени
- *   - apply_filter()            — применение ко всем строкам файла
+ *   - parse_filter_expression() — create a FilterExpr structure from a string
+ *   - evaluate_condition()      — check a single condition
+ *   - get_column_value()        — get a cell value by column name
+ *   - apply_filter()            — apply the filter to all rows in the file
  */
 int row_matches_filter(const char *line, const FilterExpr *expr)
 {
-    // Пустой фильтр или NULL-указатель → все строки проходят
+    // Empty filter or NULL pointer → all rows pass
     if (!expr || expr->cond_count == 0) {
         return 1;
     }
 
-    // Обрабатываем первое условие
+    // Evaluate the first condition
     char *val = get_column_value(line, expr->conditions[0].column, use_headers);
     int result = evaluate_condition(val, &expr->conditions[0]);
     free(val);
 
-    // Проходим по остальным условиям (если они есть)
+    // Process the remaining conditions (if any)
     for (int i = 1; i < expr->cond_count; i++)
     {
         val = get_column_value(line, expr->conditions[i].column, use_headers);
         int next = evaluate_condition(val, &expr->conditions[i]);
         free(val);
 
-        // Применяем логический оператор между предыдущим результатом и текущим
+        // Apply the logical operator between the previous result and the current one
         if (expr->logic_ops[i - 1] == LOGIC_AND)
         {
             result = result && next;
@@ -1045,136 +1047,135 @@ int row_matches_filter(const char *line, const FilterExpr *expr)
             result = result || next;
         }
 
-        // Оптимизация: при AND и уже ложном результате — дальше проверять бессмысленно
+        // Optimisation: if AND and result is already false — no point checking further
         if (!result && expr->logic_ops[i - 1] == LOGIC_AND) {
             break;
         }
     }
 
-    // Учитываем отрицание всего выражения (! в начале)
+    // Apply negation of the entire expression (! at the beginning)
     return expr->negated ? !result : result;
 }
 
 /**
- * @brief Освобождает всю динамически выделенную память внутри структуры FilterExpr
+ * @brief Frees all dynamically allocated memory inside a FilterExpr structure
  *
- * Полностью очищает содержимое структуры FilterExpr, освобождая:
- *   - каждое имя столбца (column) и значение (value) в массиве conditions
- *   - сам массив условий (conditions)
- *   - массив логических операторов (logic_ops), если он был выделен
+ * Completely clears the contents of the FilterExpr structure, freeing:
+ *   - each column name (column) and value (value) in the conditions array
+ *   - the conditions array itself
+ *   - the logical operators array (logic_ops), if it was allocated
  *
- * После вызова структура становится "пустой" и безопасной для повторного использования
- * или уничтожения.
+ * After the call the structure becomes "empty" and safe for reuse or destruction.
  *
- * @param expr      Указатель на структуру FilterExpr, память которой нужно освободить
- *                  Если expr == NULL — функция просто возвращается (безопасно)
+ * @param expr      Pointer to the FilterExpr structure whose memory should be freed
+ *                  If expr == NULL — the function simply returns (safe)
  *
- * @return          Нет возвращаемого значения (void)
+ * @return          No return value (void)
  *
  * @note
- *   - Функция **обязательна** к вызову после каждого успешного parse_filter_expression(),
- *     иначе будет утечка памяти!
- *   - Безопасно вызывать несколько раз на одной и той же структуре
- *     (повторные free(NULL) допустимы в C)
- *   - После вызова все указатели внутри expr становятся NULL, cond_count = 0
- *     (благодаря memset)
- *   - Не трогает саму структуру expr (не free(expr)), только её внутренние поля
- *   - Используется в apply_filter() после обработки фильтра,
- *     а также везде, где временно создаётся FilterExpr
+ *   - This function **must** be called after every successful parse_filter_expression(),
+ *     otherwise there will be a memory leak!
+ *   - Safe to call multiple times on the same structure
+ *     (repeated free(NULL) calls are valid in C)
+ *   - After the call all pointers inside expr become NULL, cond_count = 0
+ *     (thanks to memset)
+ *   - Does not touch the expr structure itself (no free(expr)), only its internal fields
+ *   - Used in apply_filter() after processing the filter,
+ *     and wherever a FilterExpr is created temporarily
  *
  * @example
  *   FilterExpr expr = {0};
  *   if (parse_filter_expression("Age > 18 AND City = Moscow", &expr) == 0) {
- *       // ... используем expr ...
- *       free_filter_expr(&expr);          // ← обязательно!
+ *       // ... use expr ...
+ *       free_filter_expr(&expr);          // ← mandatory!
  *   }
  *
- *   // Повторный вызов безопасен
- *   free_filter_expr(&expr);              // ничего не произойдёт
+ *   // Calling again is safe
+ *   free_filter_expr(&expr);              // nothing will happen
  *
  * @warning
- *   - НЕ вызывайте free() на expr->conditions или expr->logic_ops вручную —
- *     это уже сделано внутри функции
- *   - Если вы сами выделяли память для expr (malloc), то free(expr) нужно делать
- *     отдельно после free_filter_expr(&expr)
- *   - После вызова НЕЛЬЗЯ использовать поля expr без повторного заполнения
- *     (все указатели обнулены)
+ *   - Do NOT call free() on expr->conditions or expr->logic_ops manually —
+ *     that is already done inside the function
+ *   - If you allocated memory for expr yourself (malloc), then free(expr) must be done
+ *     separately after free_filter_expr(&expr)
+ *   - After the call, expr fields MUST NOT be used without re-populating the structure
+ *     (all pointers are zeroed out)
  *
  * @see
- *   - parse_filter_expression() — функция, которая выделяет память в expr
- *   - apply_filter()            — основной потребитель (освобождает после работы)
- *   - row_matches_filter()      — использует expr, но не выделяет память
+ *   - parse_filter_expression() — the function that allocates memory in expr
+ *   - apply_filter()            — main consumer (frees after use)
+ *   - row_matches_filter()      — uses expr but does not allocate memory
  */
 void free_filter_expr(FilterExpr *expr)
 {
-    // Если передан NULL — ничего не делаем (безопасно)
+    // If NULL was passed — do nothing (safe)
     if (!expr) {
         return;
     }
 
-    // Освобождаем каждое динамически выделенное поле в условиях
+    // Free each dynamically allocated field in the conditions
     for (int i = 0; i < expr->cond_count; i++)
     {
-        // column и value были выделены через strdup в parse_filter_expression
+        // column and value were allocated via strdup in parse_filter_expression
         free(expr->conditions[i].column);
         free(expr->conditions[i].value);
 
-        // На всякий случай обнуляем (хотя уже не обязательно)
+        // Zero out for safety (not strictly necessary at this point)
         expr->conditions[i].column = NULL;
         expr->conditions[i].value  = NULL;
     }
 
-    // Освобождаем сам массив условий
+    // Free the conditions array itself
     free(expr->conditions);
     expr->conditions = NULL;
 
-    // Освобождаем массив логических операторов (может быть NULL)
+    // Free the logical operators array (may be NULL)
     free(expr->logic_ops);
     expr->logic_ops = NULL;
 
-    // Обнуляем всю структуру для безопасности и предсказуемости
-    // (cond_count = 0, negated = 0, все указатели NULL)
+    // Zero out the entire structure for safety and predictability
+    // (cond_count = 0, negated = 0, all pointers NULL)
     memset(expr, 0, sizeof(FilterExpr));
 }
 
 /**
- * @brief Функция сравнения двух double для qsort (callback)
+ * @brief Comparison function for two doubles for use with qsort (callback)
  *
- * Простое сравнение двух чисел с плавающей точкой.
- * Возвращает отрицательное значение, если da < db,
- * положительное если da > db, и ноль если равны.
+ * Simple comparison of two floating-point numbers.
+ * Returns a negative value if da < db,
+ * positive if da > db, and zero if equal.
  *
- * @param a  Указатель на первое значение double
- * @param b  Указатель на второе значение double
+ * @param a  Pointer to the first double value
+ * @param b  Pointer to the second double value
  * @return
  *   -1   — da < db
  *    0   — da == db
  *    1   — da > db
  *
  * @note
- *   - Очень простая и быстрая реализация
- *   - Используется для сортировки массивов чисел с плавающей точкой
- *   - Не учитывает NaN и бесконечности (стандартное поведение qsort с ними неопределённое)
+ *   - Very simple and fast implementation
+ *   - Used for sorting arrays of floating-point numbers
+ *   - Does not handle NaN and infinities (qsort behaviour with them is undefined)
  *
  * @example
  *   double values[] = {3.14, 1.0, 2.718, 0.0};
  *   qsort(values, 4, sizeof(double), compare_double);
- *   // После сортировки: 0.0, 1.0, 2.718, 3.14
+ *   // After sorting: 0.0, 1.0, 2.718, 3.14
  *
  * @warning
- *   - Предполагается, что передаются именно double (не float!)
- *   - При наличии NaN поведение может быть непредсказуемым
- *   - Для стабильной сортировки лучше использовать стабильные алгоритмы
+ *   - Assumes the input pointers point to double (not float!)
+ *   - Behaviour may be unpredictable in the presence of NaN
+ *   - For stable sorting, use stable sort algorithms
  *
- * @see qsort() из <stdlib.h>
+ * @see qsort() from <stdlib.h>
  */
 int compare_double(const void *a, const void *b)
 {
-    // Извлекаем значения double из указателей
+    // Extract double values from the pointers
     double da = *(const double *)a;
     double db = *(const double *)b;
 
-    // Простое сравнение
+    // Simple comparison
     if (da < db) {
         return -1;
     }
@@ -1182,15 +1183,15 @@ int compare_double(const void *a, const void *b)
         return 1;
     }
 
-    // Равны (включая +0 и -0 в IEEE 754)
+    // Equal (including +0 and -0 in IEEE 754)
     return 0;
 }
 
 /**
- * Форматирует целое число с пробелами как разделителями тысяч
- * Пример: 4351235 → "4 351 235"
- *         1000000  → "1 000 000"
- *         123      → "123"
+ * Formats an integer with spaces as thousands separators.
+ * Example: 4351235 → "4 351 235"
+ *          1000000  → "1 000 000"
+ *          123      → "123"
  */
 void format_number_with_spaces(long long num, char *buf, size_t bufsize)
 {
@@ -1199,7 +1200,7 @@ void format_number_with_spaces(long long num, char *buf, size_t bufsize)
         return;
     }
 
-    char temp[32];              // достаточно для long long
+    char temp[32];              // sufficient for long long
     int len = snprintf(temp, sizeof(temp), "%lld", num);
     if (len < 0 || len >= (int)sizeof(temp)) {
         strncpy(buf, "?", bufsize);
@@ -1210,7 +1211,7 @@ void format_number_with_spaces(long long num, char *buf, size_t bufsize)
     int out_pos = 0;
     int digits = 0;
 
-    // Идём с конца к началу
+    // Iterate from end to start
     for (int i = len - 1; i >= 0; i--) {
         if (digits > 0 && digits % 3 == 0 && out_pos < (int)bufsize - 1) {
             buf[out_pos++] = ' ';
@@ -1223,7 +1224,7 @@ void format_number_with_spaces(long long num, char *buf, size_t bufsize)
 
     buf[out_pos] = '\0';
 
-    // Разворачиваем строку обратно
+    // Reverse the string back
     int left = 0, right = out_pos - 1;
     while (left < right) {
         char t = buf[left];
@@ -1235,9 +1236,9 @@ void format_number_with_spaces(long long num, char *buf, size_t bufsize)
 }
 
 /**
- * Обрезает строку до max_width символов с добавлением … в конце,
- * если строка была длиннее. Возвращает новую выделенную строку.
- * Если строка NULL или пустая → возвращает пустую строку "".
+ * Truncates a string to max_width characters, appending … at the end
+ * if the string was longer. Returns a newly allocated string.
+ * If the string is NULL or empty → returns an empty string "".
  */
 char *truncate_for_display(const char *str, int max_width)
 {
@@ -1254,12 +1255,12 @@ char *truncate_for_display(const char *str, int max_width)
         return strdup(str);
     }
 
-    // Оставляем место под … (3 символа)
+    // Reserve space for … (3 characters)
     int keep = max_width;
     if (keep < 1) keep = 1;
 
     char *result = malloc(max_width + 1);
-    if (!result) return strdup(str);  // на случай ошибки
+    if (!result) return strdup(str);  // fallback on allocation error
 
     strncpy(result, str, keep);
     //strcpy(result + keep, "...");
@@ -1272,11 +1273,11 @@ char *clean_column_name(const char *raw)
 {
     if (!raw || !*raw) return strdup("");
 
-    // копируем и убираем trailing whitespace + \r\n + неразрывные пробелы
+    // copy and strip trailing whitespace + \r\n + non-breaking spaces
     char *s = strdup(raw);
     if (!s) return strdup(raw);
 
-    // убираем конец
+    // strip the end
     size_t len = strlen(s);
     while (len > 0) {
         unsigned char c = (unsigned char)s[len-1];
@@ -1287,7 +1288,7 @@ char *clean_column_name(const char *raw)
         }
     }
 
-    // убираем начало (на всякий случай)
+    // strip the start (just in case)
     char *start = s;
     while (*start == ' ' || *start == '\t' || (unsigned char)*start == 0xA0) {
         start++;
@@ -1301,13 +1302,13 @@ char *clean_column_name(const char *raw)
 }
 
 /**
- * Парсит одну строку CSV по правилам RFC 4180 (простая реализация).
- * Возвращает массив выделенных полей (нужно free каждое поле и сам массив).
+ * Parses a single CSV line according to RFC 4180 rules (simple implementation).
+ * Returns an array of allocated fields (each field and the array itself must be freed).
  *
- * @param line      Входная строка (из файла или кэша)
- * @param out_count [out] Сколько полей получилось
- * @return          Массив char* (NULL-terminated), каждый элемент — malloc-строка
- *                  При ошибке возвращает NULL, out_count = 0
+ * @param line      Input string (from file or cache)
+ * @param out_count [out] Number of fields parsed
+ * @return          Array of char* (NULL-terminated), each element is a malloc string
+ *                  Returns NULL on error, out_count = 0
  */
 char **parse_csv_line(const char *line, int *out_count)
 {
@@ -1318,8 +1319,8 @@ char **parse_csv_line(const char *line, int *out_count)
 
     *out_count = 0;
 
-    // Считаем приблизительное количество полей (для начального выделения)
-    int max_fields = 64; // начальный размер, потом realloc
+    // Estimate the approximate number of fields (for initial allocation)
+    int max_fields = 64; // initial size, realloc later if needed
     char **fields = malloc(max_fields * sizeof(char *));
     if (!fields) return NULL;
 
@@ -1335,7 +1336,7 @@ char **parse_csv_line(const char *line, int *out_count)
         in_quotes = 0;
         field_buf[0] = '\0';
 
-        // Пропускаем начальные пробелы (но не сам разделитель — важно для TSV)
+        // Skip leading spaces (but not the delimiter itself — important for TSV)
         while ((*p == ' ' || *p == '\t') && *p != csv_delimiter) p++;
 
         while (*p)
@@ -1344,10 +1345,10 @@ char **parse_csv_line(const char *line, int *out_count)
             {
                 if (in_quotes)
                 {
-                    // Закрывающая кавычка
+                    // Closing quote
                     if (*(p + 1) == '"')
                     {
-                        // Экранированная "" → пишем одну "
+                        // Escaped "" → write a single "
                         if (buf_pos < MAX_LINE_LEN - 1)
                             field_buf[buf_pos++] = '"';
                         p += 2;
@@ -1355,7 +1356,7 @@ char **parse_csv_line(const char *line, int *out_count)
                     }
                     else
                     {
-                        // Конец кавычек
+                        // End of quoted section
                         in_quotes = 0;
                         p++;
                         continue;
@@ -1363,7 +1364,7 @@ char **parse_csv_line(const char *line, int *out_count)
                 }
                 else
                 {
-                    // Начало кавычек
+                    // Start of quoted section
                     in_quotes = 1;
                     p++;
                     continue;
@@ -1372,11 +1373,11 @@ char **parse_csv_line(const char *line, int *out_count)
 
             if (*p == csv_delimiter && !in_quotes)
             {
-                p++; // переходим за разделитель
+                p++; // advance past the delimiter
                 break;
             }
 
-            // Обычный символ
+            // Regular character
             if (buf_pos < MAX_LINE_LEN - 1)
             {
                 field_buf[buf_pos++] = *p;
@@ -1386,14 +1387,14 @@ char **parse_csv_line(const char *line, int *out_count)
 
         field_buf[buf_pos] = '\0';
 
-        // Добавляем поле в массив
+        // Add the field to the array
         if (field_count >= max_fields)
         {
             max_fields *= 2;
             char **new_fields = realloc(fields, max_fields * sizeof(char *));
             if (!new_fields)
             {
-                // Ошибка — освобождаем всё
+                // Error — free everything
                 for (int k = 0; k < field_count; k++) free(fields[k]);
                 free(fields);
                 *out_count = 0;
@@ -1405,7 +1406,7 @@ char **parse_csv_line(const char *line, int *out_count)
         fields[field_count] = strdup(field_buf);
         if (!fields[field_count])
         {
-            // Ошибка памяти — чистим
+            // Memory error — clean up
             for (int k = 0; k < field_count; k++) free(fields[k]);
             free(fields);
             *out_count = 0;
@@ -1414,15 +1415,15 @@ char **parse_csv_line(const char *line, int *out_count)
 
         field_count++;
 
-        // Пропускаем пробелы после разделителя (но не сам разделитель)
+        // Skip whitespace after the delimiter (but not the delimiter itself)
         while ((*p == ' ' || *p == '\t') && *p != csv_delimiter) p++;
     }
 
-    // Последнее поле (если строка не закончилась запятой)
+    // Last field (if the string did not end with a comma)
     if (buf_pos > 0 || field_count > 0)
     {
-        // Если мы уже добавили — ок
-        // Если нет — добавляем пустое, если была запятая в конце
+        // If we already added it — fine
+        // If not — add an empty field if there was a trailing comma
         if (*(p - 1) == csv_delimiter && buf_pos == 0)
         {
             fields[field_count] = strdup("");
@@ -1435,7 +1436,7 @@ char **parse_csv_line(const char *line, int *out_count)
 }
 
 /**
- * Освобождает массив полей, возвращённый parse_csv_line().
+ * Frees the array of fields returned by parse_csv_line().
  */
 void free_csv_fields(char **fields, int count)
 {
@@ -1445,17 +1446,17 @@ void free_csv_fields(char **fields, int count)
 }
 
 /**
- * Собирает CSV/TSV/PSV строку из массива полей (RFC 4180).
- * Поля, содержащие разделитель, кавычку или перевод строки, оборачиваются в "...".
- * NULL-поля трактуются как пустая строка.
- * Возвращает malloc-строку БЕЗ trailing \n. Нужно free().
+ * Builds a CSV/TSV/PSV line from an array of fields (RFC 4180).
+ * Fields containing the delimiter, a quote, or a newline are wrapped in "...".
+ * NULL fields are treated as an empty string.
+ * Returns a malloc string WITHOUT a trailing \n. Must free().
  */
 char *build_csv_line(char **fields, int count, char delimiter)
 {
     if (!fields || count <= 0) return strdup("");
 
-    // Считаем максимальный размер (worst case: каждый символ — кавычка)
-    size_t total = (size_t)count + 2; // разделители + \0
+    // Calculate the maximum size (worst case: every character is a quote)
+    size_t total = (size_t)count + 2; // delimiters + \0
     for (int i = 0; i < count; i++) {
         if (fields[i]) total += strlen(fields[i]) * 2 + 2;
     }
@@ -1469,7 +1470,7 @@ char *build_csv_line(char **fields, int count, char delimiter)
 
         const char *f = fields[i] ? fields[i] : "";
 
-        // Нужны ли кавычки?
+        // Are quotes needed?
         int needs_quotes = 0;
         for (const char *s = f; *s; s++) {
             if (*s == delimiter || *s == '"' || *s == '\n' || *s == '\r') {
@@ -1481,7 +1482,7 @@ char *build_csv_line(char **fields, int count, char delimiter)
         if (needs_quotes) {
             *p++ = '"';
             for (const char *s = f; *s; s++) {
-                if (*s == '"') *p++ = '"'; // экранирование: "" → ""
+                if (*s == '"') *p++ = '"'; // escaping: "" → ""
                 *p++ = *s;
             }
             *p++ = '"';

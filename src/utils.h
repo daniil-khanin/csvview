@@ -10,65 +10,65 @@
 #include "csvview_defs.h"    
 
 /**
- * Преобразует номер столбца (0-based) в буквенное обозначение Excel-стиля (A, AA, ZZ...)
+ * Converts a column number (0-based) to an Excel-style letter designation (A, AA, ZZ...)
  */
 void col_letter(int col, char *buf);
 
 /**
- * Преобразует буквенное обозначение столбца (A, AA, ZZ...) в номер (0-based)
+ * Converts an Excel-style column letter designation (A, AA, ZZ...) to a number (0-based)
  */
 int col_to_num(const char *label);
 
 /**
- * Находит номер столбца по его текстовому имени из заголовков
+ * Finds a column number by its text name from the headers
  */
 int col_name_to_num(const char *name);
 
 /**
- * Сохраняет все строки в файл (создаёт временный файл + rename)
+ * Saves all rows to a file (creates a temporary file + rename)
  */
 int save_file(const char *filename, FILE *orig_f, RowIndex *rows, int row_count);
 
 /**
- * Регистронезависимый поиск подстроки (аналог strcasestr)
+ * Case-insensitive substring search (equivalent to strcasestr)
  */
 char *strcasestr_custom(const char *haystack, const char *needle);
 
 /**
- * Удаляет начальные и конечные пробельные символы (in-place)
+ * Removes leading and trailing whitespace characters (in-place)
  */
 char *trim(char *str);
 
 /**
- * Парсит строку фильтра в структурированное выражение FilterExpr
- * (выделяет память — нужно вызвать free_filter_expr после использования!)
+ * Parses a filter string into a structured FilterExpr expression
+ * (allocates memory — must call free_filter_expr after use!)
  */
 int parse_filter_expression(const char *query, FilterExpr *expr);
 
 /**
- * Извлекает значение ячейки по имени столбца (возвращает новую строку — нужно free)
+ * Extracts a cell value by column name (returns a new string — must free)
  */
 char *get_column_value(const char *line, const char *col_name, int use_headers);
 
 /**
- * Проверяет, выполняется ли одно условие для заданного значения ячейки
+ * Checks whether a single condition holds for a given cell value
  */
 int evaluate_condition(const char *cell, const Condition *cond);
 
 /**
- * Проверяет, проходит ли строка под весь фильтр (с учётом AND/OR/!)
+ * Checks whether a row passes the entire filter (respecting AND/OR/!)
  */
 int row_matches_filter(const char *line, const FilterExpr *expr);
 
 /**
- * Освобождает всю динамически выделенную память внутри FilterExpr
+ * Frees all dynamically allocated memory inside a FilterExpr
  */
 void free_filter_expr(FilterExpr *expr);
 
 /**
- * Простое сравнение двух чисел с плавающей точкой.
- * Возвращает отрицательное значение, если da < db,
- * положительное если da > db, и ноль если равны.
+ * Simple comparison of two floating-point numbers.
+ * Returns a negative value if da < db,
+ * positive if da > db, and zero if equal.
  */
 
 int compare_double(const void *a, const void *b);
@@ -80,25 +80,25 @@ char *truncate_for_display(const char *str, int max_width);
 char *clean_column_name(const char *raw);
 
 /**
- * Парсит одну строку CSV по правилам RFC 4180 (простая реализация).
- * Возвращает массив выделенных полей (нужно free каждое поле и сам массив).
+ * Parses a single CSV line according to RFC 4180 rules (simple implementation).
+ * Returns an array of allocated fields (each field and the array itself must be freed).
  *
- * @param line      Входная строка (из файла или кэша)
- * @param out_count [out] Сколько полей получилось
- * @return          Массив char* (NULL-terminated), каждый элемент — malloc-строка
- *                  При ошибке возвращает NULL, out_count = 0
+ * @param line      Input string (from file or cache)
+ * @param out_count [out] Number of fields parsed
+ * @return          Array of char* (NULL-terminated), each element is a malloc string
+ *                  Returns NULL on error, out_count = 0
  */
 char **parse_csv_line(const char *line, int *out_count);
 
 /**
- * Собирает строку из массива полей с заданным разделителем (RFC 4180).
- * Поля, содержащие разделитель, кавычку или перевод строки, оборачиваются в "...".
- * Возвращает malloc-строку БЕЗ trailing \n. Нужно free().
+ * Builds a line from an array of fields with the given delimiter (RFC 4180).
+ * Fields containing the delimiter, a quote, or a newline are wrapped in "...".
+ * Returns a malloc string WITHOUT a trailing \n. Must free().
  */
 char *build_csv_line(char **fields, int count, char delimiter);
 
 /**
- * Освобождает массив полей, возвращённый parse_csv_line().
+ * Frees the array of fields returned by parse_csv_line().
  */
 void free_csv_fields(char **fields, int count);
 

@@ -1,5 +1,5 @@
 #include "concat_files.h"
-#include <ctype.h>   // для isspace, если trim понадобится
+#include <ctype.h>   // for isspace, in case trim is needed
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -32,7 +32,7 @@ static void print_progress_done(const char *output_name)
     fflush(stdout);
 }
 
-// Возвращает 1, если строку нужно экранировать кавычками по правилам CSV
+// Returns 1 if the string needs to be quoted according to CSV rules
 static int needs_quoting(const char *str)
 {
     if (!str || !*str) return 0;
@@ -45,7 +45,7 @@ static int needs_quoting(const char *str)
     return 0;
 }
 
-// Вспомогательная: получить базовое имя файла без пути и без расширения
+// Helper: get the base filename without path and without extension
 static char *get_basename_noext(const char *path)
 {
     const char *filename = strrchr(path, '/');
@@ -64,7 +64,7 @@ static char *get_basename_noext(const char *path)
     return result;
 }
 
-// Вспомогательная: посчитать количество столбцов в строке (по запятым)
+// Helper: count the number of columns in a line (by commas)
 static int count_columns(const char *line)
 {
     if (!line || !*line) return 0;
@@ -92,7 +92,7 @@ int concat_and_save_files(
 
     *result_filename = NULL;
 
-    // Генерация имени выходного файла
+    // Generate the output filename
     char *output_name = NULL;
     if (user_output && *user_output) {
         output_name = strdup(user_output);
@@ -111,7 +111,7 @@ int concat_and_save_files(
 
     printf("Merging %d files into %s\n", file_count, output_name);
 
-    // Открываем первый файл
+    // Open the first file
     FILE *first = fopen(files[0], "r");
     if (!first) {
         fprintf(stderr, "Cannot open first file: %s\n", files[0]);
@@ -136,7 +136,7 @@ int concat_and_save_files(
         return 1;
     }
 
-    // Создаём выходной файл
+    // Create the output file
     FILE *out = fopen(output_name, "w");
     if (!out) {
         fprintf(stderr, "Cannot create output file: %s\n", output_name);
@@ -145,9 +145,9 @@ int concat_and_save_files(
         return 1;
     }
 
-    // Пишем новый заголовок: source_col_name + старый заголовок
+    // Write the new header: source_col_name + original header
     if (needs_quoting(source_col_name)) {
-        // Экранируем: кавычки внутри удваиваем
+        // Escape: double any internal quotes
         fprintf(out, "\"");
         for (const char *p = source_col_name; *p; p++) {
             if (*p == '"') {
@@ -158,11 +158,11 @@ int concat_and_save_files(
         }
         fprintf(out, "\",%s\n", header);
     } else {
-        // Простое имя — без кавычек
+        // Simple name — no quoting needed
         fprintf(out, "%s,%s\n", source_col_name, header);
     }
 
-    // Обрабатываем первый файл (данные после заголовка)
+    // Process the first file (data after the header)
     char line[8192];
     while (fgets(line, sizeof(line), first)) {
         line[strcspn(line, "\n")] = '\0';
@@ -172,10 +172,10 @@ int concat_and_save_files(
     }
     fclose(first);
 
-    // Показываем прогресс после первого файла
+    // Show progress after the first file
     print_progress(1, file_count, files[0]);
 
-    // Обрабатываем остальные файлы
+    // Process the remaining files
     for (int i = 1; i < file_count; i++) {
         FILE *fp = fopen(files[i], "r");
         if (!fp) {
@@ -186,7 +186,7 @@ int concat_and_save_files(
             return 1;
         }
 
-        // Пропускаем первую строку (заголовок) — обязательно!
+        // Skip the first line (header) — mandatory!
         char dummy[8192];
         if (!fgets(dummy, sizeof(dummy), fp)) {
             fprintf(stderr, "Warning: %s is empty or has no data after header\n", files[i]);
@@ -194,9 +194,9 @@ int concat_and_save_files(
             continue;
         }
 
-        // Теперь читаем первую строку данных и проверяем кол-во столбцов
+        // Now read the first data line and check the column count
         if (!fgets(line, sizeof(line), fp)) {
-            // файл содержал только заголовок — просто пропускаем
+            // file contained only a header — just skip it
             fclose(fp);
             continue;
         }
@@ -212,7 +212,7 @@ int concat_and_save_files(
             return 2;
         }
 
-        // Пишем эту строку и все последующие
+        // Write this line and all subsequent lines
         do {
             line[strcspn(line, "\n")] = '\0';
             char *basename = get_basename_noext(files[i]);
@@ -227,7 +227,7 @@ int concat_and_save_files(
 
     fclose(out);
 
-    // Финальное сообщение
+    // Final message
     print_progress_done(output_name);
 
     *result_filename = output_name;

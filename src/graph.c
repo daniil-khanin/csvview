@@ -1,8 +1,8 @@
 /**
  * graph.c
  *
- * Реализация отрисовки графиков по столбцу
- * Линейные, столбчатые, точечные графики с логарифмической шкалой и аномалиями
+ * Implementation of column-based chart rendering
+ * Line, bar, and dot charts with logarithmic scale and anomaly detection
  */
 
 #include "graph.h"
@@ -20,7 +20,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
-#include <wchar.h>           // wcrtomb для Braille
+#include <wchar.h>           // wcrtomb for Braille
 #include <pthread.h>
 
 /* Multi-series overlay globals — set by caller before looping draw_graph */
@@ -108,11 +108,11 @@ static void *graph_worker_thread(void *arg)
 }
 
 // ────────────────────────────────────────────────
-// Вспомогательные функции
+// Helper functions
 // ────────────────────────────────────────────────
 
 /**
- * Bresenham's line algorithm — рисует линию точками в массиве dots
+ * Bresenham's line algorithm — draws a line with dots in the dots array
  */
 void draw_bresenham(bool *dots, int w, int h, int x0, int y0, int x1, int y1) {
     int dx = abs(x1 - x0);
@@ -134,14 +134,14 @@ void draw_bresenham(bool *dots, int w, int h, int x0, int y0, int x1, int y1) {
 }
 
 /**
- * Нормализация значения по Y-оси
+ * Normalize a value along the Y axis
  */
 static double norm_y(double val, double min_y, double max_y, GraphScale scale) {
     if (scale == SCALE_LOG) {
-        if (val <= 0.0) return 0.0; // защита от log(0) и отрицательных
+        if (val <= 0.0) return 0.0; // guard against log(0) and negatives
         return log10(val) / log10(max_y > 0 ? max_y : 1.0);
     } else {
-        if (max_y == min_y) return 0.5; // защита от деления на 0
+        if (max_y == min_y) return 0.5; // guard against division by zero
         return (val - min_y) / (max_y - min_y);
     }
 }
@@ -173,19 +173,19 @@ int find_max_index(double *values, int count) {
 }
 
 /**
- * Извлекает числовые значения из выбранного столбца для построения графика.
- * Учитывает фильтр, сортировку, агрегацию по месяцам (если включена).
+ * Extracts numeric values from the selected column for chart rendering.
+ * Respects the active filter, sort order, and monthly aggregation (if enabled).
  *
- * @param col                   индекс столбца (0-based)
- * @param rows                  массив индексов строк
- * @param f                     открытый файл csv
- * @param row_count             общее количество строк в файле
- * @param out_point_count       [out] сюда записывается количество полученных значений
- * @param out_aggregate         [out] true, если применялась агрегация по месяцам
- * @param target_date_fmt_out   [out] сюда копируется итоговый формат даты (буфер должен быть ≥32 байт)
+ * @param col                   column index (0-based)
+ * @param rows                  array of row indices
+ * @param f                     open csv file
+ * @param row_count             total number of rows in the file
+ * @param out_point_count       [out] receives the number of values extracted
+ * @param out_aggregate         [out] true if monthly aggregation was applied
+ * @param target_date_fmt_out   [out] receives the final date format string (buffer must be ≥32 bytes)
  *
- * @return                      malloc-массив double (нужно free после использования)
- *                              или NULL при ошибке / нет данных
+ * @return                      malloc'd double array (caller must free after use)
+ *                              or NULL on error / no data
  */
 double *extract_plot_values(
     int col,
@@ -229,7 +229,7 @@ double *extract_plot_values(
     int point_count = 0;
 
     if (aggregate) {
-        // Агрегация по месяцам — читаем строки заново каждый раз
+        // Monthly aggregation — re-read rows each time
         typedef struct { char month[8]; double sum; } AggPoint;
         AggPoint *agg = calloc(MAX_AGG, sizeof(AggPoint));
         if (!agg) return NULL;
@@ -321,17 +321,17 @@ double *extract_plot_values(
 }
 
 // ────────────────────────────────────────────────
-// Основная функция отрисовки графика
+// Main chart rendering function
 // ────────────────────────────────────────────────
 void draw_graph(int col, int height, int width, RowIndex *rows, FILE *f, int row_count, int cursor_pos, int min_max_show)
 {
     int plot_start_y = 4;
-    int plot_start_x = ROW_DATA_OFFSET + 2; // отступ слева для Y-меток
-    int plot_height = height - 8; // запас сверху/снизу
+    int plot_start_x = ROW_DATA_OFFSET + 2; // left margin for Y labels
+    int plot_height = height - 8; // top/bottom padding
     int right_axis_margin = (!isnan(graph_right_min)) ? 10 : 4;
-    int plot_width = width - plot_start_x - right_axis_margin; // запас справа
-    if (plot_height < 5 || plot_width < 10) return; // слишком маленький экран
-    // ─── Очистка области графика ───────────────────────────────────────────────
+    int plot_width = width - plot_start_x - right_axis_margin; // right padding
+    if (plot_height < 5 || plot_width < 10) return; // screen too small
+    // ─── Clear the chart area ──────────────────────────────────────────────────
     if (graph_overlay_mode != 2) {
         for (int y = plot_start_y; y < plot_start_y + plot_height + 2; y++) {
             for (int x = 1; x < width - 1; x++) {
@@ -345,7 +345,7 @@ void draw_graph(int col, int height, int width, RowIndex *rows, FILE *f, int row
     int start_row = use_headers ? 1 : 0;
     if (display_count <= start_row) return;
     display_count -= start_row;
-    // ─── Получаем числовые значения ────────────────────────────────────────────
+    // ─── Retrieve numeric values ───────────────────────────────────────────────
     bool aggregate = false;
     char target_date_fmt[32];
     int point_count = 0;
@@ -354,9 +354,9 @@ void draw_graph(int col, int height, int width, RowIndex *rows, FILE *f, int row
         free(values);
         return;
     }
-    // ─── Zoom: запоминаем полный размер, сдвигаем указатель если нужно ─────────
+    // ─── Zoom: remember the full size, shift pointer if needed ────────────────
     graph_total_points = point_count;
-    double *values_base = values;  // оригинальный указатель для free()
+    double *values_base = values;  // original pointer for free()
     {
         int zs = (graph_zoom_start > 0) ? graph_zoom_start : 0;
         int ze = (graph_zoom_end > 0 && graph_zoom_end <= point_count) ? graph_zoom_end : point_count;
@@ -366,7 +366,7 @@ void draw_graph(int col, int height, int width, RowIndex *rows, FILE *f, int row
             if (zs < ze) { values = values_base + zs; point_count = ze - zs; }
         }
     }
-    // ─── min / max / среднее / stddev / аномалии ───────────────────────────────
+    // ─── min / max / mean / stddev / anomalies ────────────────────────────────
     double min_y = INFINITY, max_y = -INFINITY;
     int min_y_x_pos = 0;
     int max_y_x_pos = 0;
@@ -405,13 +405,13 @@ void draw_graph(int col, int height, int width, RowIndex *rows, FILE *f, int row
             graph_anomalies[graph_anomaly_count++] = values[i];
         }
     }
-    // ─── Прореживание для отрисовки (с включением экстремумов) ────────────────
+    // ─── Downsampling for rendering (including extrema) ───────────────────────
     int max_points = plot_width;
     int step = (point_count > max_points) ? (point_count / max_points) + 1 : 1;
     int base_visible_points = (point_count + step - 1) / step;
     if (base_visible_points > max_points) base_visible_points = max_points;
 
-    // Добавляем экстремумы, если они не попали в базовую выборку
+    // Add extrema if they were not included in the base sample
     int visible_points = base_visible_points;
     bool min_included = ((min_y_x_pos % step) == 0);
     bool max_included = ((max_y_x_pos % step) == 0);
@@ -431,13 +431,13 @@ void draw_graph(int col, int height, int width, RowIndex *rows, FILE *f, int row
         int orig_idx = i * step;
         if (orig_idx >= point_count) orig_idx = point_count - 1;
 
-        // Вставляем min, если пора (перед текущей точкой)
+        // Insert min if it's time (before the current point)
         if (!min_included && min_y_x_pos < orig_idx && !min_added) {
             plot_values[plot_idx++] = values[min_y_x_pos];
             min_added = 1;
         }
 
-        // Вставляем max, если пора
+        // Insert max if it's time
         if (!max_included && max_y_x_pos < orig_idx && !max_added) {
             plot_values[plot_idx++] = values[max_y_x_pos];
             max_added = 1;
@@ -446,11 +446,11 @@ void draw_graph(int col, int height, int width, RowIndex *rows, FILE *f, int row
         plot_values[plot_idx++] = values[orig_idx];
     }
 
-    // Добавляем min/max в конец, если не вставили
+    // Append min/max at the end if not yet inserted
     if (!min_included && !min_added) plot_values[plot_idx++] = values[min_y_x_pos];
     if (!max_included && !max_added) plot_values[plot_idx++] = values[max_y_x_pos];
 
-    // ─── Y-метки (4 штуки: top, 1/3, 2/3, bottom) ──────────────────────────────
+    // ─── Y labels (4 total: top, 1/3, 2/3, bottom) ──────────────────────────────
     char buf[32];
     // Left axis: draw on first pass (overlay_mode != 2) and not a right-axis series
     if (graph_overlay_mode != 2 && !graph_use_right_axis) {
@@ -496,7 +496,7 @@ void draw_graph(int col, int height, int width, RowIndex *rows, FILE *f, int row
             attroff(COLOR_PAIR(rcp));
         }
     }
-    // ─── X-метки (5–7 штук) ─────────────────────────────────────────────────────
+    // ─── X labels (5–7 total) ────────────────────────────────────────────────────
     if (graph_overlay_mode != 2) {
         int label_step = visible_points / 6;
         if (label_step < 1) label_step = 1;
@@ -528,16 +528,16 @@ void draw_graph(int col, int height, int width, RowIndex *rows, FILE *f, int row
             mvprintw(plot_start_y + plot_height, x_pos, "%s", label);
         }
     }
-    // ─── Сетка (рисуем до braille, чтобы данные перекрыли линии) ───────────────
+    // ─── Grid (drawn before braille so data overlays the lines) ─────────────────
     if (graph_overlay_mode != 2 && graph_grid) {
         attron(A_DIM);
-        if (graph_grid & 1) {  // горизонтальные линии по Y-меткам (1/3 и 2/3 — крайние совпадают с осями)
+        if (graph_grid & 1) {  // horizontal lines at Y labels (1/3 and 2/3 — outer ones coincide with axes)
             for (int yi = 1; yi <= 2; yi++) {
                 int gy = plot_start_y + (int)round((double)yi / 3.0 * (plot_height - 1));
                 mvhline(gy, plot_start_x, ACS_HLINE, plot_width);
             }
         }
-        if (graph_grid & 2) {  // вертикальные линии по X-меткам
+        if (graph_grid & 2) {  // vertical lines at X labels
             int xlsv = visible_points / 6;
             if (xlsv < 1) xlsv = 1;
             for (int i = xlsv; i < visible_points - 1; i += xlsv) {
@@ -547,12 +547,12 @@ void draw_graph(int col, int height, int width, RowIndex *rows, FILE *f, int row
         }
         attroff(A_DIM);
     }
-    // ─── Рисование графика ──────────────────────────────────────────────────────
+    // ─── Chart rendering ────────────────────────────────────────────────────────
     int pixel_h = plot_height * 4;
     int pixel_w = plot_width * 2;
     bool *dots = calloc(pixel_h * pixel_w, sizeof(bool));
     if (!dots) goto cleanup_free_plot;
-    // Оси
+    // Axes
     draw_bresenham(dots, pixel_w, pixel_h, 0, pixel_h - 1, pixel_w - 1, pixel_h - 1);
     draw_bresenham(dots, pixel_w, pixel_h, 0, pixel_h - 1, 0, 0);
     if (has_colors()) {
@@ -598,7 +598,7 @@ void draw_graph(int col, int height, int width, RowIndex *rows, FILE *f, int row
             }
         }
     }
-    // Braille-рендеринг
+    // Braille rendering
     for (int cy = 0; cy < plot_height; cy++) {
         for (int cx = 0; cx < plot_width; cx++) {
             int code = 0;
@@ -623,7 +623,7 @@ void draw_graph(int col, int height, int width, RowIndex *rows, FILE *f, int row
     if (has_colors()) {
         attroff(COLOR_PAIR(current_graph_color_pair));
     }
-    // ─── Подсветка аномалий ─────────────────────────────────────────────────────
+    // ─── Anomaly highlighting ───────────────────────────────────────────────────
     if (graph_overlay_mode == 0 && show_anomalies && graph_anomaly_count > 0) {
         if (has_colors()) {
             attron(COLOR_PAIR(11) | A_BOLD);
@@ -631,7 +631,7 @@ void draw_graph(int col, int height, int width, RowIndex *rows, FILE *f, int row
         for (int i = 0; i < visible_points; i++) {
             int orig_idx = i * step;
             if (orig_idx >= point_count) orig_idx = point_count - 1;
-            double val = values[orig_idx]; // берём из полного массива
+            double val = values[orig_idx]; // taken from the full array
             double z_score = fabs(val - mean) / stddev;
             if (z_score > ANOMALY_THRESHOLD) {
                 double norm = norm_y(plot_values[i], min_y, max_y, graph_scale);
@@ -647,7 +647,7 @@ void draw_graph(int col, int height, int width, RowIndex *rows, FILE *f, int row
         }
     }
 
-    // ─── Курсор и значение под ним ──────────────────────────────────────────────
+    // ─── Cursor and the value beneath it ───────────────────────────────────────
     if ((graph_overlay_mode == 0 || graph_draw_cursor_overlay) && show_graph_cursor)
     {
         int full_idx = cursor_pos * step;
@@ -663,7 +663,7 @@ void draw_graph(int col, int height, int width, RowIndex *rows, FILE *f, int row
         int cell_y = (int)round((1.0 - norm) * (plot_height - 1));
         int cell_x = plot_start_x + (visible_cursor_pos * plot_width) / (visible_points - 1);
 
-        // Строим x_str (нужен и для одиночного, и для передачи наружу)
+        // Build x_str (needed both for single-series and for passing outward)
         char x_str[64] = "";
         if (using_date_x) {
             int row_idx = start_row + full_idx;
@@ -684,20 +684,20 @@ void draw_graph(int col, int height, int width, RowIndex *rows, FILE *f, int row
             snprintf(x_str, sizeof(x_str), "%d", full_idx + 1);
         }
 
-        // Сохраняем для caller-а (multi-series tooltip)
+        // Save for caller (multi-series tooltip)
         graph_last_cursor_y = real_y;
         strncpy(graph_last_cursor_x, x_str, sizeof(graph_last_cursor_x) - 1);
         graph_last_cursor_x[sizeof(graph_last_cursor_x) - 1] = '\0';
 
         if (cell_y >= 0 && cell_y < plot_height && cell_x >= 0 && cell_x < width)
         {
-            // Маркер @ в цвете серии (в multi-series режиме) или в красном (single)
+            // '@' marker in the series color (in multi-series mode) or red (single)
             int marker_pair = (graph_overlay_mode == 0) ? 11 : current_graph_color_pair;
             if (has_colors()) attron(COLOR_PAIR(marker_pair) | A_BOLD);
             mvaddch(plot_start_y + cell_y, cell_x, '@');
             if (has_colors()) attroff(COLOR_PAIR(marker_pair) | A_BOLD);
 
-            // Текстовый тултип — в single-series режиме или для min/max в overlay
+            // Text tooltip — in single-series mode or for min/max in overlay
             if (graph_overlay_mode == 0 || (graph_draw_cursor_overlay && min_max_show != 0)) {
                 char val_str[64];
                 snprintf(val_str, sizeof(val_str), "%.4f", real_y);
@@ -734,18 +734,18 @@ void draw_scatter(int x_col, int y_col, int height, int width,
     int plot_width   = width - plot_start_x - right_margin;
     if (plot_height < 5 || plot_width < 10) return;
 
-    // Сообщаем key handler-у диапазон курсора (0..plot_width-1)
+    // Tell the key handler the cursor range (0..plot_width-1)
     graph_total_points   = plot_width;
     graph_visible_points = plot_width;
 
-    // ─── Очистка (только первый проход) ────────────────────────────────────
+    // ─── Clear (first pass only) ────────────────────────────────────────────
     if (graph_overlay_mode != 2) {
         for (int y = plot_start_y; y < plot_start_y + plot_height + 2; y++)
             for (int x = 1; x < width - 1; x++)
                 mvaddch(y, x, ' ');
     }
 
-    // ─── Собираем точки (x, y) из всех строк ───────────────────────────────
+    // ─── Collect (x, y) points from all rows ───────────────────────────────
     int display_count = filter_active ? filtered_count
                                        : (total_rows - (use_headers ? 1 : 0));
     if (display_count <= 0) return;
@@ -795,7 +795,7 @@ void draw_scatter(int x_col, int y_col, int height, int width,
     }
     if (xmin == xmax) { xmax += 1; xmin -= 1; }
 
-    // Y-ось: override для multi-series
+    // Y axis: override for multi-series
     if (graph_use_right_axis && !isnan(graph_right_min) && !isnan(graph_right_max)) {
         ymin = graph_right_min; ymax = graph_right_max;
     } else if (!isnan(graph_global_min) && !isnan(graph_global_max)) {
@@ -807,7 +807,7 @@ void draw_scatter(int x_col, int y_col, int height, int width,
     double denom = sqrt(((double)n * sx2 - sx * sx) * ((double)n * sy2 - sy * sy));
     if (denom > 0) r_corr = ((double)n * sxy - sx * sy) / denom;
 
-    // ─── Y-метки (левая ось) ───────────────────────────────────────────────
+    // ─── Y labels (left axis) ─────────────────────────────────────────────
     char buf[32];
     if (!graph_use_right_axis && graph_overlay_mode != 2) {
         int lcp = (graph_overlay_mode == 0) ? 1 : current_graph_color_pair;
@@ -821,7 +821,7 @@ void draw_scatter(int x_col, int y_col, int height, int width,
             attroff(COLOR_PAIR(lcp));
         }
     }
-    // Правая ось
+    // Right axis
     if (graph_use_right_axis && !graph_right_axis_drawn) {
         graph_right_axis_drawn = 1;
         int rx = width - 9;
@@ -836,7 +836,7 @@ void draw_scatter(int x_col, int y_col, int height, int width,
         }
     }
 
-    // ─── X-метки (5 штук по оси X) + подписи осей ────────────────────────
+    // ─── X labels (5 along the X axis) + axis captions ───────────────────
     if (graph_overlay_mode != 2) {
         for (int xi = 0; xi < 5; xi++) {
             double frac = (double)xi / 4.0;
@@ -849,7 +849,7 @@ void draw_scatter(int x_col, int y_col, int height, int width,
             if (draw_x + len > width - 2) draw_x = width - 2 - len;
             mvprintw(plot_start_y + plot_height, draw_x, "%s", buf);
         }
-        // Подпись оси X снизу по центру
+        // X axis caption centered at the bottom
         char x_name[32] = "";
         if (use_headers && column_names[x_col])
             snprintf(x_name, sizeof(x_name), "%.24s", column_names[x_col]);
@@ -861,7 +861,7 @@ void draw_scatter(int x_col, int y_col, int height, int width,
                  "X: %s", x_name);
         attroff(COLOR_PAIR(1) | A_BOLD);
 
-        // Подпись оси Y сверху слева
+        // Y axis caption at the top left
         char y_name[32] = "";
         if (use_headers && column_names[y_col])
             snprintf(y_name, sizeof(y_name), "%.24s", column_names[y_col]);
@@ -872,16 +872,16 @@ void draw_scatter(int x_col, int y_col, int height, int width,
         attroff(COLOR_PAIR(current_graph_color_pair) | A_BOLD);
     }
 
-    // ─── Сетка (до braille, только первый проход) ──────────────────────────
+    // ─── Grid (before braille, first pass only) ────────────────────────────
     if (graph_overlay_mode != 2 && graph_grid) {
         attron(A_DIM);
-        if (graph_grid & 1) {  // горизонтальные
+        if (graph_grid & 1) {  // horizontal
             for (int yi = 1; yi <= 2; yi++) {
                 int gy = plot_start_y + (int)round((double)yi / 3.0 * (plot_height - 1));
                 mvhline(gy, plot_start_x, ACS_HLINE, plot_width);
             }
         }
-        if (graph_grid & 2) {  // вертикальные
+        if (graph_grid & 2) {  // vertical
             for (int xi = 1; xi <= 3; xi++) {
                 int gx = plot_start_x + (int)round((double)xi / 4.0 * (plot_width - 1));
                 mvvline(plot_start_y, gx, ACS_VLINE, plot_height);
@@ -896,7 +896,7 @@ void draw_scatter(int x_col, int y_col, int height, int width,
     bool *dots  = calloc(pixel_h * pixel_w, sizeof(bool));
     if (!dots) { free(xs); free(ys); return; }
 
-    // Оси
+    // Axes
     draw_bresenham(dots, pixel_w, pixel_h, 0, pixel_h - 1, pixel_w - 1, pixel_h - 1);  // X axis
     draw_bresenham(dots, pixel_w, pixel_h, 0, pixel_h - 1, 0, 0);                       // Y axis
 
@@ -933,7 +933,7 @@ void draw_scatter(int x_col, int y_col, int height, int width,
     if (has_colors()) attroff(COLOR_PAIR(current_graph_color_pair));
     free(dots);
 
-    // ─── Pearson r (верхний правый угол, первый проход) ────────────────────
+    // ─── Pearson r (top-right corner, first pass) ──────────────────────────
     if (!isnan(r_corr) && (graph_overlay_mode <= 1)) {
         char rbuf[32];
         snprintf(rbuf, sizeof(rbuf), "r=%.3f", r_corr);
@@ -943,7 +943,7 @@ void draw_scatter(int x_col, int y_col, int height, int width,
         attroff(COLOR_PAIR(current_graph_color_pair) | A_BOLD);
     }
 
-    // ─── Cursor: вертикальная линия + ближайшая точка ──────────────────────
+    // ─── Cursor: vertical line + nearest point ─────────────────────────────
     if (show_graph_cursor && cursor_pos >= 0) {
         int cpos = cursor_pos;
         if (cpos >= plot_width) cpos = plot_width - 1;

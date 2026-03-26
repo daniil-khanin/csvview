@@ -1,152 +1,152 @@
 /**
  * column_format.h
  *
- * Интерфейс модуля форматирования и настройки отображения столбцов
- * Содержит функции инициализации форматов, обрезки строк, форматирования чисел/дат и главную функцию форматирования ячейки
+ * Interface for the column formatting and display settings module.
+ * Contains functions for format initialization, string truncation, number/date formatting, and the main cell formatting function.
  */
 
 #ifndef COLUMN_FORMAT_H
 #define COLUMN_FORMAT_H
 
-#include "csvview_defs.h"   // ColType, ColumnFormat, col_formats, col_types и т.д.
-#include "utils.h"          // trim, col_letter и т.д.
+#include "csvview_defs.h"   // ColType, ColumnFormat, col_formats, col_types, etc.
+#include "utils.h"          // trim, col_letter, etc.
 
 // ────────────────────────────────────────────────
-// Публичные функции модуля
+// Public module functions
 // ────────────────────────────────────────────────
 
 /**
- * @brief Инициализирует форматы всех столбцов значениями по умолчанию
+ * @brief Initializes all column formats to their default values.
  *
- * Вызывается при загрузке нового файла или сбросе настроек.
- * Устанавливает:
+ * Called when loading a new file or resetting settings.
+ * Sets:
  *   - truncate_len = 0
- *   - decimal_places = -1 (авто)
- *   - date_format = пустая строка
+ *   - decimal_places = -1 (auto)
+ *   - date_format = empty string
  *   - col_widths[i] = CELL_WIDTH
  */
 void init_column_formats(void);
 
 /**
- * @brief Обрезает строку до заданной длины с добавлением "..."
+ * @brief Truncates a string to the specified length, appending "..."
  *
- * @param str       Исходная строка (может быть NULL)
- * @param max_len   Максимальная длина (без учёта "...")
- * @return          Новая строка (malloc) — либо копия, либо обрезанная с "..."
- *                  Всегда нужно free() результат
+ * @param str       Source string (may be NULL)
+ * @param max_len   Maximum length (not counting "...")
+ * @return          New string (malloc) — either a copy or truncated with "..."
+ *                  Always call free() on the result
  */
 char *truncate_string(const char *str, int max_len);
 
 /**
- * @brief Форматирует числовую строку с заданным количеством знаков после точки
+ * @brief Formats a numeric string with the specified number of decimal places.
  *
- * Поддерживает авто-режим (decimals < 0) — сохраняет до 6 знаков, убирает лишние нули
+ * Supports auto mode (decimals < 0) — preserves up to 6 digits, strips trailing zeros.
  *
- * @param raw_str   Исходная строка (может быть NULL или нечислом)
- * @param decimals  Количество знаков после точки (-1 = авто)
- * @return          Новая строка (malloc) с отформатированным числом
- *                  Всегда нужно free() результат
+ * @param raw_str   Source string (may be NULL or non-numeric)
+ * @param decimals  Number of decimal places (-1 = auto)
+ * @return          New string (malloc) with the formatted number
+ *                  Always call free() on the result
  */
 char *format_number(const char *raw_str, int decimals);
 
 /**
- * @brief Форматирует строку даты по заданному формату
+ * @brief Formats a date string according to the specified format.
  *
- * Пытается распознать несколько популярных входных форматов дат.
- * Если формат не распознан — возвращает исходную строку.
+ * Attempts to recognize several common input date formats.
+ * If the format is not recognized, returns the original string.
  *
- * @param date_str      Исходная строка даты
- * @param target_format Целевой формат (например "%d.%m.%Y")
- * @return              Новая строка (malloc) в целевом формате или исходная
- *                      Всегда нужно free() результат
+ * @param date_str      Source date string
+ * @param target_format Target format (e.g. "%d.%m.%Y")
+ * @return              New string (malloc) in the target format, or the original
+ *                      Always call free() on the result
  */
 char *format_date(const char *date_str, const char *target_format);
 
 /**
- * @brief Главная функция форматирования значения ячейки перед отрисовкой
+ * @brief Main function for formatting a cell value before rendering.
  *
- * Применяет настройки формата столбца (truncate, decimals, date_format)
- * в зависимости от типа столбца (COL_STR, COL_NUM, COL_DATE)
+ * Applies column format settings (truncate, decimals, date_format)
+ * according to the column type (COL_STR, COL_NUM, COL_DATE).
  *
- * @param raw_value     Исходное значение ячейки (может быть NULL)
- * @param col_idx       Индекс столбца (0-based)
- * @return              Отформатированная строка (malloc)
- *                      Всегда нужно free() результат
+ * @param raw_value     Raw cell value (may be NULL)
+ * @param col_idx       Column index (0-based)
+ * @return              Formatted string (malloc)
+ *                      Always call free() on the result
  */
 char *format_cell_value(const char *raw_value, int col_idx);
 
 /**
- * @brief Сохраняет текущие настройки столбцов и фильтры в файл <csv_filename>.csvf
+ * @brief Saves the current column settings and filters to <csv_filename>.csvf
  *
- * Формат файла:
+ * File format:
  *   use_headers:N
  *   col_count:N
  *   idx:type:truncate:decimals:date_format
  *   widths:w1,w2,...
- *   filter: запрос1
- *   filter: запрос2
+ *   filter: query1
+ *   filter: query2
  *
- * @param csv_filename  Имя исходного CSV-файла (без расширения .csvf)
+ * @param csv_filename  Name of the source CSV file (without the .csvf extension)
  */
 /**
- * @brief Автоматически определяет типы столбцов по сэмплу первых 200 строк данных.
+ * @brief Automatically detects column types from a sample of the first 200 data rows.
  *
- * Для каждого столбца проверяет ≥90% непустых значений:
- *   - если парсятся как число → COL_NUM
- *   - если совпадают с датой → COL_DATE (приоритет над числами)
- *   - иначе → COL_STR
- * Поддерживаемые форматы дат: YYYY-MM-DD, DD.MM.YYYY, DD/MM/YYYY, YYYY/MM/DD, YYYY-MM.
- * Вызывать только когда .csvf не найден (до show_column_setup).
+ * For each column, checks ≥90% of non-empty values:
+ *   - if parseable as a number → COL_NUM
+ *   - if matching a date pattern → COL_DATE (takes priority over numbers)
+ *   - otherwise → COL_STR
+ * Supported date formats: YYYY-MM-DD, DD.MM.YYYY, DD/MM/YYYY, YYYY/MM/DD, YYYY-MM.
+ * Should only be called when no .csvf file was found (before show_column_setup).
  */
 void auto_detect_column_types(void);
 
 void save_column_settings(const char *csv_filename);
 
 /**
- * @brief Загружает настройки столбцов и фильтры из файла <csv_filename>.csvf
+ * @brief Loads column settings and filters from <csv_filename>.csvf
  *
- * Если файл не существует или формат не совпадает — возвращает 0, настройки остаются дефолтными.
- * Успешно загружает только если col_count совпадает с текущим.
+ * If the file does not exist or the format does not match, returns 0 and settings remain at defaults.
+ * Fully loads only when col_count matches the current value.
  *
- * @param csv_filename  Имя исходного CSV-файла
- * @return 1 — полный успех, 2 — частичный (col_count изменился, глобальные настройки применены), 0 — файл не найден
+ * @param csv_filename  Name of the source CSV file
+ * @return 1 — full success, 2 — partial (col_count changed, global settings applied), 0 — file not found
  */
 int  preload_delimiter(const char *csv_filename);  /* returns 1 if skip_comments was set explicitly */
 int load_column_settings(const char *csv_filename);
 
 /**
- * @brief Показывает интерактивное окно настройки типов и форматов столбцов
+ * @brief Displays an interactive window for configuring column types and formats.
  *
- * Позволяет пользователю:
- *   - менять тип столбца (S/N/D)
- *   - задавать формат (обрезка строк, знаки после точки, формат даты)
- *   - включать/выключать заголовки
+ * Allows the user to:
+ *   - change the column type (S/N/D)
+ *   - set the format (string truncation, decimal places, date format)
+ *   - toggle headers on/off
  *
- * Поддерживает два режима:
- *   - initial_setup = 1 — первый запуск (можно сразу выбрать с/без заголовков)
- *   - обычный режим — редактирование существующих настроек
+ * Supports two modes:
+ *   - initial_setup = 1 — first launch (can immediately choose with/without headers)
+ *   - normal mode — editing existing settings
  *
- * После изменений вызывает save_column_settings() для сохранения в .csvf
+ * After changes, calls save_column_settings() to persist to .csvf
  *
- * @param rows          Массив индексов строк (нужен только для совместимости с сигнатурой)
- * @param f             FILE* исходного файла (не используется напрямую)
- * @param row_count_ptr Указатель на row_count (не используется)
- * @param initial_setup 1 = первый запуск (с выбором заголовков), 0 = обычный режим
- * @param csv_filename  Имя файла для сохранения настроек
+ * @param rows          Array of row indices (needed only for signature compatibility)
+ * @param f             FILE* of the source file (not used directly)
+ * @param row_count_ptr Pointer to row_count (not used)
+ * @param initial_setup 1 = first launch (with header selection), 0 = normal mode
+ * @param csv_filename  File name for saving settings
  * @return
- *   0 — изменения применены и сохранены
- *   1 — пользователь отменил (Esc/q)
+ *   0 — changes applied and saved
+ *   1 — user cancelled (Esc/q)
  *
  * @note
- *   - Окно занимает почти весь экран
- *   - Поддерживает навигацию ↑↓ ←→ Tab, быстрый выбор типа (S/N/D), ввод формата Enter
- *   - При первом запуске можно сразу выйти с выбором заголовков (H/1/2)
+ *   - Window occupies almost the entire screen
+ *   - Supports navigation with ↑↓ ←→ Tab, quick type selection (S/N/D), format input via Enter
+ *   - On first launch, can exit immediately with header selection (H/1/2)
  *
  * @warning
- *   - Зависит от глобальных: col_count, column_names, col_types, col_formats,
- *     col_widths, use_headers, saved_filters и т.д.
- *   - Вызывает save_column_settings() при выходе с применением
- *   - Если col_count == 0 — просто возвращается
+ *   - Depends on globals: col_count, column_names, col_types, col_formats,
+ *     col_widths, use_headers, saved_filters, etc.
+ *   - Calls save_column_settings() when exiting with changes applied
+ *   - If col_count == 0 — simply returns
  */
 int show_column_setup(const char *csv_filename);
 

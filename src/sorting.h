@@ -1,49 +1,49 @@
 /**
  * sorting.h
  *
- * Интерфейс модуля сортировки для csvview
- * Объявления функций сравнения строк и построения индекса сортировки
+ * Interface for the sorting module of csvview
+ * Declarations of row comparison functions and sort index construction
  */
 
 #ifndef SORTING_H
 #define SORTING_H
 
-#include "csvview_defs.h"   // RowIndex, globals (sort_col, sorted_rows и т.д.)
-#include "utils.h"          // get_column_value, col_name_to_num и т.д.
+#include "csvview_defs.h"   // RowIndex, globals (sort_col, sorted_rows, etc.)
+#include "utils.h"          // get_column_value, col_name_to_num, etc.
 
 // ────────────────────────────────────────────────
-// Публичные функции модуля
+// Public module functions
 // ────────────────────────────────────────────────
 
 /**
- * @brief Функция сравнения двух строк для qsort
- * Используется для сортировки индексов строк по значению в столбце sort_col
- * Учитывает заголовок (всегда первый), числовое/строковое сравнение,
- * направление сортировки (sort_order)
+ * @brief Comparison function for two rows used by qsort
+ * Used for sorting row indices by value in column sort_col
+ * Accounts for the header (always first), numeric/string comparison,
+ * and sort direction (sort_order)
  *
- * @param pa  Указатель на индекс первой строки (int*)
- * @param pb  Указатель на индекс второй строки (int*)
- * @return    -1, 0, 1 в зависимости от порядка (с учётом sort_order)
+ * @param pa  Pointer to the index of the first row (int*)
+ * @param pb  Pointer to the index of the second row (int*)
+ * @return    -1, 0, 1 depending on order (taking sort_order into account)
  */
 int compare_rows_by_column(const void *pa, const void *pb);
 
 /**
- * @brief Строит массив sorted_rows[] — индексы строк в отсортированном порядке
- * Заполняет sorted_count и sorted_rows[] только строками данных (пропуская заголовок)
- * Если sort_col < 0 — сбрасывает сортировку (sorted_count = 0)
+ * @brief Builds the sorted_rows[] array — row indices in sorted order
+ * Fills sorted_count and sorted_rows[] with data rows only (skipping the header)
+ * If sort_col < 0 — resets sort (sorted_count = 0)
  */
 void build_sorted_index(void);
 
 /**
- * @brief Возвращает реальный индекс строки в файле по видимому индексу
+ * @brief Returns the real row index in the file by visible index
  *
- * Учитывает:
- *   - активную сортировку (sorted_rows)
- *   - активный фильтр (filtered_rows)
- *   - наличие заголовка (use_headers)
+ * Accounts for:
+ *   - active sort (sorted_rows)
+ *   - active filter (filtered_rows)
+ *   - presence of a header (use_headers)
  *
- * @param display_idx   Позиция строки на экране (0 = первая видимая)
- * @return              Реальный индекс строки в массиве rows[] (0-based)
+ * @param display_idx   Row position on screen (0 = first visible)
+ * @return              Real row index in the rows[] array (0-based)
  */
 int get_real_row(int display_idx);
 

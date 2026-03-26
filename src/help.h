@@ -1,35 +1,35 @@
 /**
  * help.h
  *
- * Модуль справки и помощи для csvview
- * Выводит подробную инструкцию по использованию программы
+ * Help and usage module for csvview
+ * Displays detailed instructions on how to use the program
  */
 
 #ifndef HELP_H
 #define HELP_H
 
-#include <ncurses.h>    // для mvprintw, attron и т.д. (если выводим в ncurses)
-#include <stdio.h>      // для printf (если выводим в консоль)
+#include <ncurses.h>    // for mvprintw, attron, etc. (when rendering in ncurses)
+#include <stdio.h>      // for printf (when rendering to the console)
 
 // ────────────────────────────────────────────────
-// Публичные функции
+// Public functions
 // ────────────────────────────────────────────────
 
 /**
- * @brief Выводит полную справку по программе
+ * @brief Displays the full program help
  *
- * Выводит в терминал (или в ncurses-окно, если используем ncurses)  
- * подробное руководство по запуску, горячим клавишам, командам и функциям.
+ * Outputs to the terminal (or to an ncurses window if ncurses is active)
+ * a detailed guide covering launch options, key bindings, commands and features.
  *
- * @param use_ncurses  1 — вывод в ncurses-окно (центрированное, с рамкой)  
- *                     0 — простой вывод в stdout (консоль)
+ * @param use_ncurses  1 — render in an ncurses window (centered, with a border)
+ *                     0 — plain output to stdout (console)
  */
 void show_help(int use_ncurses);
 
 /**
- * @brief Выводит краткую справку по запуску (для --help / -h)
+ * @brief Displays brief usage information (for --help / -h)
  *
- * Показывает только основные аргументы и краткое описание.
+ * Shows only the main arguments and a short description.
  */
 void show_usage(void);
 

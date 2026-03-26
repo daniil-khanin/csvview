@@ -1,154 +1,154 @@
 /**
  * pivot.h
  *
- * Интерфейс модуля сводных таблиц (pivot tables) для csvview
- * Содержит все функции работы с хэш-таблицей, агрегацией, настройками и отрисовкой pivot
+ * Interface for the pivot table module of csvview
+ * Contains all functions for hash table operations, aggregation, settings, and pivot rendering
  */
 
 #ifndef PIVOT_H
 #define PIVOT_H
 
-#include "csvview_defs.h"   // Agg, PivotSettings, ColType, RowIndex и глобальные переменные
-#include "utils.h"          // get_column_value, col_name_to_num и т.д.
+#include "csvview_defs.h"   // Agg, PivotSettings, ColType, RowIndex and global variables
+#include "utils.h"          // get_column_value, col_name_to_num, etc.
 
 /**
- * @brief Вычисляет хэш строки (используется для HashMap)
- * @param str   Строка для хэширования
- * @return      64-битный хэш
+ * @brief Computes a hash of a string (used for HashMap)
+ * @param str   String to hash
+ * @return      64-bit hash
  */
 unsigned long hash_string(const char *str);
 
 /**
- * @brief Создаёт новую хэш-таблицу
- * @param size  Начальный размер (количество бакетов)
- * @return      Указатель на HashMap или NULL при ошибке
+ * @brief Creates a new hash table
+ * @param size  Initial size (number of buckets)
+ * @return      Pointer to HashMap or NULL on error
  */
 HashMap *hash_map_create(int size);
 
 /**
- * @brief Добавляет или обновляет значение по ключу
- * @param map   Хэш-таблица
- * @param key   Ключ (строка)
- * @param value Значение (указатель)
+ * @brief Inserts or updates a value by key
+ * @param map   Hash table
+ * @param key   Key (string)
+ * @param value Value (pointer)
  */
 void hash_map_put(HashMap *map, const char *key, void *value);
 
 /**
- * @brief Получает значение по ключу
- * @param map   Хэш-таблица
- * @param key   Ключ
- * @return      Значение или NULL, если ключ не найден
+ * @brief Retrieves a value by key
+ * @param map   Hash table
+ * @param key   Key
+ * @return      Value or NULL if key not found
  */
 void *hash_map_get(HashMap *map, const char *key);
 
 /**
- * @brief Возвращает массив всех ключей в хэш-таблице
- * @param map       Хэш-таблица
- * @param count     [out] Количество ключей
- * @return          Массив строк (нужно free каждый элемент и сам массив)
+ * @brief Returns an array of all keys in the hash table
+ * @param map       Hash table
+ * @param count     [out] Number of keys
+ * @return          Array of strings (caller must free each element and the array itself)
  */
 char **hash_map_keys(HashMap *map, int *count);
 
 /**
- * @brief Освобождает всю память хэш-таблицы
- * @param map   Хэш-таблица (можно NULL)
+ * @brief Frees all memory used by the hash table
+ * @param map   Hash table (may be NULL)
  */
 void hash_map_destroy(HashMap *map);
 
 // ────────────────────────────────────────────────
-// Функции сравнения для qsort
+// Comparison functions for qsort
 // ────────────────────────────────────────────────
 
 /**
- * @brief Сравнение двух строк для qsort (регистрозависимое)
+ * @brief Case-sensitive string comparison for qsort
  */
 int compare_str(const void *a, const void *b);
 
 /**
- * @brief Сравнение ключей дат для qsort (поддерживает YYYY-MM, YYYY-Qn, YYYY, век)
+ * @brief Date key comparison for qsort (supports YYYY-MM, YYYY-Qn, YYYY, century)
  */
 int compare_date_keys(const void *a, const void *b);
 
 // ────────────────────────────────────────────────
-// Агрегация и ключи группировки
+// Aggregation and grouping keys
 // ────────────────────────────────────────────────
 
 /**
- * @brief Получает ключ группировки для значения ячейки (особенно для дат)
- * @param val       Значение ячейки
- * @param type      Тип столбца
- * @param grouping  Масштаб ("Month", "Quarter", "Year", "Century", "Auto")
- * @param col_idx   Индекс столбца (для date_format)
- * @return          Новая строка-ключ (malloc) — нужно free()
+ * @brief Returns the grouping key for a cell value (especially for dates)
+ * @param val       Cell value
+ * @param type      Column type
+ * @param grouping  Granularity ("Month", "Quarter", "Year", "Century", "Auto")
+ * @param col_idx   Column index (for date_format)
+ * @return          New key string (malloc'd) — caller must free()
  */
 char *get_group_key(const char *val, ColType type, const char *grouping, int col_idx);
 
 /**
- * @brief Обновляет агрегацию одной ячейкой
- * @param agg         Структура агрегации
- * @param val         Значение ячейки
- * @param value_type  Тип значения (COL_NUM или другой)
+ * @brief Updates aggregation with a single cell value
+ * @param agg         Aggregation structure
+ * @param val         Cell value
+ * @param value_type  Value type (COL_NUM or other)
  */
 void update_agg(Agg *agg, const char *val, ColType value_type);
 
 /**
- * @brief Форматирует результат агрегации для вывода
- * @param agg           Агрегация
- * @param aggregation   Тип ("SUM", "AVG", "COUNT" и т.д.)
- * @param value_type    Тип значения
- * @return              Статическая строка-буфер (не free!)
+ * @brief Formats an aggregation result for display
+ * @param agg           Aggregation
+ * @param aggregation   Type ("SUM", "AVG", "COUNT", etc.)
+ * @param value_type    Value type
+ * @return              Static string buffer (do not free!)
  */
 char *get_agg_display(const Agg *agg, const char *aggregation, ColType value_type);
 
 // ────────────────────────────────────────────────
-// Настройки pivot
+// Pivot settings
 // ────────────────────────────────────────────────
 
 /**
- * @brief Загружает настройки pivot из <csv_filename>.pivot
- * @param csv_filename  Имя файла
- * @param settings      Структура для заполнения
- * @return              1 — успешно, 0 — файл не найден / ошибка
+ * @brief Loads pivot settings from <csv_filename>.pivot
+ * @param csv_filename  File name
+ * @param settings      Structure to populate
+ * @return              1 on success, 0 if file not found or error
  */
 int load_pivot_settings(const char *csv_filename, PivotSettings *settings);
 
 /**
- * @brief Сохраняет настройки pivot в <csv_filename>.pivot
- * @param csv_filename  Имя файла
- * @param settings      Настройки
+ * @brief Saves pivot settings to <csv_filename>.pivot
+ * @param csv_filename  File name
+ * @param settings      Settings
  */
 void save_pivot_settings(const char *csv_filename, const PivotSettings *settings);
 
 // ────────────────────────────────────────────────
-// Отрисовка и интерфейс
+// Rendering and UI
 // ────────────────────────────────────────────────
 
 /**
- * @brief Рисует рамку таблицы (используется внутри pivot)
- * @param y      Вертикальная позиция
- * @param x      Горизонтальная позиция
- * @param height Высота
- * @param width  Ширина
+ * @brief Draws the table border (used inside pivot)
+ * @param y      Vertical position
+ * @param x      Horizontal position
+ * @param height Height
+ * @param width  Width
  */
 void draw_table_frame(int y, int x, int height, int width);
 
 /**
- * @brief Показывает окно настроек сводной таблицы
- * @param settings      Настройки (модифицируются)
- * @param csv_filename  Имя файла
- * @param height        Высота экрана
- * @param width         Ширина экрана
+ * @brief Shows the pivot table settings window
+ * @param settings      Settings (modified in place)
+ * @param csv_filename  File name
+ * @param height        Screen height
+ * @param width         Screen width
  */
 void show_pivot_settings_window(PivotSettings *settings,
                                 const char *csv_filename,
                                 int height, int width);
 
 /**
- * @brief Строит и отображает сводную таблицу по настройкам
- * @param settings      Настройки
- * @param csv_filename  Имя файла
- * @param height        Высота экрана
- * @param width         Ширина экрана
+ * @brief Builds and displays the pivot table from settings
+ * @param settings      Settings
+ * @param csv_filename  File name
+ * @param height        Screen height
+ * @param width         Screen width
  */
 void build_and_show_pivot(PivotSettings *settings,
                           const char *csv_filename,
