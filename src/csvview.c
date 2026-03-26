@@ -420,12 +420,34 @@ typedef struct {
     int  ok;           /* 1 = loaded (even if empty/unreadable) */
 } PrevCache;
 
+/* Try to read the delimiter that was saved by csvview in the .csvf sidecar.
+   Returns 0 if not found or file doesn't exist. */
+static char prev_delim_from_csvf(const char *fpath)
+{
+    char csvf[4096 + 8];
+    snprintf(csvf, sizeof(csvf), "%s.csvf", fpath);
+    FILE *fp = fopen(csvf, "r");
+    if (!fp) return 0;
+    char line[64];
+    char found = 0;
+    while (fgets(line, sizeof(line), fp)) {
+        if (strncmp(line, "delimiter:", 10) == 0) {
+            int d = atoi(line + 10);
+            if (d > 0 && d < 256) found = (char)d;
+            break;
+        }
+    }
+    fclose(fp);
+    return found;
+}
+
 static char prev_detect_delim(const char *line, const char *fpath)
 {
     const char *ext = strrchr(fpath, '.');
     if (ext) {
-        if (strcasecmp(ext, ".tsv") == 0) return '\t';
-        if (strcasecmp(ext, ".psv") == 0) return '|';
+        if (strcasecmp(ext, ".tsv")  == 0) return '\t';
+        if (strcasecmp(ext, ".psv")  == 0) return '|';
+        if (strcasecmp(ext, ".ecsv") == 0) return ' ';
     }
     int t = 0, pip = 0, com = 0, sem = 0;
     for (const char *q = line; *q; q++) {
@@ -461,7 +483,10 @@ static void prev_load(PrevCache *pc, const char *path)
     pc->row_count = n;
     if (n == 0) { pc->ok = 1; return; }
 
-    pc->delim = prev_detect_delim(pc->lines[0], path);
+    /* Prefer the delimiter saved in .csvf (most accurate); fall back to
+       extension/content heuristic. */
+    char saved = prev_delim_from_csvf(path);
+    pc->delim = saved ? saved : prev_detect_delim(pc->lines[0], path);
 
     /* Compute per-column max widths by scanning all loaded rows */
     for (int r = 0; r < n; r++) {
