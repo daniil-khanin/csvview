@@ -77,6 +77,12 @@ void format_number_with_spaces(long long num, char *buf, size_t bufsize);
 
 char *truncate_for_display(const char *str, int max_width);
 
+/**
+ * Returns the number of terminal display columns needed for UTF-8 string s.
+ * CJK/full-width characters count as 2; Arabic, Hebrew, Latin, etc. count as 1.
+ */
+int utf8_display_width(const char *s);
+
 char *clean_column_name(const char *raw);
 
 /**

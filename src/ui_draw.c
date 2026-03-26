@@ -62,40 +62,6 @@ static int str_has_rtl(const char *s)
     return 0;
 }
 
-static int encode_cp(uint32_t cp, char *out)
-{
-    if (cp < 0x80)    { out[0] = (char)cp; return 1; }
-    if (cp < 0x800)   { out[0] = (char)(0xC0 | (cp >> 6));
-                        out[1] = (char)(0x80 | (cp & 0x3F)); return 2; }
-    if (cp < 0x10000) { out[0] = (char)(0xE0 | (cp >> 12));
-                        out[1] = (char)(0x80 | ((cp >> 6) & 0x3F));
-                        out[2] = (char)(0x80 | (cp & 0x3F)); return 3; }
-    out[0] = (char)(0xF0 | (cp >> 18));
-    out[1] = (char)(0x80 | ((cp >> 12) & 0x3F));
-    out[2] = (char)(0x80 | ((cp >> 6)  & 0x3F));
-    out[3] = (char)(0x80 | (cp & 0x3F)); return 4;
-}
-
-/* Reverse UTF-8 string by codepoints into dst (max dst_size bytes incl NUL). */
-static void utf8_codepoint_reverse(const char *src, char *dst, int dst_size)
-{
-    uint32_t cps[512];
-    int n = 0;
-    const char *p = src;
-    uint32_t cp;
-    while ((cp = rtl_next_cp(&p)) != 0 && n < 511)
-        cps[n++] = cp;
-    int out = 0;
-    char tmp[4];
-    for (int i = n - 1; i >= 0; i--) {
-        int bytes = encode_cp(cps[i], tmp);
-        if (out + bytes >= dst_size) break;
-        memcpy(dst + out, tmp, bytes);
-        out += bytes;
-    }
-    dst[out] = '\0';
-}
-
 /* ── end RTL helpers ─────────────────────────────────────────────────────── */
 
 // ────────────────────────────────────────────────
@@ -416,9 +382,15 @@ void draw_table_body(int top, int offset __attribute__((unused)), int visible_ro
 
             char *disp = truncate_for_display(display_val, col_widths[fc] - 2);
             if (col_types[fc] != COL_NUM && str_has_rtl(disp)) {
-                char rbuf[256];
-                utf8_codepoint_reverse(disp, rbuf, sizeof(rbuf));
-                mvprintw(row_y, current_x, "%*s", col_widths[fc] - 2, rbuf);
+                /* RTL text: right-align using display columns, then wrap in
+                   Unicode FSI (U+2068) + PDI (U+2069) — isolates the BiDi
+                   context so the terminal's Bidi algorithm doesn't bleed
+                   into adjacent columns. */
+                int cell_w = col_widths[fc] - 2;
+                int text_w = utf8_display_width(disp);
+                int pad = (cell_w > text_w) ? cell_w - text_w : 0;
+                mvprintw(row_y, current_x, "%*s\xE2\x81\xA8%s\xE2\x81\xA9",
+                         pad, "", disp);
             } else {
                 const char *fmt = (col_types[fc] == COL_NUM) ? "%*s" : "%-*s";
                 mvprintw(row_y, current_x, fmt, col_widths[fc] - 2, disp);
@@ -462,9 +434,11 @@ void draw_table_body(int top, int offset __attribute__((unused)), int visible_ro
 
             char *disp = truncate_for_display(display_val, col_widths[sc_col] - 2);
             if (col_types[sc_col] != COL_NUM && str_has_rtl(disp)) {
-                char rbuf[256];
-                utf8_codepoint_reverse(disp, rbuf, sizeof(rbuf));
-                mvprintw(row_y, current_x, "%*s", col_widths[sc_col] - 2, rbuf);
+                int cell_w = col_widths[sc_col] - 2;
+                int text_w = utf8_display_width(disp);
+                int pad = (cell_w > text_w) ? cell_w - text_w : 0;
+                mvprintw(row_y, current_x, "%*s\xE2\x81\xA8%s\xE2\x81\xA9",
+                         pad, "", disp);
             } else {
                 const char *fmt = (col_types[sc_col] == COL_NUM) ? "%*s" : "%-*s";
                 mvprintw(row_y, current_x, fmt, col_widths[sc_col] - 2, disp);

@@ -1,5 +1,6 @@
 #include "utils.h"
 #include <time.h>
+#include <stdint.h>
 
 // Parse a double, accepting both dot and comma as decimal separator.
 double parse_double(const char *s, char **endptr)
@@ -1240,32 +1241,109 @@ void format_number_with_spaces(long long num, char *buf, size_t bufsize)
  * if the string was longer. Returns a newly allocated string.
  * If the string is NULL or empty → returns an empty string "".
  */
+/* Returns the number of terminal display columns needed for the UTF-8 string s.
+   CJK / East-Asian Wide characters count as 2; everything else (including
+   Arabic, Hebrew, Latin, Cyrillic, combining marks, controls) counts as 1 or 0. */
+int utf8_display_width(const char *s)
+{
+    int cols = 0;
+    const unsigned char *p = (const unsigned char *)s;
+    while (*p) {
+        uint32_t cp;
+        if      (*p < 0x80) { cp = *p++; }
+        else if (*p < 0xE0) { cp  = (uint32_t)(*p++ & 0x1F) << 6;
+                              cp |= (*p++ & 0x3F); }
+        else if (*p < 0xF0) { cp  = (uint32_t)(*p++ & 0x0F) << 12;
+                              cp |= (uint32_t)(*p++ & 0x3F) << 6;
+                              cp |= (*p++ & 0x3F); }
+        else                { cp  = (uint32_t)(*p++ & 0x07) << 18;
+                              cp |= (uint32_t)(*p++ & 0x3F) << 12;
+                              cp |= (uint32_t)(*p++ & 0x3F) << 6;
+                              cp |= (*p++ & 0x3F); }
+
+        /* Double-width East Asian ranges */
+        if ((cp >= 0x1100  && cp <= 0x115F)  ||
+             cp == 0x2329   || cp == 0x232A   ||
+            (cp >= 0x2E80  && cp <= 0x303E)  ||
+            (cp >= 0x3040  && cp <= 0xA4CF)  ||
+            (cp >= 0xAC00  && cp <= 0xD7AF)  ||
+            (cp >= 0xF900  && cp <= 0xFAFF)  ||
+            (cp >= 0xFE10  && cp <= 0xFE19)  ||
+            (cp >= 0xFE30  && cp <= 0xFE4F)  ||
+            (cp >= 0xFF01  && cp <= 0xFF60)  ||
+            (cp >= 0xFFE0  && cp <= 0xFFE6)  ||
+            (cp >= 0x1F300 && cp <= 0x1F64F) ||
+            (cp >= 0x1F900 && cp <= 0x1F9FF) ||
+            (cp >= 0x20000 && cp <= 0x2FFFD) ||
+            (cp >= 0x30000 && cp <= 0x3FFFD))
+            cols += 2;
+        else if (cp >= 0x20 && cp != 0x00AD) /* printable, not soft-hyphen */
+            cols += 1;
+        /* else: control chars / combining marks → 0 columns */
+    }
+    return cols;
+}
+
+/* Truncate UTF-8 string so it fits within max_width terminal columns.
+   Uses utf8_display_width() — handles multi-byte and wide characters
+   correctly (e.g. Arabic chars are 2 bytes but 1 display column). */
 char *truncate_for_display(const char *str, int max_width)
 {
-    if (!str || !*str) {
+    if (!str || !*str || max_width <= 0)
         return strdup("");
+
+    const unsigned char *p   = (const unsigned char *)str;
+    const unsigned char *end = p; /* byte position of truncation point */
+    int cols = 0;
+
+    while (*p) {
+        const unsigned char *start = p;
+        uint32_t cp;
+        if      (*p < 0x80) { cp = *p++; }
+        else if (*p < 0xE0) { cp  = (uint32_t)(*p++ & 0x1F) << 6;
+                              cp |= (*p++ & 0x3F); }
+        else if (*p < 0xF0) { cp  = (uint32_t)(*p++ & 0x0F) << 12;
+                              cp |= (uint32_t)(*p++ & 0x3F) << 6;
+                              cp |= (*p++ & 0x3F); }
+        else                { cp  = (uint32_t)(*p++ & 0x07) << 18;
+                              cp |= (uint32_t)(*p++ & 0x3F) << 12;
+                              cp |= (uint32_t)(*p++ & 0x3F) << 6;
+                              cp |= (*p++ & 0x3F); }
+
+        int cw;
+        if ((cp >= 0x1100  && cp <= 0x115F)  ||
+             cp == 0x2329   || cp == 0x232A   ||
+            (cp >= 0x2E80  && cp <= 0x303E)  ||
+            (cp >= 0x3040  && cp <= 0xA4CF)  ||
+            (cp >= 0xAC00  && cp <= 0xD7AF)  ||
+            (cp >= 0xF900  && cp <= 0xFAFF)  ||
+            (cp >= 0xFE10  && cp <= 0xFE19)  ||
+            (cp >= 0xFE30  && cp <= 0xFE4F)  ||
+            (cp >= 0xFF01  && cp <= 0xFF60)  ||
+            (cp >= 0xFFE0  && cp <= 0xFFE6)  ||
+            (cp >= 0x1F300 && cp <= 0x1F64F) ||
+            (cp >= 0x1F900 && cp <= 0x1F9FF) ||
+            (cp >= 0x20000 && cp <= 0x2FFFD) ||
+            (cp >= 0x30000 && cp <= 0x3FFFD))
+            cw = 2;
+        else if (cp >= 0x20 && cp != 0x00AD)
+            cw = 1;
+        else
+            cw = 0;
+
+        if (cols + cw > max_width) break;
+        cols += cw;
+        end = p;
+        (void)start;
     }
 
-    if (max_width <= 0) {
-        return strdup("");
-    }
+    if (!*p) return strdup(str); /* fits entirely */
 
-    size_t len = strlen(str);
-    if (len <= (size_t)max_width) {
-        return strdup(str);
-    }
-
-    // Reserve space for … (3 characters)
-    int keep = max_width;
-    if (keep < 1) keep = 1;
-
-    char *result = malloc(max_width + 1);
-    if (!result) return strdup(str);  // fallback on allocation error
-
-    strncpy(result, str, keep);
-    //strcpy(result + keep, "...");
-
-    result[max_width] = '\0';
+    size_t keep = end - (const unsigned char *)str;
+    char *result = malloc(keep + 1);
+    if (!result) return strdup(str);
+    memcpy(result, str, keep);
+    result[keep] = '\0';
     return result;
 }
 
