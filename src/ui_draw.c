@@ -258,11 +258,14 @@ void draw_table_headers(int top, int offset __attribute__((unused)), int visible
     }
 
     // === Scrollable columns, starting from left_col ===
+    int scr_w = getmaxx(stdscr);
+    int right_border = scr_w - 2; /* last usable column (border lives at scr_w-1) */
     int col_idx = left_col;
     int drawn_sc = 0;
     while (col_idx < col_count) {
         if (col_hidden[col_idx]) { col_idx++; continue; }
         if (drawn_sc >= visible_cols) break;
+        if (current_x >= right_border) break; /* don't draw past the right border */
         draw_one_header(top, current_x, col_idx, cur_col);
         current_x += col_widths[col_idx] + 2;
         col_idx++;
@@ -409,11 +412,14 @@ void draw_table_body(int top, int offset __attribute__((unused)), int visible_ro
         }
 
         // === Scrollable columns, starting from left_col ===
+        int scr_width = getmaxx(stdscr);
+        int right_edge = scr_width - 2; /* right border lives at scr_width-1 */
         int sc_col = left_col;
         int drawn_sc = 0;
         while (sc_col < col_count) {
             if (col_hidden[sc_col]) { sc_col++; continue; }
             if (drawn_sc >= visible_cols) break;
+            if (current_x >= right_edge) break; /* stop before the right border */
 
             const char *raw = (sc_col < field_count) ? fields[sc_col] : "";
 
@@ -451,10 +457,12 @@ void draw_table_body(int top, int offset __attribute__((unused)), int visible_ro
             drawn_sc++;
         }
 
-        /* Clear the rest of the row to prevent artifacts from previous
-           frames (e.g. text from wider lines or after terminal resize). */
-        move(row_y, current_x);
-        clrtoeol();
+        /* Clear from current_x up to (but not including) the right border.
+           clrtoeol() would erase the border character, so we fill with spaces
+           up to scr_width-2 instead. */
+        if (current_x < right_edge) {
+            mvprintw(row_y, current_x, "%*s", right_edge - current_x, "");
+        }
 
         // Free memory after parsing
         for (int k = 0; k < field_count; k++) {
