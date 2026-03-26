@@ -834,11 +834,24 @@ void show_pivot_settings_window(PivotSettings *settings, const char *csv_filenam
     }
     int num_col_options = col_count + 1;
 
+    /* Aggregation options — first 5 are meaningful for ALL column types
+       (string, date, numeric). Options 5..10 are numeric-only.
+       max_a = 5 for non-numeric columns, 11 for numeric. */
     const char *agg_options[] = {
-        "SUM", "AVG", "COUNT", "MIN", "MAX", "UNIQUE COUNT",
-        "SUM+COUNT", "SUM+AVG", "MIN+MAX", "SUM+COUNT+AVG", "COUNT+UNIQUE COUNT"
+        "COUNT",              /* 0 — all types */
+        "UNIQUE COUNT",       /* 1 — all types */
+        "MIN",                /* 2 — all types (string min/max for non-numeric) */
+        "MAX",                /* 3 — all types */
+        "COUNT+UNIQUE COUNT", /* 4 — all types */
+        "SUM",                /* 5 — numeric only */
+        "AVG",                /* 6 — numeric only */
+        "SUM+COUNT",          /* 7 — numeric only */
+        "SUM+AVG",            /* 8 — numeric only */
+        "MIN+MAX",            /* 9 — numeric only */
+        "SUM+COUNT+AVG",      /* 10 — numeric only */
     };
     int num_agg_options = 11;
+    int num_str_agg_options = 5; /* non-numeric: indices 0..4 only */
 
     const char *date_options[] = {"Auto", "Month", "Quarter", "Year", "Century"};
     int num_date_options = 5;
@@ -887,6 +900,15 @@ void show_pivot_settings_window(PivotSettings *settings, const char *csv_filenam
             agg_idx = i;
             break;
         }
+    }
+    /* Clamp to non-numeric range if value column is not numeric */
+    {
+        int vnum_init = value_idx > 0
+            ? (use_headers ? col_name_to_num(col_options[value_idx])
+                           : col_to_num(col_options[value_idx])) : -1;
+        ColType vt_init = (vnum_init >= 0) ? col_types[vnum_init] : COL_STR;
+        int max_a_init = (vt_init == COL_NUM) ? num_agg_options : num_str_agg_options;
+        if (agg_idx >= max_a_init) agg_idx = 0;
     }
     for (int i = 0; i < num_date_options; i++) {
         if (strcmp(date_options[i], settings->date_grouping) == 0) {
@@ -963,11 +985,18 @@ void show_pivot_settings_window(PivotSettings *settings, const char *csv_filenam
             int real_f = current_field;  // field_map no longer used, all fields shown
             if (real_f == 0) row_group_idx = (row_group_idx + 1) % num_col_options;
             else if (real_f == 1) col_group_idx = (col_group_idx + 1) % num_col_options;
-            else if (real_f == 2) value_idx = (value_idx + 1) % num_col_options;
+            else if (real_f == 2) {
+                value_idx = (value_idx + 1) % num_col_options;
+                /* Clamp agg_idx to valid range for new column type */
+                int vnum2 = value_idx > 0 ? (use_headers ? col_name_to_num(col_options[value_idx]) : col_to_num(col_options[value_idx])) : -1;
+                ColType vt2 = (vnum2 >= 0) ? col_types[vnum2] : COL_STR;
+                int max_a2 = (vt2 == COL_NUM) ? num_agg_options : num_str_agg_options;
+                if (agg_idx >= max_a2) agg_idx = 0;
+            }
             else if (real_f == 3) {
                 int vnum = value_idx > 0 ? (use_headers ? col_name_to_num(col_options[value_idx]) : col_to_num(col_options[value_idx])) : -1;
                 ColType vt = (vnum >= 0) ? col_types[vnum] : COL_STR;
-                int max_a = (vt == COL_NUM) ? num_agg_options : (vt == COL_DATE ? 5 : 2);
+                int max_a = (vt == COL_NUM) ? num_agg_options : num_str_agg_options;
                 agg_idx = (agg_idx + 1) % max_a;
             }
             else if (real_f == 4) {
@@ -986,11 +1015,17 @@ void show_pivot_settings_window(PivotSettings *settings, const char *csv_filenam
             int real_f = current_field;
             if (real_f == 0) row_group_idx = (row_group_idx - 1 + num_col_options) % num_col_options;
             else if (real_f == 1) col_group_idx = (col_group_idx - 1 + num_col_options) % num_col_options;
-            else if (real_f == 2) value_idx = (value_idx - 1 + num_col_options) % num_col_options;
+            else if (real_f == 2) {
+                value_idx = (value_idx - 1 + num_col_options) % num_col_options;
+                int vnum2 = value_idx > 0 ? (use_headers ? col_name_to_num(col_options[value_idx]) : col_to_num(col_options[value_idx])) : -1;
+                ColType vt2 = (vnum2 >= 0) ? col_types[vnum2] : COL_STR;
+                int max_a2 = (vt2 == COL_NUM) ? num_agg_options : num_str_agg_options;
+                if (agg_idx >= max_a2) agg_idx = 0;
+            }
             else if (real_f == 3) {
                 int vnum = value_idx > 0 ? (use_headers ? col_name_to_num(col_options[value_idx]) : col_to_num(col_options[value_idx])) : -1;
                 ColType vt = (vnum >= 0) ? col_types[vnum] : COL_STR;
-                int max_a = (vt == COL_NUM) ? num_agg_options : (vt == COL_DATE ? 5 : 2);
+                int max_a = (vt == COL_NUM) ? num_agg_options : num_str_agg_options;
                 agg_idx = (agg_idx - 1 + max_a) % max_a;
             }
             else if (real_f == 4) {
@@ -1081,7 +1116,10 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
             agg_count++;
             tok = strtok(NULL, "+");
         }
-        if (agg_count == 0) { strcpy(agg_list[0], "SUM"); agg_count = 1; }
+        if (agg_count == 0) {
+            strcpy(agg_list[0], value_type == COL_NUM ? "SUM" : "COUNT");
+            agg_count = 1;
+        }
     }
 
     int display_count = filter_active ? filtered_count : (sort_col >= 0 ? sorted_count : (row_count - (use_headers ? 1 : 0)));
@@ -1355,7 +1393,7 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
     /* Only executed when UNIQUE aggregation is requested */
     int need_unique = 0;
     for (int a = 0; a < agg_count; a++)
-        if (strcmp(agg_list[a], "UNIQUE") == 0) { need_unique = 1; break; }
+        if (strcmp(agg_list[a], "UNIQUE COUNT") == 0) { need_unique = 1; break; }
 
     if (need_unique) {
         char rval_buf[512], cval_buf[512], vval_buf[512];
