@@ -420,6 +420,36 @@ typedef struct {
     int  ok;           /* 1 = loaded (even if empty/unreadable) */
 } PrevCache;
 
+/* Read the delimiter from an ECSV file's comment header block.
+   Looks for:  # delimiter: ','  or  # delimiter: ' '  (Astropy ECSV spec).
+   Returns the delimiter character, or ' ' if not found (ECSV default). */
+static char ecsv_read_delimiter(const char *fpath)
+{
+    FILE *fp = fopen(fpath, "r");
+    if (!fp) return ' ';
+    char line[256];
+    char result = ' '; /* ECSV default is space */
+    while (fgets(line, sizeof(line), fp)) {
+        if (line[0] != '#') break; /* end of comment block */
+        const char *p = line + 1;
+        while (*p == ' ' || *p == '\t') p++;
+        if (strncmp(p, "delimiter:", 10) != 0) continue;
+        p += 10;
+        while (*p == ' ' || *p == '\t') p++;
+        /* strip optional surrounding quotes ' or " */
+        if (*p == '\'' || *p == '"') p++;
+        if (*p == '\\' && *(p+1) == 't') {
+            result = '\t';
+        } else if (*p && *p != '\'' && *p != '"' &&
+                   *p != '\n' && *p != '\r') {
+            result = *p;
+        }
+        break;
+    }
+    fclose(fp);
+    return result;
+}
+
 /* Try to read the delimiter that was saved by csvview in the .csvf sidecar.
    Returns 0 if not found or file doesn't exist. */
 static char prev_delim_from_csvf(const char *fpath)
@@ -447,7 +477,7 @@ static char prev_detect_delim(const char *line, const char *fpath)
     if (ext) {
         if (strcasecmp(ext, ".tsv")  == 0) return '\t';
         if (strcasecmp(ext, ".psv")  == 0) return '|';
-        if (strcasecmp(ext, ".ecsv") == 0) return ' ';
+        if (strcasecmp(ext, ".ecsv") == 0) return ecsv_read_delimiter(fpath);
     }
     int t = 0, pip = 0, com = 0, sem = 0;
     for (const char *q = line; *q; q++) {
@@ -1152,7 +1182,7 @@ int main(int argc, char *argv[]) {
         if (ext) {
             if (strcasecmp(ext, ".tsv") == 0)       { csv_delimiter = '\t'; sep_explicit = 1; }
             else if (strcasecmp(ext, ".psv") == 0)  { csv_delimiter = '|';  sep_explicit = 1; }
-            else if (strcasecmp(ext, ".ecsv") == 0) { csv_delimiter = ' ';  sep_explicit = 1; }
+            else if (strcasecmp(ext, ".ecsv") == 0) { csv_delimiter = ecsv_read_delimiter(file_to_open); sep_explicit = 1; }
         }
     }
 
