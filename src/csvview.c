@@ -123,6 +123,9 @@ int  *save_filtered_rows  = NULL;
 
 // 10. Field delimiter (default ',' — CSV)
 char csv_delimiter = ',';
+// Set to 1 when delimiter was specified explicitly (--sep= or known extension).
+// Prevents .csvf from overriding it in preload_delimiter().
+static int sep_explicit = 0;
 
 // 11. Column freeze (first N always visible)
 int freeze_cols = 0;
@@ -1013,6 +1016,7 @@ int main(int argc, char *argv[]) {
                 csv_delimiter = '|';
             else if (*sep)
                 csv_delimiter = *sep;
+            sep_explicit = 1;
         } else if (strncmp(argv[i], "--theme=", 8) == 0) {
             const Theme *t = theme_by_name(argv[i] + 8);
             if (t) current_theme = t;
@@ -1121,8 +1125,9 @@ int main(int argc, char *argv[]) {
     if (csv_delimiter == ',') {
         const char *ext = strrchr(file_to_open, '.');
         if (ext) {
-            if (strcasecmp(ext, ".tsv") == 0)      csv_delimiter = '\t';
-            else if (strcasecmp(ext, ".psv") == 0) csv_delimiter = '|';
+            if (strcasecmp(ext, ".tsv") == 0)       { csv_delimiter = '\t'; sep_explicit = 1; }
+            else if (strcasecmp(ext, ".psv") == 0)  { csv_delimiter = '|';  sep_explicit = 1; }
+            else if (strcasecmp(ext, ".ecsv") == 0) { csv_delimiter = ' ';  sep_explicit = 1; }
         }
     }
 
@@ -1138,8 +1143,12 @@ int main(int argc, char *argv[]) {
         else snprintf(file_size_str, sizeof(file_size_str), "%.1f GB", size / (1024.0 * 1024.0 * 1024.0));
     }
 
-    // Pre-load delimiter and skip_comments from .csvf before building row index
+    // Pre-load delimiter and skip_comments from .csvf before building row index.
+    // Save delimiter first — if it was set explicitly (--sep or known extension),
+    // do not let the .csvf file override it.
+    char sep_before_preload = csv_delimiter;
     int skip_comments_explicit = preload_delimiter(file_to_open);
+    if (sep_explicit) csv_delimiter = sep_before_preload;
 
     // Auto-detect comment lines if not explicitly set in .csvf
     if (!skip_comments_explicit && !skip_comments) {
@@ -1221,7 +1230,10 @@ int main(int argc, char *argv[]) {
     int settings_loaded = load_column_settings(file_to_open);
 
     if (settings_loaded == 0) {
-        // No settings file — first run, show setup wizard
+        // No settings file — first run, show setup wizard.
+        // When comments are skipped (e.g. ECSV), the first non-comment line
+        // is always the column header row.
+        if (skip_comments) use_headers = 1;
         auto_detect_column_types();
         if (show_column_setup(file_to_open)) {
             endwin();
