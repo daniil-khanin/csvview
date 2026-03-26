@@ -15,6 +15,89 @@
 #include "column_format.h"   // for format_cell_value()
 #include "sorting.h"         // for get_real_row()
 #include "filtering.h"       // for apply_filter()
+
+#include <stdint.h>          // uint32_t
+
+/* ── RTL (right-to-left) text helpers ───────────────────────────────────────
+   Terminals render text left-to-right. Arabic/Hebrew/Farsi text is stored in
+   logical order (right-to-left reading), so we reverse codepoints for display
+   and right-align the cell — the visual result matches natural RTL reading.    */
+
+static uint32_t rtl_next_cp(const char **p)
+{
+    const unsigned char *s = (const unsigned char *)*p;
+    if (!*s) return 0;
+    uint32_t cp;
+    if      (*s < 0x80) { cp = *s++; }
+    else if (*s < 0xE0) { cp = (uint32_t)(*s++ & 0x1F) << 6;
+                          cp |= (*s++ & 0x3F); }
+    else if (*s < 0xF0) { cp = (uint32_t)(*s++ & 0x0F) << 12;
+                          cp |= (uint32_t)(*s++ & 0x3F) << 6;
+                          cp |= (*s++ & 0x3F); }
+    else                { cp = (uint32_t)(*s++ & 0x07) << 18;
+                          cp |= (uint32_t)(*s++ & 0x3F) << 12;
+                          cp |= (uint32_t)(*s++ & 0x3F) << 6;
+                          cp |= (*s++ & 0x3F); }
+    *p = (const char *)s;
+    return cp;
+}
+
+static int is_rtl_cp(uint32_t cp)
+{
+    return (cp >= 0x0590 && cp <= 0x05FF) ||   /* Hebrew */
+           (cp >= 0x0600 && cp <= 0x06FF) ||   /* Arabic */
+           (cp >= 0x0750 && cp <= 0x077F) ||   /* Arabic Supplement */
+           (cp >= 0x08A0 && cp <= 0x08FF) ||   /* Arabic Extended-A */
+           (cp >= 0xFB1D && cp <= 0xFB4F) ||   /* Hebrew Presentation Forms */
+           (cp >= 0xFB50 && cp <= 0xFDFF) ||   /* Arabic Presentation Forms-A */
+           (cp >= 0xFE70 && cp <= 0xFEFF);     /* Arabic Presentation Forms-B */
+}
+
+static int str_has_rtl(const char *s)
+{
+    const char *p = s;
+    uint32_t cp;
+    while ((cp = rtl_next_cp(&p)) != 0)
+        if (is_rtl_cp(cp)) return 1;
+    return 0;
+}
+
+static int encode_cp(uint32_t cp, char *out)
+{
+    if (cp < 0x80)    { out[0] = (char)cp; return 1; }
+    if (cp < 0x800)   { out[0] = (char)(0xC0 | (cp >> 6));
+                        out[1] = (char)(0x80 | (cp & 0x3F)); return 2; }
+    if (cp < 0x10000) { out[0] = (char)(0xE0 | (cp >> 12));
+                        out[1] = (char)(0x80 | ((cp >> 6) & 0x3F));
+                        out[2] = (char)(0x80 | (cp & 0x3F)); return 3; }
+    out[0] = (char)(0xF0 | (cp >> 18));
+    out[1] = (char)(0x80 | ((cp >> 12) & 0x3F));
+    out[2] = (char)(0x80 | ((cp >> 6)  & 0x3F));
+    out[3] = (char)(0x80 | (cp & 0x3F)); return 4;
+}
+
+/* Reverse UTF-8 string by codepoints into dst (max dst_size bytes incl NUL). */
+static void utf8_codepoint_reverse(const char *src, char *dst, int dst_size)
+{
+    uint32_t cps[512];
+    int n = 0;
+    const char *p = src;
+    uint32_t cp;
+    while ((cp = rtl_next_cp(&p)) != 0 && n < 511)
+        cps[n++] = cp;
+    int out = 0;
+    char tmp[4];
+    for (int i = n - 1; i >= 0; i--) {
+        int bytes = encode_cp(cps[i], tmp);
+        if (out + bytes >= dst_size) break;
+        memcpy(dst + out, tmp, bytes);
+        out += bytes;
+    }
+    dst[out] = '\0';
+}
+
+/* ── end RTL helpers ─────────────────────────────────────────────────────── */
+
 // ────────────────────────────────────────────────
 // Menu rendering
 // ────────────────────────────────────────────────
@@ -331,9 +414,15 @@ void draw_table_body(int top, int offset __attribute__((unused)), int visible_ro
             else if (is_current_row || is_current_col) attron(COLOR_PAIR(1));
             else                          attron(COLOR_PAIR(8));
 
-            const char *fmt = (col_types[fc] == COL_NUM) ? "%*s" : "%-*s";
             char *disp = truncate_for_display(display_val, col_widths[fc] - 2);
-            mvprintw(row_y, current_x, fmt, col_widths[fc] - 2, disp);
+            if (col_types[fc] != COL_NUM && str_has_rtl(disp)) {
+                char rbuf[256];
+                utf8_codepoint_reverse(disp, rbuf, sizeof(rbuf));
+                mvprintw(row_y, current_x, "%*s", col_widths[fc] - 2, rbuf);
+            } else {
+                const char *fmt = (col_types[fc] == COL_NUM) ? "%*s" : "%-*s";
+                mvprintw(row_y, current_x, fmt, col_widths[fc] - 2, disp);
+            }
 
             current_x += col_widths[fc] + 2;
             attroff(COLOR_PAIR(2) | COLOR_PAIR(8) | COLOR_PAIR(1));
@@ -371,9 +460,15 @@ void draw_table_body(int top, int offset __attribute__((unused)), int visible_ro
             else if (is_current_row || is_current_col) attron(COLOR_PAIR(1));
             else                          attron(COLOR_PAIR(8));
 
-            const char *fmt = (col_types[sc_col] == COL_NUM) ? "%*s" : "%-*s";
             char *disp = truncate_for_display(display_val, col_widths[sc_col] - 2);
-            mvprintw(row_y, current_x, fmt, col_widths[sc_col] - 2, disp);
+            if (col_types[sc_col] != COL_NUM && str_has_rtl(disp)) {
+                char rbuf[256];
+                utf8_codepoint_reverse(disp, rbuf, sizeof(rbuf));
+                mvprintw(row_y, current_x, "%*s", col_widths[sc_col] - 2, rbuf);
+            } else {
+                const char *fmt = (col_types[sc_col] == COL_NUM) ? "%*s" : "%-*s";
+                mvprintw(row_y, current_x, fmt, col_widths[sc_col] - 2, disp);
+            }
 
             current_x += col_widths[sc_col] + 2;
             attroff(COLOR_PAIR(2) | COLOR_PAIR(8) | COLOR_PAIR(1));
@@ -381,6 +476,11 @@ void draw_table_body(int top, int offset __attribute__((unused)), int visible_ro
             sc_col++;
             drawn_sc++;
         }
+
+        /* Clear the rest of the row to prevent artifacts from previous
+           frames (e.g. text from wider lines or after terminal resize). */
+        move(row_y, current_x);
+        clrtoeol();
 
         // Free memory after parsing
         for (int k = 0; k < field_count; k++) {

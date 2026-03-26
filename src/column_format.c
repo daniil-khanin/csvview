@@ -133,12 +133,35 @@ char *format_date(const char *date_str, const char *target_format)
         NULL
     };
 
+    /* Normalise ISO 8601 datetime: strip sub-seconds (.NNN) and timezone
+       indicator (Z / +HH:MM) so strptime can parse it cleanly.
+       Example: "1946-01-04T06:07:01.650Z" → "1946-01-04T06:07:01"         */
+    char norm[64];
+    strncpy(norm, date_str, sizeof(norm) - 1);
+    norm[sizeof(norm) - 1] = '\0';
+    if (strchr(norm, 'T')) {
+        char *dot = strchr(norm, '.');
+        if (dot) *dot = '\0';
+        int nlen = (int)strlen(norm);
+        if (nlen > 0 && (norm[nlen-1] == 'Z' || norm[nlen-1] == 'z'))
+            norm[nlen-1] = '\0';
+    }
+
     char *parsed_end = NULL;
     for (int i = 0; input_fmts[i]; i++)
     {
         memset(&tm, 0, sizeof(tm));
-        parsed_end = strptime(date_str, input_fmts[i], &tm);
-        if (parsed_end && (*parsed_end == '\0' || isspace(*parsed_end)))
+        /* Try the normalised string first, fall back to the original */
+        parsed_end = strptime(norm, input_fmts[i], &tm);
+        if (!parsed_end || !(*parsed_end == '\0' || isspace(*parsed_end)))
+        {
+            memset(&tm, 0, sizeof(tm));
+            parsed_end = strptime(date_str, input_fmts[i], &tm);
+        }
+        /* Accept end-of-string, whitespace, 'T' (date part of ISO datetime),
+           or '.' (sub-seconds after time) as valid termination. */
+        if (parsed_end && (*parsed_end == '\0' || isspace(*parsed_end) ||
+                           *parsed_end == 'T'  || *parsed_end == '.'))
         {
             char buf[64];
             strftime(buf, sizeof(buf), target_format, &tm);
@@ -276,11 +299,12 @@ void auto_detect_column_types(void)
                     if (*endptr == '\0') num_ok++;
                 }
 
-                // Date check
+                // Date check (also accept 'T' for ISO 8601 datetime prefix)
                 for (int d = 0; d < n_date_fmts; d++) {
                     struct tm tm = {0};
                     char *end = strptime(val, date_fmts[d], &tm);
-                    if (end && (*end == '\0' || *end == ' ')) date_ok[d]++;
+                    if (end && (*end == '\0' || *end == ' ' || *end == 'T'))
+                        date_ok[d]++;
                 }
             }
 
