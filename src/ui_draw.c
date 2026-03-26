@@ -384,23 +384,19 @@ void draw_table_body(int top, int offset __attribute__((unused)), int visible_ro
             else                          attron(COLOR_PAIR(8));
 
             char *disp = truncate_for_display(display_val, col_widths[fc] - 2);
-            {
+            if (col_types[fc] != COL_NUM && str_has_rtl(disp)) {
+                /* RTL text: right-align using display columns, then wrap in
+                   Unicode FSI (U+2068) + PDI (U+2069) — isolates the BiDi
+                   context so the terminal's Bidi algorithm doesn't bleed
+                   into adjacent columns. */
                 int cell_w = col_widths[fc] - 2;
-                if (col_types[fc] != COL_NUM && str_has_rtl(disp)) {
-                    /* RTL text: right-align using real display columns.
-                       No BiDi control characters — they render as visible
-                       glyphs in many terminals, causing 1-col shift. */
-                    int text_w = utf8_display_width(disp);
-                    int pad = (cell_w > text_w) ? cell_w - text_w : 0;
-                    mvprintw(row_y, current_x, "%*s%s", pad, "", disp);
-                } else if (col_types[fc] == COL_NUM) {
-                    mvprintw(row_y, current_x, "%*s", cell_w, disp);
-                } else {
-                    /* Left-align with display-width padding (handles multi-byte) */
-                    int text_w = utf8_display_width(disp);
-                    int pad = (cell_w > text_w) ? cell_w - text_w : 0;
-                    mvprintw(row_y, current_x, "%s%*s", disp, pad, "");
-                }
+                int text_w = utf8_display_width(disp);
+                int pad = (cell_w > text_w) ? cell_w - text_w : 0;
+                mvprintw(row_y, current_x, "%*s\xE2\x81\xA8%s\xE2\x81\xA9",
+                         pad, "", disp);
+            } else {
+                const char *fmt = (col_types[fc] == COL_NUM) ? "%*s" : "%-*s";
+                mvprintw(row_y, current_x, fmt, col_widths[fc] - 2, disp);
             }
 
             current_x += col_widths[fc] + 2;
@@ -443,19 +439,15 @@ void draw_table_body(int top, int offset __attribute__((unused)), int visible_ro
             else                          attron(COLOR_PAIR(8));
 
             char *disp = truncate_for_display(display_val, col_widths[sc_col] - 2);
-            {
+            if (col_types[sc_col] != COL_NUM && str_has_rtl(disp)) {
                 int cell_w = col_widths[sc_col] - 2;
-                if (col_types[sc_col] != COL_NUM && str_has_rtl(disp)) {
-                    int text_w = utf8_display_width(disp);
-                    int pad = (cell_w > text_w) ? cell_w - text_w : 0;
-                    mvprintw(row_y, current_x, "%*s%s", pad, "", disp);
-                } else if (col_types[sc_col] == COL_NUM) {
-                    mvprintw(row_y, current_x, "%*s", cell_w, disp);
-                } else {
-                    int text_w = utf8_display_width(disp);
-                    int pad = (cell_w > text_w) ? cell_w - text_w : 0;
-                    mvprintw(row_y, current_x, "%s%*s", disp, pad, "");
-                }
+                int text_w = utf8_display_width(disp);
+                int pad = (cell_w > text_w) ? cell_w - text_w : 0;
+                mvprintw(row_y, current_x, "%*s\xE2\x81\xA8%s\xE2\x81\xA9",
+                         pad, "", disp);
+            } else {
+                const char *fmt = (col_types[sc_col] == COL_NUM) ? "%*s" : "%-*s";
+                mvprintw(row_y, current_x, fmt, col_widths[sc_col] - 2, disp);
             }
 
             current_x += col_widths[sc_col] + 2;
