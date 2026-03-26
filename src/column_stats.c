@@ -594,12 +594,19 @@ skip_num_alloc:
     mvwprintw(win, y++, 2, "Top 10 most frequent values:");
 
     long sum_top = 0;
+    const int top_val_w = 20;
     for (int t = 0; t < 10 && t < freq_count; t++)
     {
         sum_top += freqs[t].count;
         double pct = valid_count > 0 ? (double)freqs[t].count / valid_count * 100 : 0;
-        mvwprintw(win, y++, 4, "%-*s %*ld (%.1f%%)",
-                  20, freqs[t].value, 12, freqs[t].count, pct);
+        /* Print value padded by display columns (handles UTF-8/Cyrillic) */
+        wmove(win, y++, 4);
+        char *tv = truncate_for_display(freqs[t].value, top_val_w);
+        waddstr(win, tv);
+        int dw = utf8_display_width(tv);
+        free(tv);
+        for (int p = dw; p < top_val_w; p++) waddch(win, ' ');
+        wprintw(win, " %*ld (%.1f%%)", 12, freqs[t].count, pct);
     }
 
     if (freq_count > 10)
