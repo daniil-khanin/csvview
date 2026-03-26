@@ -214,23 +214,25 @@ static void show_freq_list(Freq *freqs, long freq_count, long valid_count,
             double pct = valid_count > 0
                 ? (double)freqs[idx].count / valid_count * 100.0 : 0.0;
 
-            /* Truncate value for display */
-            char val_buf[128];
-            strncpy(val_buf, freqs[idx].value, sizeof(val_buf) - 1);
-            val_buf[sizeof(val_buf) - 1] = '\0';
-            if ((int)strlen(val_buf) > val_w) {
-                val_buf[val_w - 2] = '.';
-                val_buf[val_w - 1] = '.';
-                val_buf[val_w]     = '\0';
-            }
+            if (idx == cur) wattron(win, COLOR_PAIR(2));
 
-            if (idx == cur) wattron(win, COLOR_PAIR(3) | A_REVERSE);
-            mvwprintw(win, ry, 2, "%-5ld %-*s %*ld %*.1f%%  %s",
-                      idx + 1, val_w, val_buf,
-                      cnt_w, freqs[idx].count,
-                      pct_w - 1, pct,
-                      bar_buf);
-            if (idx == cur) wattroff(win, COLOR_PAIR(3) | A_REVERSE);
+            /* Rank */
+            mvwprintw(win, ry, 2, "%-5ld ", idx + 1);
+
+            /* Value — truncated and padded by *display* columns to handle UTF-8 */
+            char *tv = truncate_for_display(freqs[idx].value, val_w);
+            waddstr(win, tv);
+            int tv_dw = utf8_display_width(tv);
+            free(tv);
+            for (int p = tv_dw; p < val_w; p++) waddch(win, ' ');
+
+            /* Count, pct%, bar — all ASCII, safe with printf */
+            wprintw(win, " %*ld %*.1f%%  %s",
+                    cnt_w, freqs[idx].count,
+                    pct_w - 1, pct,
+                    bar_buf);
+
+            if (idx == cur) wattroff(win, COLOR_PAIR(2));
         }
 
         /* Bottom divider + hint */
