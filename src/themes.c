@@ -106,6 +106,92 @@ static const Theme themes[] = {
         /* graph series fg  */ { 211, 151, 183, 216, 122, 141, 189 },
         /* default_bg       */ 234
     },
+
+    /* ── solarized light ────────────────────────────────────────────── */
+    /* Iconic warm-cream palette. bg≈#ffffd7, text is teal-gray, blue
+     * cursor, amber accent.  Distinct from light: warm vs cool white.  */
+    {
+        "solarized_light", "Solarized Light",
+        /* pair1  text      */  66, 230,   /* teal-gray on warm cream  */
+        /* pair2  cursor    */ 230,  33,   /* cream on bright blue     */
+        /* pair3  accent    */ 136, 230,   /* amber yellow on cream    */
+        /* pair5  accent2   */  37, 230,   /* cyan-teal on cream       */
+        /* pair6  dimmed    */ 246, 230,   /* mid-gray on cream        */
+        /* pair7  search    */ 230, 136,   /* cream on amber           */
+        /* pair8  ghost     */ 246, 230,
+        /* pair11 anomaly   */ 160, 230,   /* bright red               */
+        /* graph series fg  */ { 160, 64, 33, 136, 37, 162, 61 },
+        /* default_bg       */ 230
+    },
+
+    /* ── paper ──────────────────────────────────────────────────────── */
+    /* Clean white minimal theme. Near-white bg, near-black text,
+     * teal cursor — cooler and crisper than solarized_light.           */
+    {
+        "paper", "Paper",
+        /* pair1  text      */ 235, 255,   /* almost-black on white    */
+        /* pair2  cursor    */ 255,  30,   /* white on teal (#008787)  */
+        /* pair3  accent    */  94, 255,   /* dark amber on white      */
+        /* pair5  accent2   */  30, 255,   /* teal on white            */
+        /* pair6  dimmed    */ 248, 255,   /* mid-gray on white        */
+        /* pair7  search    */ 255,  94,   /* white on dark amber      */
+        /* pair8  ghost     */ 250, 255,
+        /* pair11 anomaly   */ 160, 255,   /* bright red               */
+        /* graph series fg  */ { 160, 64, 30, 94, 37, 5, 235 },
+        /* default_bg       */ 255
+    },
+
+    /* ── turbo vision ───────────────────────────────────────────────── */
+    /* Inspired by the classic Borland TurboVision UI (1987).
+     * Dark-navy desktop (#0000af), bright-cyan selected items,
+     * bright-yellow search — instantly recognisable retro TUI look.   */
+    {
+        "turbovision", "Turbo Vision",
+        /* pair1  text      */  15,  19,   /* bright white on TV-blue  */
+        /* pair2  cursor    */   0,  51,   /* black on bright cyan     */
+        /* pair3  accent    */  51,  19,   /* bright cyan on navy      */
+        /* pair5  accent2   */  11,  19,   /* bright yellow on navy    */
+        /* pair6  dimmed    */ 153,  19,   /* pale blue on navy        */
+        /* pair7  search    */   0,  11,   /* black on bright yellow   */
+        /* pair8  ghost     */ 153,  19,
+        /* pair11 anomaly   */   9,  19,   /* bright red               */
+        /* graph series fg  */ { 9, 10, 11, 51, 13, 15, 153 },
+        /* default_bg       */ 19
+    },
+
+    /* ── dracula ────────────────────────────────────────────────────── */
+    /* The famous dark theme by Zeno Rocha. Charcoal bg, purple cursor,
+     * pink/cyan accents — distinct from nord (icy-blue) & catppuccin.  */
+    {
+        "dracula", "Dracula",
+        /* pair1  text      */ 255, 235,   /* near-white on charcoal   */
+        /* pair2  cursor    */ 235, 141,   /* bg on purple             */
+        /* pair3  accent    */ 228, 235,   /* bright yellow            */
+        /* pair5  accent2   */ 117, 235,   /* cyan                     */
+        /* pair6  dimmed    */  61, 235,   /* purple-gray comment      */
+        /* pair7  search    */ 235, 228,   /* bg on yellow             */
+        /* pair8  ghost     */  61, 235,
+        /* pair11 anomaly   */ 203, 235,   /* bright red               */
+        /* graph series fg  */ { 203, 84, 141, 228, 117, 212, 255 },
+        /* default_bg       */ 235
+    },
+
+    /* ── gruvbox ────────────────────────────────────────────────────── */
+    /* Gruvbox Dark Hard. Warm retro palette: near-black bg, cream text,
+     * orange cursor & accents — feels hand-crafted vs cold blue themes. */
+    {
+        "gruvbox", "Gruvbox Dark",
+        /* pair1  text      */ 223, 234,   /* warm cream on near-black */
+        /* pair2  cursor    */ 234, 214,   /* bg on amber-orange       */
+        /* pair3  accent    */ 214, 234,   /* amber-orange             */
+        /* pair5  accent2   */ 108, 234,   /* aqua                     */
+        /* pair6  dimmed    */ 245, 234,   /* warm gray                */
+        /* pair7  search    */ 234, 214,   /* bg on amber              */
+        /* pair8  ghost     */ 245, 234,
+        /* pair11 anomaly   */ 167, 234,   /* muted red                */
+        /* graph series fg  */ { 167, 142, 109, 214, 108, 175, 223 },
+        /* default_bg       */ 234
+    },
 };
 
 static const int THEME_COUNT = (int)(sizeof(themes) / sizeof(themes[0]));
@@ -252,7 +338,7 @@ void config_save_rn(int val)
 
 const char *theme_list_names(void)
 {
-    static char buf[256];
+    static char buf[512];
     buf[0] = '\0';
     for (int i = 0; i < THEME_COUNT; i++) {
         if (i > 0) strncat(buf, ", ", sizeof(buf) - strlen(buf) - 1);
