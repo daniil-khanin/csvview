@@ -277,6 +277,40 @@ void draw_table_headers(int top, int offset __attribute__((unused)), int visible
 
 // ────────────────────────────────────────────────
 // Table body (visible rows)
+/* Binary search helpers for search result highlighting ──────────────────── */
+
+/* Returns 1 if real_row has any search result */
+static int search_row_has_match(int real_row)
+{
+    int lo = 0, hi = search_count - 1;
+    while (lo <= hi) {
+        int mid = (lo + hi) / 2;
+        if      (search_results[mid].row < real_row) lo = mid + 1;
+        else if (search_results[mid].row > real_row) hi = mid - 1;
+        else return 1;
+    }
+    return 0;
+}
+
+/* Returns 1 if (real_row, col) has a search result */
+static int search_cell_has_match(int real_row, int col)
+{
+    int lo = 0, hi = search_count - 1;
+    while (lo <= hi) {
+        int mid = (lo + hi) / 2;
+        if      (search_results[mid].row < real_row) lo = mid + 1;
+        else if (search_results[mid].row > real_row) hi = mid - 1;
+        else {
+            int k = mid;
+            while (k > 0 && search_results[k-1].row == real_row) k--;
+            for (; k < search_count && search_results[k].row == real_row; k++)
+                if (search_results[k].col == col) return 1;
+            return 0;
+        }
+    }
+    return 0;
+}
+
 // ────────────────────────────────────────────────
 void draw_table_body(int top, int offset __attribute__((unused)), int visible_rows,
                      int top_display_row, int cur_display_row, int cur_col,
@@ -287,6 +321,7 @@ void draw_table_body(int top, int offset __attribute__((unused)), int visible_ro
     /* check if any bookmark is set (for gutter display) */
     int any_bm = 0;
     for (int bi = 0; bi < 26; bi++) if (bookmarks[bi] >= 0) { any_bm = 1; break; }
+    int any_gutter = any_bm || (search_count > 0);
 
     for (int i = 0; i < visible_rows && top_display_row + i < display_count; i++)
     {
@@ -296,19 +331,24 @@ void draw_table_body(int top, int offset __attribute__((unused)), int visible_ro
         // Highlight the row number
         int is_cur = (display_pos == cur_display_row);
 
-        if (any_bm) {
-            /* find bookmark letter for this real row */
-            char bm_letter = ' ';
-            for (int bi = 0; bi < 26; bi++) {
-                if (bookmarks[bi] == real_row) { bm_letter = 'a' + bi; break; }
+        if (any_gutter) {
+            /* gutter symbol: bookmark letter > search match '*' > space */
+            char gutter_ch = ' ';
+            if (any_bm) {
+                for (int bi = 0; bi < 26; bi++) {
+                    if (bookmarks[bi] == real_row) { gutter_ch = 'a' + bi; break; }
+                }
             }
-            /* gutter: bookmark letter at col 1 */
-            if (bm_letter != ' ') {
-                attron(COLOR_PAIR(3) | A_BOLD);
-            } else {
+            if (gutter_ch == ' ' && search_count > 0 && search_row_has_match(real_row))
+                gutter_ch = '*';
+
+            if (gutter_ch >= 'a' && gutter_ch <= 'z')
+                attron(COLOR_PAIR(3) | A_BOLD);   /* bookmark: bold yellow */
+            else if (gutter_ch == '*')
+                attron(COLOR_PAIR(3));             /* search match: yellow */
+            else
                 attron(COLOR_PAIR(6));
-            }
-            mvprintw(top + 2 + i, 1, "%c", bm_letter);
+            mvprintw(top + 2 + i, 1, "%c", gutter_ch);
             attroff(COLOR_PAIR(3) | COLOR_PAIR(6) | A_BOLD);
             /* row number shifted right by 1, one char narrower */
             if (is_cur) attron(COLOR_PAIR(3) | A_BOLD);
@@ -378,8 +418,11 @@ void draw_table_body(int top, int offset __attribute__((unused)), int visible_ro
             int is_current_cell = (display_pos == cur_display_row && fc == cur_col);
             int is_current_row  = (display_pos == cur_display_row);
             int is_current_col  = (fc == cur_col);
+            int is_search_match = (search_count > 0 && !is_current_cell
+                                   && search_cell_has_match(real_row, fc));
 
             if (is_current_cell)          attron(COLOR_PAIR(2));
+            else if (is_search_match)     attron(COLOR_PAIR(3));
             else if (is_current_row || is_current_col) attron(COLOR_PAIR(1));
             else                          attron(COLOR_PAIR(8));
 
@@ -400,7 +443,7 @@ void draw_table_body(int top, int offset __attribute__((unused)), int visible_ro
             }
 
             current_x += col_widths[fc] + 2;
-            attroff(COLOR_PAIR(2) | COLOR_PAIR(8) | COLOR_PAIR(1));
+            attroff(COLOR_PAIR(2) | COLOR_PAIR(3) | COLOR_PAIR(8) | COLOR_PAIR(1));
             free(display_val);
         }
 
@@ -433,8 +476,11 @@ void draw_table_body(int top, int offset __attribute__((unused)), int visible_ro
             int is_current_cell = (display_pos == cur_display_row && sc_col == cur_col);
             int is_current_row  = (display_pos == cur_display_row);
             int is_current_col  = (sc_col == cur_col);
+            int is_search_match = (search_count > 0 && !is_current_cell
+                                   && search_cell_has_match(real_row, sc_col));
 
             if (is_current_cell)          attron(COLOR_PAIR(2));
+            else if (is_search_match)     attron(COLOR_PAIR(3));
             else if (is_current_row || is_current_col) attron(COLOR_PAIR(1));
             else                          attron(COLOR_PAIR(8));
 
@@ -451,7 +497,7 @@ void draw_table_body(int top, int offset __attribute__((unused)), int visible_ro
             }
 
             current_x += col_widths[sc_col] + 2;
-            attroff(COLOR_PAIR(2) | COLOR_PAIR(8) | COLOR_PAIR(1));
+            attroff(COLOR_PAIR(2) | COLOR_PAIR(3) | COLOR_PAIR(8) | COLOR_PAIR(1));
             free(display_val);
             sc_col++;
             drawn_sc++;
