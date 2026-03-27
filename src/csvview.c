@@ -1671,15 +1671,13 @@ int main(int argc, char *argv[]) {
         draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
 
         if (in_graph_mode) {
-            int col = graph_col_list[current_graph];
-            char col_buf[16];
-            if (column_names[col]) {
-                strncpy(col_buf, column_names[col], sizeof(col_buf) - 1);
-                col_buf[sizeof(col_buf) - 1] = '\0';
-            } else {
-                col_letter(col, col_buf);
-            }
-
+            const char *type_str = graph_scatter_mode ? "scatter"
+                                 : (graph_type == GRAPH_BAR) ? "bar"
+                                 : (graph_type == GRAPH_DOT) ? "dot" : "line";
+            const char *scale_str = (graph_scale == SCALE_LOG) ? "log" : "linear";
+            attron(COLOR_PAIR(3));
+            printw(" | %s  Y:%s", type_str, scale_str);
+            attroff(COLOR_PAIR(3));
             clrtoeol();
         } else if (search_count > 0) {
             attron(COLOR_PAIR(3));
@@ -1985,7 +1983,12 @@ int main(int argc, char *argv[]) {
 
                     // Redraw the graph immediately (no getch, just update the screen)
                     clear();
-                    draw_graph(cur_col, height, width, rows, f, row_count, graph_cursor_pos, min_max_show);  // or current column
+                    if (graph_scatter_mode && graph_scatter_x_col >= 0) {
+                        draw_scatter(graph_scatter_x_col, graph_col_list[current_graph],
+                                     height, width, rows, f, row_count, graph_cursor_pos);
+                    } else {
+                        draw_graph(cur_col, height, width, rows, f, row_count, graph_cursor_pos, min_max_show);
+                    }
                     refresh();
                     continue;
                 } else if (strcmp(cmd, "gt") == 0) {

@@ -837,6 +837,7 @@ void draw_scatter(int x_col, int y_col, int height, int width,
     }
 
     // ─── X labels (5 along the X axis) + axis captions ───────────────────
+    char y_name[32] = "";
     if (graph_overlay_mode != 2) {
         for (int xi = 0; xi < 5; xi++) {
             double frac = (double)xi / 4.0;
@@ -861,15 +862,11 @@ void draw_scatter(int x_col, int y_col, int height, int width,
                  "X: %s", x_name);
         attroff(COLOR_PAIR(1) | A_BOLD);
 
-        // Y axis caption at the top left
-        char y_name[32] = "";
+        // Prepare y_name for drawing AFTER braille canvas (issue 27: caption overwritten by dots)
         if (use_headers && column_names[y_col])
             snprintf(y_name, sizeof(y_name), "%.24s", column_names[y_col]);
         else
             col_letter(y_col, y_name);
-        attron(COLOR_PAIR(current_graph_color_pair) | A_BOLD);
-        mvprintw(plot_start_y, plot_start_x, "Y: %s", y_name);
-        attroff(COLOR_PAIR(current_graph_color_pair) | A_BOLD);
     }
 
     // ─── Grid (before braille, first pass only) ────────────────────────────
@@ -932,6 +929,13 @@ void draw_scatter(int x_col, int y_col, int height, int width,
     }
     if (has_colors()) attroff(COLOR_PAIR(current_graph_color_pair));
     free(dots);
+
+    // ─── Y axis caption at top-left (drawn AFTER braille to avoid being overwritten) ──
+    if (graph_overlay_mode != 2 && y_name[0]) {
+        attron(COLOR_PAIR(current_graph_color_pair) | A_BOLD);
+        mvprintw(plot_start_y, plot_start_x, "Y: %s", y_name);
+        attroff(COLOR_PAIR(current_graph_color_pair) | A_BOLD);
+    }
 
     // ─── Pearson r (top-right corner, first pass) ──────────────────────────
     if (!isnan(r_corr) && (graph_overlay_mode <= 1)) {

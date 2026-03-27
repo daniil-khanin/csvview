@@ -278,8 +278,37 @@ static void export_regular_svg(FILE *out, const SvgLayout *L,
 
     if (isinf(gmin)) { gmin = 0; gmax = 1; }
     if (gmin == gmax) { gmax += 1; gmin -= 1; }
+
+    /* For log scale: gmin must be > 0; find smallest positive value */
+    if (graph_scale == SCALE_LOG && gmin <= 0) {
+        double pos_min = INFINITY;
+        for (int s = 0; s < graph_col_count; s++) {
+            if (!series_vals[s]) continue;
+            int zs2 = (graph_zoom_start > 0) ? graph_zoom_start : 0;
+            double *vz2 = series_vals[s] + zs2;
+            for (int i = 0; i < series_n[s]; i++) {
+                if (vz2[i] > 0 && vz2[i] < pos_min) pos_min = vz2[i];
+            }
+        }
+        gmin = isinf(pos_min) ? 1.0 : pos_min;
+        if (gmax <= gmin) gmax = gmin * 10.0;
+    }
+
     if (graph_dual_yaxis && !isinf(rmin)) {
         if (rmin == rmax) { rmax += 1; rmin -= 1; }
+        if (graph_scale == SCALE_LOG && rmin <= 0) {
+            double pos_rmin = INFINITY;
+            for (int s = 0; s < graph_col_count; s++) {
+                if (!series_vals[s]) continue;
+                int zs2 = (graph_zoom_start > 0) ? graph_zoom_start : 0;
+                double *vz2 = series_vals[s] + zs2;
+                for (int i = 0; i < series_n[s]; i++) {
+                    if (vz2[i] > 0 && vz2[i] < pos_rmin) pos_rmin = vz2[i];
+                }
+            }
+            rmin = isinf(pos_rmin) ? 1.0 : pos_rmin;
+            if (rmax <= rmin) rmax = rmin * 10.0;
+        }
     } else {
         rmin = gmin; rmax = gmax;
     }
