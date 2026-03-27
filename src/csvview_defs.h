@@ -164,6 +164,7 @@ extern int search_count;
 extern int search_index;
 extern char search_query[256];
 extern int in_search_mode;
+extern int search_filter_active;  /* & key: show only rows with search matches */
 
 extern int *filtered_rows;
 extern int filtered_count;

@@ -47,6 +47,7 @@ int          search_count    = 0;
 int          search_index    = -1;
 char         search_query[256] = "";
 int          in_search_mode  = 0;
+int          search_filter_active = 0;  /* & key: show only rows with search matches */
 
 // 3. Filtering
 int *filtered_rows           = NULL;
@@ -1680,7 +1681,10 @@ int main(int argc, char *argv[]) {
             clrtoeol();
         } else if (search_count > 0) {
             attron(COLOR_PAIR(3));
-            printw(" | Found: %d/%d", search_index + 1, search_count);
+            if (search_filter_active)
+                printw(" | [&] %d rows | Found: %d/%d", filtered_count, search_index + 1, search_count);
+            else
+                printw(" | Found: %d/%d", search_index + 1, search_count);
             attroff(COLOR_PAIR(3));
         } else if (in_filter_mode) {
             attron(COLOR_PAIR(3));
@@ -2506,22 +2510,15 @@ int main(int argc, char *argv[]) {
             show_help(1);
         }
 
-        if (in_search_mode) {
-            if (ch == 'n' || ch == 'N') {
-                if (search_count == 0) continue;
-                if (ch == 'n') {
-                    search_index = (search_index + 1) % search_count;
-                } else {
-                    search_index = (search_index - 1 + search_count) % search_count;
-                }
-                goto_search_result(search_index, &cur_display_row, &top_display_row, &cur_col, &left_col,
-                       visible_rows, visible_cols, row_count);
+        if (in_search_mode && search_count > 0 && (ch == 'n' || ch == 'N')) {
+            if (ch == 'n') {
+                search_index = (search_index + 1) % search_count;
             } else {
-                in_search_mode = 0;
-                search_query[0] = '\0';
-                search_count = 0;
-                search_index = -1;
+                search_index = (search_index - 1 + search_count) % search_count;
             }
+            goto_search_result(search_index, &cur_display_row, &top_display_row, &cur_col, &left_col,
+                   visible_rows, visible_cols, row_count);
+            continue;
         }
 
         if (ch == 'u') {
@@ -2951,6 +2948,7 @@ int main(int argc, char *argv[]) {
                 if (rows && !alloc_row_arrays(row_count)) { /* oom */ }
                 sort_col = -1; sort_order = 0; sort_level_count = 0; sorted_count = 0;
                 filter_active = 0; filtered_count = 0; filter_query[0] = '\0';
+                search_filter_active = 0;
                 cur_display_row = 0; top_display_row = 0; cur_col = 0; left_col = 0;
                 draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
                 attron(COLOR_PAIR(3));
@@ -3112,17 +3110,72 @@ int main(int argc, char *argv[]) {
             cur_display_row = 0; top_display_row = 0;
         }
         else if (ch == 'R') {
-            // Reset filter
+            // Reset filter + search highlights
             in_filter_mode = 0;
             filter_active = 0;
             filtered_count = 0;
             filter_query[0] = '\0';
+            in_search_mode = 0;
+            search_count = 0;
+            search_index = -1;
+            search_query[0] = '\0';
+            search_filter_active = 0;
             cur_display_row = 0; top_display_row = 0;
             draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
             attron(COLOR_PAIR(3));
             printw(" | Filter cleared");
             attroff(COLOR_PAIR(3));
             refresh();
+        }
+        else if (ch == '&') {
+            // Toggle search-match filter: show only rows that contain search results
+            if (search_count == 0) {
+                draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
+                attron(COLOR_PAIR(3));
+                printw(" | No active search — use / first");
+                attroff(COLOR_PAIR(3));
+                refresh();
+            } else if (search_filter_active) {
+                // Toggle off: restore text filter (or no filter)
+                search_filter_active = 0;
+                if (in_filter_mode && filter_query[0]) {
+                    apply_filter(rows, f, row_count);
+                } else {
+                    filter_active = 0;
+                    filtered_count = 0;
+                }
+                cur_display_row = 0; top_display_row = 0;
+            } else {
+                // Toggle on: build filtered_rows from search results
+                search_filter_active = 1;
+                int new_count = 0;
+                if (filter_active) {
+                    // Intersect current filter with search results
+                    for (int d = 0; d < filtered_count; d++) {
+                        int real = filtered_rows[d];
+                        int lo = 0, hi = search_count - 1, found = 0;
+                        while (lo <= hi) {
+                            int mid = (lo + hi) / 2;
+                            if      (search_results[mid].row < real) lo = mid + 1;
+                            else if (search_results[mid].row > real) hi = mid - 1;
+                            else  { found = 1; break; }
+                        }
+                        if (found) filtered_rows[new_count++] = real;
+                    }
+                } else {
+                    // No existing filter: collect unique rows from search_results[]
+                    int last_row = -1;
+                    for (int i = 0; i < search_count; i++) {
+                        if (search_results[i].row != last_row) {
+                            filtered_rows[new_count++] = search_results[i].row;
+                            last_row = search_results[i].row;
+                        }
+                    }
+                }
+                filtered_count = new_count;
+                filter_active = 1;
+                cur_display_row = 0; top_display_row = 0;
+            }
         }
         else if (ch == ('R' & 0x1f)) {  // Ctrl+R — re-read file
             // 1. Free all row caches
@@ -3492,6 +3545,22 @@ int main(int argc, char *argv[]) {
                     attroff(COLOR_PAIR(11));
                 }
                 refresh();
+            } else if (strcmp(cmd, "noh") == 0 || strcmp(cmd, "nohl") == 0) {
+                // :noh / :nohl — clear search highlights (like vim :nohlsearch)
+                in_search_mode = 0;
+                search_count = 0;
+                search_index = -1;
+                search_query[0] = '\0';
+                if (search_filter_active) {
+                    search_filter_active = 0;
+                    if (in_filter_mode && filter_query[0]) {
+                        apply_filter(rows, f, row_count);
+                    } else {
+                        filter_active = 0;
+                        filtered_count = 0;
+                    }
+                }
+                cur_display_row = 0; top_display_row = 0;
             } else if (strcmp(cmd, "rn") == 0) {
                 relative_line_numbers = !relative_line_numbers;
                 config_save_rn(relative_line_numbers);
