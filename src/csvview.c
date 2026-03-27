@@ -718,13 +718,14 @@ static char *show_history_picker(void)
 
     REBUILD_VIEW();
 
-    /* Column layout: [date 16] [size 8] [rows 9] [cols 6] [type 5] [path...] */
+    /* Column layout: [date 16] [size 8] [rows 10] [cols 6] [type 5] [path...] */
+    /* rows=10 to fit "50,000,000" (MAX_ROWS = 50M → 10 chars with comma separator) */
     const int date_x = 2;
     const int size_x = date_x + 16 + 2;   /* 20 */
     const int rows_x = size_x +  8 + 2;   /* 30 */
-    const int cols_x = rows_x +  9 + 2;   /* 41 */
-    const int type_x = cols_x +  6 + 2;   /* 49 */
-    const int name_x = type_x +  5 + 2;   /* 56 */
+    const int cols_x = rows_x + 10 + 2;   /* 42 */
+    const int type_x = cols_x +  6 + 2;   /* 50 */
+    const int name_x = type_x +  5 + 2;   /* 57 */
 
     int sel = 0, top_idx = 0, prev_sel = -1;
     static PrevCache pc;
@@ -774,7 +775,7 @@ static char *show_history_picker(void)
         attron(COLOR_PAIR(6));
         mvprintw(1, date_x, "%-16s", "Last opened");
         mvprintw(1, size_x, "%8s",   "Size");
-        mvprintw(1, rows_x, "%9s",   "Rows");
+        mvprintw(1, rows_x, "%10s",  "Rows");
         mvprintw(1, cols_x, "%6s",   "Cols");
         mvprintw(1, type_x, "%-5s",  "Type");
         if (name_x < COLS - 4) mvprintw(1, name_x, "File");
@@ -797,7 +798,7 @@ static char *show_history_picker(void)
                 mvhline(row, 0, ' ', COLS);
                 mvprintw(row, date_x, "%-16s", date_strs[idx]);
                 mvprintw(row, size_x, "%8s",   size_strs[idx]);
-                mvprintw(row, rows_x, "%9s",   rows_strs[idx]);
+                mvprintw(row, rows_x, "%10s",  rows_strs[idx]);
                 mvprintw(row, cols_x, "%6s",   cols_strs[idx]);
                 mvprintw(row, type_x, "%-5s",  ext_strs[idx]);
                 if (name_x < COLS - 1)
@@ -810,7 +811,7 @@ static char *show_history_picker(void)
                 attroff(COLOR_PAIR(1));
                 attron(COLOR_PAIR(6));
                 mvprintw(row, size_x, "%8s",   size_strs[idx]);
-                mvprintw(row, rows_x, "%9s",   rows_strs[idx]);
+                mvprintw(row, rows_x, "%10s",  rows_strs[idx]);
                 mvprintw(row, cols_x, "%6s",   cols_strs[idx]);
                 mvprintw(row, type_x, "%-5s",  ext_strs[idx]);
                 attroff(COLOR_PAIR(6));
