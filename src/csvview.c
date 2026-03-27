@@ -1317,7 +1317,6 @@ int main(int argc, char *argv[]) {
     rows = build_row_index(f, &row_count);
     if (!rows) { perror("malloc"); return 1; }
     if (!alloc_row_arrays(row_count)) { perror("malloc"); return 1; }
-    history_add(file_to_open, row_count, col_count);
 
     setlocale(LC_ALL, "");
     setlocale(LC_NUMERIC, "C");
@@ -1379,6 +1378,9 @@ int main(int argc, char *argv[]) {
         // Initialize formats after col_count is determined
         init_column_formats();
     }
+
+    /* Save to history now that col_count is known */
+    history_add(file_to_open, row_count, col_count);
 
     int settings_loaded = load_column_settings(file_to_open);
 
