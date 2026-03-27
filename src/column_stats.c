@@ -204,6 +204,9 @@ static void show_freq_list(Freq *freqs, long freq_count, long valid_count,
             if (idx >= freq_count) break;
             int ry = data_y0 + r;
 
+            /* Explicitly clear the row to avoid stale multi-byte chars */
+            mvwhline(win, ry, 1, ' ', COLS - 2);
+
             /* Bar */
             int blen = (int)(bar_w * (double)freqs[idx].count / max_cnt + 0.5);
             if (blen > bar_w) blen = bar_w;
@@ -216,21 +219,44 @@ static void show_freq_list(Freq *freqs, long freq_count, long valid_count,
 
             if (idx == cur) wattron(win, COLOR_PAIR(2));
 
+            /* Fixed x positions — avoid cursor drift after RTL text */
+            int x_rank  = 2;
+            int x_val   = x_rank + 6;          /* 5 digits + 1 space */
+            int x_count = x_val + val_w + 1;
+            int x_pct   = x_count + cnt_w + 1;
+            int x_bar   = x_pct + pct_w + 2;
+
             /* Rank */
-            mvwprintw(win, ry, 2, "%-5ld ", idx + 1);
+            mvwprintw(win, ry, x_rank, "%-5ld", idx + 1);
 
-            /* Value — truncated and padded by *display* columns to handle UTF-8 */
+            /* Value cell. Purely RTL (no ASCII alphanums): right-align with
+               FSI/PDI to isolate BiDi context — same as main table.
+               Mixed or LTR: left-align without BiDi markers.
+               Count/pct/bar use absolute x — immune to cursor drift.
+               The mvwhline above clears stale multi-byte cells from prior
+               frames so FSI/PDI bytes don't bleed into adjacent rows. */
             char *tv = truncate_for_display(freqs[idx].value, val_w);
-            waddstr(win, tv);
             int tv_dw = utf8_display_width(tv);
+            int has_ltr = 0;
+            for (const char *cp = tv; *cp; cp++)
+                if ((unsigned char)*cp < 0x80 && isalnum((unsigned char)*cp))
+                    { has_ltr = 1; break; }
+            if (str_has_rtl(tv) && !has_ltr) {
+                /* Purely RTL: right-align with FSI/PDI isolation */
+                int pad = (val_w > tv_dw) ? val_w - tv_dw : 0;
+                mvwprintw(win, ry, x_val, "%*s\xE2\x81\xA8%s\xE2\x81\xA9",
+                          pad, "", tv);
+            } else {
+                /* LTR / mixed: left-align, pad to val_w display columns */
+                mvwprintw(win, ry, x_val, "%s", tv);
+                for (int p = tv_dw; p < val_w; p++) waddch(win, ' ');
+            }
             free(tv);
-            for (int p = tv_dw; p < val_w; p++) waddch(win, ' ');
 
-            /* Count, pct%, bar — all ASCII, safe with printf */
-            wprintw(win, " %*ld %*.1f%%  %s",
-                    cnt_w, freqs[idx].count,
-                    pct_w - 1, pct,
-                    bar_buf);
+            /* Count, pct%, bar — absolute positions, immune to cursor drift */
+            mvwprintw(win, ry, x_count, "%*ld", cnt_w, freqs[idx].count);
+            mvwprintw(win, ry, x_pct,   "%*.1f%%", pct_w - 1, pct);
+            mvwprintw(win, ry, x_bar,   "%s", bar_buf);
 
             if (idx == cur) wattroff(win, COLOR_PAIR(2));
         }

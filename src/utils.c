@@ -1277,11 +1277,46 @@ int utf8_display_width(const char *s)
             (cp >= 0x20000 && cp <= 0x2FFFD) ||
             (cp >= 0x30000 && cp <= 0x3FFFD))
             cols += 2;
-        else if (cp >= 0x20 && cp != 0x00AD) /* printable, not soft-hyphen */
+        else if (cp >= 0x20 &&
+                 cp != 0x00AD &&                        /* soft hyphen */
+                 cp != 0x200B && cp != 0x200C &&        /* ZW space, ZWNJ */
+                 cp != 0x200D && cp != 0x200E &&        /* ZWJ, LRM */
+                 cp != 0x200F &&                        /* RLM */
+                 cp != 0xFEFF &&                        /* BOM / ZWNBSP */
+                 !(cp >= 0x202A && cp <= 0x202E) &&     /* LRE, RLE, PDF, LRO, RLO */
+                 !(cp >= 0x2060 && cp <= 0x2069))       /* WJ, invisible, BiDi isolates */
             cols += 1;
-        /* else: control chars / combining marks → 0 columns */
+        /* else: control chars / zero-width / combining marks → 0 columns */
     }
     return cols;
+}
+
+/* Returns 1 if s contains any Arabic or Hebrew codepoints (RTL text). */
+int str_has_rtl(const char *s)
+{
+    const unsigned char *p = (const unsigned char *)s;
+    while (*p) {
+        uint32_t cp;
+        if      (*p < 0x80) { cp = *p++; }
+        else if (*p < 0xE0) { cp  = (uint32_t)(*p++ & 0x1F) << 6;
+                              cp |= (*p++ & 0x3F); }
+        else if (*p < 0xF0) { cp  = (uint32_t)(*p++ & 0x0F) << 12;
+                              cp |= (uint32_t)(*p++ & 0x3F) << 6;
+                              cp |= (*p++ & 0x3F); }
+        else                { cp  = (uint32_t)(*p++ & 0x07) << 18;
+                              cp |= (uint32_t)(*p++ & 0x3F) << 12;
+                              cp |= (uint32_t)(*p++ & 0x3F) << 6;
+                              cp |= (*p++ & 0x3F); }
+        if ((cp >= 0x0590 && cp <= 0x05FF) ||   /* Hebrew */
+            (cp >= 0x0600 && cp <= 0x06FF) ||   /* Arabic */
+            (cp >= 0x0750 && cp <= 0x077F) ||   /* Arabic Supplement */
+            (cp >= 0x08A0 && cp <= 0x08FF) ||   /* Arabic Extended-A */
+            (cp >= 0xFB1D && cp <= 0xFB4F) ||   /* Hebrew Presentation Forms */
+            (cp >= 0xFB50 && cp <= 0xFDFF) ||   /* Arabic Presentation Forms-A */
+            (cp >= 0xFE70 && cp <= 0xFEFF))     /* Arabic Presentation Forms-B */
+            return 1;
+    }
+    return 0;
 }
 
 /* Truncate UTF-8 string so it fits within max_width terminal columns.

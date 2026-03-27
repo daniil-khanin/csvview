@@ -18,51 +18,7 @@
 
 #include <stdint.h>          // uint32_t
 
-/* ── RTL (right-to-left) text helpers ───────────────────────────────────────
-   Terminals render text left-to-right. Arabic/Hebrew/Farsi text is stored in
-   logical order (right-to-left reading), so we reverse codepoints for display
-   and right-align the cell — the visual result matches natural RTL reading.    */
-
-static uint32_t rtl_next_cp(const char **p)
-{
-    const unsigned char *s = (const unsigned char *)*p;
-    if (!*s) return 0;
-    uint32_t cp;
-    if      (*s < 0x80) { cp = *s++; }
-    else if (*s < 0xE0) { cp = (uint32_t)(*s++ & 0x1F) << 6;
-                          cp |= (*s++ & 0x3F); }
-    else if (*s < 0xF0) { cp = (uint32_t)(*s++ & 0x0F) << 12;
-                          cp |= (uint32_t)(*s++ & 0x3F) << 6;
-                          cp |= (*s++ & 0x3F); }
-    else                { cp = (uint32_t)(*s++ & 0x07) << 18;
-                          cp |= (uint32_t)(*s++ & 0x3F) << 12;
-                          cp |= (uint32_t)(*s++ & 0x3F) << 6;
-                          cp |= (*s++ & 0x3F); }
-    *p = (const char *)s;
-    return cp;
-}
-
-static int is_rtl_cp(uint32_t cp)
-{
-    return (cp >= 0x0590 && cp <= 0x05FF) ||   /* Hebrew */
-           (cp >= 0x0600 && cp <= 0x06FF) ||   /* Arabic */
-           (cp >= 0x0750 && cp <= 0x077F) ||   /* Arabic Supplement */
-           (cp >= 0x08A0 && cp <= 0x08FF) ||   /* Arabic Extended-A */
-           (cp >= 0xFB1D && cp <= 0xFB4F) ||   /* Hebrew Presentation Forms */
-           (cp >= 0xFB50 && cp <= 0xFDFF) ||   /* Arabic Presentation Forms-A */
-           (cp >= 0xFE70 && cp <= 0xFEFF);     /* Arabic Presentation Forms-B */
-}
-
-static int str_has_rtl(const char *s)
-{
-    const char *p = s;
-    uint32_t cp;
-    while ((cp = rtl_next_cp(&p)) != 0)
-        if (is_rtl_cp(cp)) return 1;
-    return 0;
-}
-
-/* ── end RTL helpers ─────────────────────────────────────────────────────── */
+/* str_has_rtl() lives in utils.c / utils.h */
 
 // ────────────────────────────────────────────────
 // Menu rendering

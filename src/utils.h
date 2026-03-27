@@ -83,6 +83,9 @@ char *truncate_for_display(const char *str, int max_width);
  */
 int utf8_display_width(const char *s);
 
+/** Returns 1 if the string contains any Arabic or Hebrew codepoints (RTL). */
+int str_has_rtl(const char *s);
+
 char *clean_column_name(const char *raw);
 
 /**
