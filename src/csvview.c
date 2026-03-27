@@ -3866,7 +3866,10 @@ int main(int argc, char *argv[]) {
 
                 // Build new filter (this one only)
                 char new_filter[256] = {0};
-                snprintf(new_filter, sizeof(new_filter), "%s = \"%s\"", col_name, cell);
+                if (strchr(col_name, ' '))
+                    snprintf(new_filter, sizeof(new_filter), "`%s` = \"%s\"", col_name, cell);
+                else
+                    snprintf(new_filter, sizeof(new_filter), "%s = \"%s\"", col_name, cell);
                 free(cell);
 
                 // Reset old filter and set the new one
@@ -3932,7 +3935,10 @@ int main(int argc, char *argv[]) {
 
                 // Build condition
                 char new_cond[256] = {0};
-                snprintf(new_cond, sizeof(new_cond), "%s %c= \"%s\"", col_name, op_eq, cell);
+                if (strchr(col_name, ' '))
+                    snprintf(new_cond, sizeof(new_cond), "`%s` %c= \"%s\"", col_name, op_eq, cell);
+                else
+                    snprintf(new_cond, sizeof(new_cond), "%s %c= \"%s\"", col_name, op_eq, cell);
                 free(cell);
 
                 // Append to existing filter

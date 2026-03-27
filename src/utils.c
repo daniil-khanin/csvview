@@ -562,13 +562,24 @@ int parse_filter_expression(const char *query, FilterExpr *expr)
         }
 
         // Parse condition: column_name [spaces] operator [spaces] value
+        // Column name may be backtick-quoted to allow spaces: `Lost Reason`
         char col_name[128] = {0};
-        char *col_start = p;
-        while (*p && !strchr("><=! \t", *p)) p++;
-        int col_len = p - col_start;
-        if (col_len >= (int)sizeof(col_name)) col_len = (int)sizeof(col_name)-1;
-        strncpy(col_name, col_start, col_len);
-        trim(col_name);
+        if (*p == '`') {
+            p++;  // skip opening backtick
+            char *col_start = p;
+            while (*p && *p != '`') p++;
+            int col_len = p - col_start;
+            if (col_len >= (int)sizeof(col_name)) col_len = (int)sizeof(col_name)-1;
+            strncpy(col_name, col_start, col_len);
+            if (*p == '`') p++;  // skip closing backtick
+        } else {
+            char *col_start = p;
+            while (*p && !strchr("><=! \t", *p)) p++;
+            int col_len = p - col_start;
+            if (col_len >= (int)sizeof(col_name)) col_len = (int)sizeof(col_name)-1;
+            strncpy(col_name, col_start, col_len);
+            trim(col_name);
+        }
 
         if (!*col_name) break;  // empty column name — end of parsing
 

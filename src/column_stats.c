@@ -295,8 +295,12 @@ static void show_freq_list(Freq *freqs, long freq_count, long valid_count,
         } else if (ch == '\n' || ch == '\r' || ch == KEY_ENTER) {
             /* Drilldown: set filter and apply */
             if (cur >= 0 && cur < freq_count) {
-                snprintf(filter_query, sizeof(filter_query),
-                         "%s = \"%s\"", col_name, freqs[cur].value);
+                if (strchr(col_name, ' '))
+                    snprintf(filter_query, sizeof(filter_query),
+                             "`%s` = \"%s\"", col_name, freqs[cur].value);
+                else
+                    snprintf(filter_query, sizeof(filter_query),
+                             "%s = \"%s\"", col_name, freqs[cur].value);
                 in_filter_mode  = 1;
                 cur_display_row = 0;
                 top_display_row = 0;
