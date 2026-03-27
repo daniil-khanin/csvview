@@ -23,7 +23,7 @@
 // Project constants
 // ────────────────────────────────────────────────
 
-#define CSVVIEW_VERSION         17
+#define CSVVIEW_VERSION         18
 
 #define MAX_ROWS           		50000000
 #define MAX_COLS                702
