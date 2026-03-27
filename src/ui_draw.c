@@ -189,8 +189,9 @@ void draw_table_border(int top, int height, int width)
 // Table headers
 // ────────────────────────────────────────────────
 // Helper: draw a single column header
-static void draw_one_header(int top, int current_x, int col_idx, int cur_col)
+static void draw_one_header(int top, int current_x, int col_idx, int cur_col, int max_w)
 {
+    if (max_w < 1) return;
     char name[64] = {0};
     if (use_headers && column_names[col_idx]) {
         strncpy(name, column_names[col_idx], sizeof(name) - 6);
@@ -215,7 +216,9 @@ static void draw_one_header(int top, int current_x, int col_idx, int cur_col)
     const char *arrow = arrow_buf;
 
     const char *fmt = (col_types[col_idx] == COL_NUM) ? "%*s" : "%-*s";
-    char *disp = truncate_for_display(name, col_widths[col_idx] - 2);
+    int draw_w = col_widths[col_idx] - 2;
+    if (draw_w > max_w) draw_w = max_w;
+    char *disp = truncate_for_display(name, draw_w);
 
     int marked = graph_marked[col_idx];
     if (col_idx == cur_col)
@@ -223,15 +226,16 @@ static void draw_one_header(int top, int current_x, int col_idx, int cur_col)
     else
         attron(COLOR_PAIR(6) | A_BOLD | (marked ? A_UNDERLINE : 0));
 
-    mvprintw(top + 1, current_x, fmt, col_widths[col_idx] - 2, disp);
+    mvprintw(top + 1, current_x, fmt, draw_w, disp);
 
     if (*arrow) {
-        int arrow_x = current_x + col_widths[col_idx] - (int)strlen(arrow);
+        int arrow_x = current_x + draw_w + 2 - (int)strlen(arrow);
         if (arrow_pair) attron(COLOR_PAIR(arrow_pair) | A_BOLD);
         mvprintw(top + 1, arrow_x, "%s", arrow);
         if (arrow_pair) attroff(COLOR_PAIR(arrow_pair) | A_BOLD);
     }
 
+    free(disp);
     attroff(COLOR_PAIR(3) | COLOR_PAIR(6) | A_BOLD | A_UNDERLINE);
 }
 
@@ -246,7 +250,7 @@ void draw_table_headers(int top, int offset __attribute__((unused)), int visible
     // === Frozen columns (0..freeze_cols-1) ===
     for (int fc = 0; fc < freeze_cols && fc < col_count; fc++) {
         if (col_hidden[fc]) continue;
-        draw_one_header(top, current_x, fc, cur_col);
+        draw_one_header(top, current_x, fc, cur_col, col_widths[fc] - 2);
         current_x += col_widths[fc] + 2;
     }
 
@@ -266,7 +270,9 @@ void draw_table_headers(int top, int offset __attribute__((unused)), int visible
         if (col_hidden[col_idx]) { col_idx++; continue; }
         if (drawn_sc >= visible_cols) break;
         if (current_x >= right_border) break; /* don't draw past the right border */
-        draw_one_header(top, current_x, col_idx, cur_col);
+        int hdr_avail = right_border - current_x - 2;
+        if (hdr_avail < 1) break;
+        draw_one_header(top, current_x, col_idx, cur_col, hdr_avail < col_widths[col_idx] - 2 ? hdr_avail : col_widths[col_idx] - 2);
         current_x += col_widths[col_idx] + 2;
         col_idx++;
         drawn_sc++;
@@ -426,20 +432,27 @@ void draw_table_body(int top, int offset __attribute__((unused)), int visible_ro
             else if (is_current_row || is_current_col) attron(COLOR_PAIR(1));
             else                          attron(COLOR_PAIR(8));
 
-            char *disp = truncate_for_display(display_val, col_widths[fc] - 2);
-            if (col_types[fc] != COL_NUM && str_has_rtl(disp)) {
-                /* RTL text: right-align using display columns, then wrap in
-                   Unicode FSI (U+2068) + PDI (U+2069) — isolates the BiDi
-                   context so the terminal's Bidi algorithm doesn't bleed
-                   into adjacent columns. */
-                int cell_w = col_widths[fc] - 2;
-                int text_w = utf8_display_width(disp);
-                int pad = (cell_w > text_w) ? cell_w - text_w : 0;
-                mvprintw(row_y, current_x, "%*s\xE2\x81\xA8%s\xE2\x81\xA9",
-                         pad, "", disp);
-            } else {
-                const char *fmt = (col_types[fc] == COL_NUM) ? "%*s" : "%-*s";
-                mvprintw(row_y, current_x, fmt, col_widths[fc] - 2, disp);
+            {
+                int scr_re = getmaxx(stdscr) - 2;
+                int fr_avail = scr_re - current_x - 2;
+                int fr_w = col_widths[fc] - 2;
+                if (fr_w > fr_avail && fr_avail > 0) fr_w = fr_avail;
+                if (fr_w < 1) fr_w = 1;
+                char *disp = truncate_for_display(display_val, fr_w);
+                if (col_types[fc] != COL_NUM && str_has_rtl(disp)) {
+                    /* RTL text: right-align using display columns, then wrap in
+                       Unicode FSI (U+2068) + PDI (U+2069) — isolates the BiDi
+                       context so the terminal's Bidi algorithm doesn't bleed
+                       into adjacent columns. */
+                    int text_w = utf8_display_width(disp);
+                    int pad = (fr_w > text_w) ? fr_w - text_w : 0;
+                    mvprintw(row_y, current_x, "%*s\xE2\x81\xA8%s\xE2\x81\xA9",
+                             pad, "", disp);
+                } else {
+                    const char *fmt = (col_types[fc] == COL_NUM) ? "%*s" : "%-*s";
+                    mvprintw(row_y, current_x, fmt, fr_w, disp);
+                }
+                free(disp);
             }
 
             current_x += col_widths[fc] + 2;
@@ -484,20 +497,24 @@ void draw_table_body(int top, int offset __attribute__((unused)), int visible_ro
             else if (is_current_row || is_current_col) attron(COLOR_PAIR(1));
             else                          attron(COLOR_PAIR(8));
 
-            char *disp = truncate_for_display(display_val, col_widths[sc_col] - 2);
+            int avail_w = right_edge - current_x - 2;
+            if (avail_w < 1) { attroff(COLOR_PAIR(2)|COLOR_PAIR(3)|COLOR_PAIR(8)|COLOR_PAIR(1)); free(display_val); break; }
+            int draw_w = col_widths[sc_col] - 2;
+            if (draw_w > avail_w) draw_w = avail_w;
+            char *disp = truncate_for_display(display_val, draw_w);
             if (col_types[sc_col] != COL_NUM && str_has_rtl(disp)) {
-                int cell_w = col_widths[sc_col] - 2;
                 int text_w = utf8_display_width(disp);
-                int pad = (cell_w > text_w) ? cell_w - text_w : 0;
+                int pad = (draw_w > text_w) ? draw_w - text_w : 0;
                 mvprintw(row_y, current_x, "%*s\xE2\x81\xA8%s\xE2\x81\xA9",
                          pad, "", disp);
             } else {
                 const char *fmt = (col_types[sc_col] == COL_NUM) ? "%*s" : "%-*s";
-                mvprintw(row_y, current_x, fmt, col_widths[sc_col] - 2, disp);
+                mvprintw(row_y, current_x, fmt, draw_w, disp);
             }
 
             current_x += col_widths[sc_col] + 2;
             attroff(COLOR_PAIR(2) | COLOR_PAIR(3) | COLOR_PAIR(8) | COLOR_PAIR(1));
+            free(disp);
             free(display_val);
             sc_col++;
             drawn_sc++;
