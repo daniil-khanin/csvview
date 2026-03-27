@@ -1,6 +1,7 @@
 #include "utils.h"
 #include <time.h>
 #include <stdint.h>
+#include <stdio.h>
 
 // Parse a double, accepting both dot and comma as decimal separator.
 double parse_double(const char *s, char **endptr)
@@ -1607,4 +1608,25 @@ char *build_csv_line(char **fields, int count, char delimiter)
     }
     *p = '\0';
     return result;
+}
+
+/* Copy text to the system clipboard.
+ * Tries pbcopy (macOS), then xclip, then xsel (Linux).
+ * Returns 1 on success, 0 on failure. */
+int copy_to_clipboard(const char *text)
+{
+    if (!text) return 0;
+    static const char *cmds[] = {
+        "pbcopy",
+        "xclip -selection clipboard",
+        "xsel --clipboard --input",
+        NULL
+    };
+    for (int i = 0; cmds[i]; i++) {
+        FILE *p = popen(cmds[i], "w");
+        if (!p) continue;
+        fputs(text, p);
+        if (pclose(p) == 0) return 1;
+    }
+    return 0;
 }

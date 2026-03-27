@@ -2603,6 +2603,66 @@ int main(int argc, char *argv[]) {
             refresh();
         }        
 
+        /* ── Clipboard copy ────────────────────────────────────────────────
+           y / Ny  — copy current row (or N rows) as CSV to clipboard
+           Y       — copy current cell value to clipboard               */
+        if (ch == 'Y') {
+            int ok = copy_to_clipboard(current_cell_content);
+            move(height - 1, 1); clrtoeol();
+            draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
+            attron(COLOR_PAIR(3));
+            printw(" | %s: cell copied", ok ? "Copied" : "Error");
+            attroff(COLOR_PAIR(3));
+            refresh();
+        }
+
+        if (ch == 'y') {
+            int n = vim_count > 0 ? vim_count : 1;
+            vim_count = 0;
+            int display_count_local = filter_active ? filtered_count
+                                     : (row_count - (use_headers ? 1 : 0));
+
+            /* Build multi-row string */
+            size_t buf_sz = (size_t)n * (MAX_LINE_LEN + 2) + 1;
+            char *clip = malloc(buf_sz);
+            if (clip) {
+                clip[0] = '\0';
+                size_t used = 0;
+                for (int i = 0; i < n; i++) {
+                    int disp = cur_display_row + i;
+                    if (disp >= display_count_local) break;
+                    int rr = get_real_row(disp);
+                    if (!rows[rr].line_cache) {
+                        char lb[MAX_LINE_LEN];
+                        fseek(f, rows[rr].offset, SEEK_SET);
+                        if (fgets(lb, sizeof(lb), f))
+                            rows[rr].line_cache = strdup(lb);
+                        else
+                            rows[rr].line_cache = strdup("");
+                    }
+                    const char *line = rows[rr].line_cache;
+                    /* strip trailing \n so we add our own \n delimiter */
+                    size_t ll = strlen(line);
+                    while (ll > 0 && (line[ll-1] == '\n' || line[ll-1] == '\r')) ll--;
+                    if (used + ll + 2 < buf_sz) {
+                        memcpy(clip + used, line, ll);
+                        used += ll;
+                        clip[used++] = '\n';
+                        clip[used] = '\0';
+                    }
+                }
+                int ok = copy_to_clipboard(clip);
+                free(clip);
+                move(height - 1, 1); clrtoeol();
+                draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
+                attron(COLOR_PAIR(3));
+                printw(" | %s: %d row%s copied", ok ? "Copied" : "Error",
+                       n > 1 ? n : 1, n > 1 ? "s" : "");
+                attroff(COLOR_PAIR(3));
+                refresh();
+            }
+        }
+
         if (ch == '\n' || ch == KEY_ENTER || ch == 'e') {
             if (cur_real_row >= row_count) continue;
 

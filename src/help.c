@@ -61,6 +61,8 @@ void show_help(int use_ncurses)
         "  e / Enter            Edit current cell",
         "  u                    Undo last cell edit (up to 20 steps)",
         "  s                    Save file",
+        "  y / Ny               Copy current row (or N rows) to clipboard",
+        "  Y                    Copy current cell value to clipboard",
         "  t                    Open/edit column settings (detailed)",
         "  ct                   Set column type: Text",
         "  ci                   Set column type: Integer (0 decimals)",

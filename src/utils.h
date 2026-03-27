@@ -86,6 +86,13 @@ int utf8_display_width(const char *s);
 /** Returns 1 if the string contains any Arabic or Hebrew codepoints (RTL). */
 int str_has_rtl(const char *s);
 
+/**
+ * Copies text to the system clipboard.
+ * Uses pbcopy (macOS), xclip, or xsel (Linux).
+ * Returns 1 on success, 0 on failure.
+ */
+int copy_to_clipboard(const char *text);
+
 char *clean_column_name(const char *raw);
 
 /**
