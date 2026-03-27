@@ -190,7 +190,7 @@ int col_name_to_num(const char *name)
     // Linear search through the column name array
     for (int c = 0; c < col_count; c++) {
         // Check that the column name exists and matches
-        if (column_names[c] && strcmp(column_names[c], name) == 0) {
+        if (column_names[c] && strcasecmp(column_names[c], name) == 0) {
             return c;  // Found — return index (0-based)
         }
     }

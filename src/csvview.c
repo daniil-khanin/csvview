@@ -1038,13 +1038,27 @@ static int ac_readline(char *buf, int maxlen, int y, int x, int border_x)
             return 0;
         } else if (key == '\t') {
             if (full) {
-                /* Replace token with canonical column name */
-                int full_len = (int)strlen(full);
+                /* Replace token with canonical column name.
+                 * Wrap in backticks when name contains spaces. */
+                int needs_bt = (strchr(full, ' ') != NULL);
+                int has_open_bt = (needs_bt && ts > 0 && buf[ts-1] == '`');
+                int ts_eff = has_open_bt ? ts - 1 : ts;
                 int after_len = (int)strlen(buf + pos);
-                if (ts + full_len + after_len < maxlen - 1) {
-                    memmove(buf + ts + full_len, buf + pos, after_len + 1);
-                    memcpy(buf + ts, full, full_len);
-                    pos = ts + full_len;
+                if (needs_bt) {
+                    char repl[256];
+                    int repl_len = snprintf(repl, sizeof(repl), "`%s`", full);
+                    if (ts_eff + repl_len + after_len < maxlen - 1) {
+                        memmove(buf + ts_eff + repl_len, buf + pos, after_len + 1);
+                        memcpy(buf + ts_eff, repl, repl_len);
+                        pos = ts_eff + repl_len;
+                    }
+                } else {
+                    int full_len = (int)strlen(full);
+                    if (ts + full_len + after_len < maxlen - 1) {
+                        memmove(buf + ts + full_len, buf + pos, after_len + 1);
+                        memcpy(buf + ts, full, full_len);
+                        pos = ts + full_len;
+                    }
                 }
             }
         } else if ((key == KEY_BACKSPACE || key == 127) && pos > 0) {
