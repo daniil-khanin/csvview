@@ -1621,7 +1621,6 @@ int main(int argc, char *argv[]) {
                         lx += (int)strlen(cn) + 6;
                     }
                 } else {
-                    current_graph_color_pair = GRAPH_COLOR_BASE;
                     draw_scatter(graph_scatter_x_col, graph_col_list[current_graph],
                                  height, width, rows, f, row_count, graph_cursor_pos);
                 }
@@ -2231,6 +2230,7 @@ int main(int argc, char *argv[]) {
                             graph_col_list[0] = ycol;
                             graph_col_count = 1;
                             graph_cursor_pos = 0;
+                            current_graph_color_pair = GRAPH_COLOR_BASE;
                             // Initialize visible_points so the key handler immediately
                             // knows the range; the exact value will come after the first render
                             graph_visible_points = width - (ROW_DATA_OFFSET + 2) - 4;
