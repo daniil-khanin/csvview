@@ -803,6 +803,15 @@ void draw_scatter(int x_col, int y_col, int height, int width,
     }
     if (ymin == ymax) { ymax += 1; ymin -= 1; }
 
+    // Apply or save scatter viewport for zoom/pan
+    if (scatter_vp_active) {
+        xmin = scatter_vp_xmin; xmax = scatter_vp_xmax;
+        ymin = scatter_vp_ymin; ymax = scatter_vp_ymax;
+    } else {
+        scatter_vp_xmin = xmin; scatter_vp_xmax = xmax;
+        scatter_vp_ymin = ymin; scatter_vp_ymax = ymax;
+    }
+
     double r_corr = NAN;
     double denom = sqrt(((double)n * sx2 - sx * sx) * ((double)n * sy2 - sy * sy));
     if (denom > 0) r_corr = ((double)n * sxy - sx * sy) / denom;

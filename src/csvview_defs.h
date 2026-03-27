@@ -227,6 +227,11 @@ extern double *graph_anomalies;
 extern bool show_anomalies;
 extern bool show_graph_cursor;
 
+/* Scatter plot viewport (zoom/pan) */
+extern double scatter_vp_xmin, scatter_vp_xmax;
+extern double scatter_vp_ymin, scatter_vp_ymax;
+extern int scatter_vp_active;   /* 0=auto-range, 1=custom viewport */
+
 // Temporary save of sort/filter state
 extern int save_sort_col;
 extern int save_sort_order;

@@ -113,6 +113,11 @@ bool      show_anomalies          = false;
 bool      show_graph_cursor       = false;
 int       min_max_show            = 0;
 
+/* Scatter plot viewport (zoom/pan) */
+double scatter_vp_xmin = 0.0, scatter_vp_xmax = 0.0;
+double scatter_vp_ymin = 0.0, scatter_vp_ymax = 0.0;
+int    scatter_vp_active = 0;
+
 // 9. State saving (for undo/temporary storage)
 int   save_sort_col       = -1;
 int   save_sort_order     = 0;
@@ -1691,7 +1696,10 @@ int main(int argc, char *argv[]) {
                                  : (graph_type == GRAPH_DOT) ? "dot" : "line";
             const char *scale_str = (graph_scale == SCALE_LOG) ? "log" : "linear";
             attron(COLOR_PAIR(3));
-            printw(" | %s  Y:%s", type_str, scale_str);
+            if (graph_scatter_mode && scatter_vp_active)
+                printw(" | %s  Y:%s  [zoom]", type_str, scale_str);
+            else
+                printw(" | %s  Y:%s", type_str, scale_str);
             attroff(COLOR_PAIR(3));
             clrtoeol();
         } else if (search_count > 0) {
@@ -1751,10 +1759,18 @@ int main(int argc, char *argv[]) {
                     }
                 }
                 graph_col_count = 0;
+                scatter_vp_active = 0;
                 continue;
             } else if (ch == KEY_LEFT || ch == 'h') {
                 min_max_show = 0;
-                if (graph_cursor_pos > 0) {
+                if (graph_scatter_mode && graph_scatter_x_col >= 0) {
+                    // Scatter pan: move X viewport 20% left
+                    if (!scatter_vp_active) scatter_vp_active = 1;
+                    double span = scatter_vp_xmax - scatter_vp_xmin;
+                    double step = span * 0.20;
+                    scatter_vp_xmin -= step;
+                    scatter_vp_xmax -= step;
+                } else if (graph_cursor_pos > 0) {
                     graph_cursor_pos--;
                 } else {
                     // Cursor at left edge — try to scroll the window left
@@ -1775,7 +1791,14 @@ int main(int argc, char *argv[]) {
                 }
             } else if (ch == KEY_RIGHT || ch == 'l') {
                 min_max_show = 0;
-                if (graph_cursor_pos < graph_visible_points - 1) {
+                if (graph_scatter_mode && graph_scatter_x_col >= 0) {
+                    // Scatter pan: move X viewport 20% right
+                    if (!scatter_vp_active) scatter_vp_active = 1;
+                    double span = scatter_vp_xmax - scatter_vp_xmin;
+                    double step = span * 0.20;
+                    scatter_vp_xmin += step;
+                    scatter_vp_xmax += step;
+                } else if (graph_cursor_pos < graph_visible_points - 1) {
                     graph_cursor_pos++;
                 } else {
                     // Cursor at right edge — try to scroll the window right
@@ -1795,6 +1818,20 @@ int main(int argc, char *argv[]) {
                     }
                     // cursor_pos stays at graph_visible_points - 1 (right edge)
                 }
+            } else if ((ch == KEY_UP || ch == 'k') && graph_scatter_mode && graph_scatter_x_col >= 0) {
+                // Scatter pan: move Y viewport 20% up
+                if (!scatter_vp_active) scatter_vp_active = 1;
+                double span = scatter_vp_ymax - scatter_vp_ymin;
+                double step = span * 0.20;
+                scatter_vp_ymin += step;
+                scatter_vp_ymax += step;
+            } else if ((ch == KEY_DOWN || ch == 'j') && graph_scatter_mode && graph_scatter_x_col >= 0) {
+                // Scatter pan: move Y viewport 20% down
+                if (!scatter_vp_active) scatter_vp_active = 1;
+                double span = scatter_vp_ymax - scatter_vp_ymin;
+                double step = span * 0.20;
+                scatter_vp_ymin -= step;
+                scatter_vp_ymax -= step;
             } else if (ch == 'r') {
                 // Redraw (no-op, loop will redraw)
             } else if (ch == ':') {  // Enter command mode
@@ -2308,51 +2345,78 @@ int main(int argc, char *argv[]) {
                 if (idx < graph_col_count)
                     graph_series_hidden[idx] ^= 1;
             } else if (ch == '+' || ch == '=') {
-                // Zoom in: halve visible range around cursor
-                int total = graph_total_points;
-                if (total > 0) {
-                    int cur_s = graph_zoom_start;
-                    int cur_e = (graph_zoom_end > 0 && graph_zoom_end <= total) ? graph_zoom_end : total;
-                    int cur_len = cur_e - cur_s;
-                    int half = cur_len / 4;
-                    if (half < 2) half = 2;
-                    int vp = graph_visible_points > 1 ? graph_visible_points - 1 : 1;
-                    int center = cur_s + (int)((double)graph_cursor_pos / vp * cur_len);
-                    int new_s = center - half;
-                    int new_e = center + half;
-                    if (new_s < 0) { new_e -= new_s; new_s = 0; }
-                    if (new_e > total) { new_s -= (new_e - total); new_e = total; }
-                    if (new_s < 0) new_s = 0;
-                    graph_zoom_start = new_s;
-                    graph_zoom_end   = new_e;
-                    graph_cursor_pos = (new_e - new_s) / 2;
-                }
-            } else if (ch == '-') {
-                // Zoom out: double visible range
-                int total = graph_total_points;
-                if (total > 0) {
-                    int cur_s = graph_zoom_start;
-                    int cur_e = (graph_zoom_end > 0 && graph_zoom_end <= total) ? graph_zoom_end : total;
-                    int cur_len = cur_e - cur_s;
-                    int half = cur_len;
-                    int center = (cur_s + cur_e) / 2;
-                    int new_s = center - half;
-                    int new_e = center + half;
-                    if (new_s < 0) new_s = 0;
-                    if (new_e > total) new_e = total;
-                    if (new_s == 0 && new_e >= total) {
-                        graph_zoom_start = 0; graph_zoom_end = -1; // full view
-                    } else {
+                if (graph_scatter_mode && graph_scatter_x_col >= 0) {
+                    // Scatter zoom in: shrink viewport by 1/3 around center
+                    if (!scatter_vp_active) scatter_vp_active = 1;
+                    double cx = (scatter_vp_xmin + scatter_vp_xmax) / 2.0;
+                    double cy = (scatter_vp_ymin + scatter_vp_ymax) / 2.0;
+                    double hx = (scatter_vp_xmax - scatter_vp_xmin) / 2.0 / 1.5;
+                    double hy = (scatter_vp_ymax - scatter_vp_ymin) / 2.0 / 1.5;
+                    scatter_vp_xmin = cx - hx; scatter_vp_xmax = cx + hx;
+                    scatter_vp_ymin = cy - hy; scatter_vp_ymax = cy + hy;
+                } else {
+                    // Zoom in: halve visible range around cursor
+                    int total = graph_total_points;
+                    if (total > 0) {
+                        int cur_s = graph_zoom_start;
+                        int cur_e = (graph_zoom_end > 0 && graph_zoom_end <= total) ? graph_zoom_end : total;
+                        int cur_len = cur_e - cur_s;
+                        int half = cur_len / 4;
+                        if (half < 2) half = 2;
+                        int vp = graph_visible_points > 1 ? graph_visible_points - 1 : 1;
+                        int center = cur_s + (int)((double)graph_cursor_pos / vp * cur_len);
+                        int new_s = center - half;
+                        int new_e = center + half;
+                        if (new_s < 0) { new_e -= new_s; new_s = 0; }
+                        if (new_e > total) { new_s -= (new_e - total); new_e = total; }
+                        if (new_s < 0) new_s = 0;
                         graph_zoom_start = new_s;
                         graph_zoom_end   = new_e;
+                        graph_cursor_pos = (new_e - new_s) / 2;
                     }
-                    graph_cursor_pos = graph_visible_points / 2;
+                }
+            } else if (ch == '-') {
+                if (graph_scatter_mode && graph_scatter_x_col >= 0) {
+                    // Scatter zoom out: expand viewport by 1.5× around center
+                    if (!scatter_vp_active) scatter_vp_active = 1;
+                    double cx = (scatter_vp_xmin + scatter_vp_xmax) / 2.0;
+                    double cy = (scatter_vp_ymin + scatter_vp_ymax) / 2.0;
+                    double hx = (scatter_vp_xmax - scatter_vp_xmin) / 2.0 * 1.5;
+                    double hy = (scatter_vp_ymax - scatter_vp_ymin) / 2.0 * 1.5;
+                    scatter_vp_xmin = cx - hx; scatter_vp_xmax = cx + hx;
+                    scatter_vp_ymin = cy - hy; scatter_vp_ymax = cy + hy;
+                } else {
+                    // Zoom out: double visible range
+                    int total = graph_total_points;
+                    if (total > 0) {
+                        int cur_s = graph_zoom_start;
+                        int cur_e = (graph_zoom_end > 0 && graph_zoom_end <= total) ? graph_zoom_end : total;
+                        int cur_len = cur_e - cur_s;
+                        int half = cur_len;
+                        int center = (cur_s + cur_e) / 2;
+                        int new_s = center - half;
+                        int new_e = center + half;
+                        if (new_s < 0) new_s = 0;
+                        if (new_e > total) new_e = total;
+                        if (new_s == 0 && new_e >= total) {
+                            graph_zoom_start = 0; graph_zoom_end = -1; // full view
+                        } else {
+                            graph_zoom_start = new_s;
+                            graph_zoom_end   = new_e;
+                        }
+                        graph_cursor_pos = graph_visible_points / 2;
+                    }
                 }
             } else if (ch == '0') {
-                // Reset zoom to full view
-                graph_zoom_start = 0;
-                graph_zoom_end   = -1;
-                graph_cursor_pos = 0;
+                if (graph_scatter_mode && graph_scatter_x_col >= 0) {
+                    // Scatter reset: back to auto-range
+                    scatter_vp_active = 0;
+                } else {
+                    // Reset zoom to full view
+                    graph_zoom_start = 0;
+                    graph_zoom_end   = -1;
+                    graph_cursor_pos = 0;
+                }
             } else if (ch == '?') {
                 show_help(1);
             }
