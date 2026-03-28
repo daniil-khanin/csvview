@@ -212,6 +212,72 @@ Rendered with Unicode braille characters — each terminal cell carries a 2×4 p
 
 ---
 
+## CSV parsing & format handling
+
+### Format auto-detection
+
+| Input | Behavior | Example | Result |
+|---|---|---|---|
+| Extension `.csv` | Delimiter: comma `,` | `a,b,c` | 3 fields |
+| Extension `.tsv` | Delimiter: tab `\t` | `a\tb\tc` | 3 fields |
+| Extension `.psv` | Delimiter: pipe `\|` | `a\|b\|c` | 3 fields |
+| Extension `.ecsv` | Delimiter read from `# delimiter:` header line; default space | `# delimiter: ','` | Delimiter `,` |
+| Flag `--sep=<char>` | Explicit delimiter; overrides everything | `--sep=;` | Delimiter `;` |
+| Sidecar `.csvf` | Delimiter saved from a previous session; overrides autodetect (except `--sep=`) | `.csvf` contains `delimiter: \t` | Delimiter `\t` |
+
+### Comments (`.ecsv` and `:comments on`)
+
+| Input | Behavior | Example | Result |
+|---|---|---|---|
+| `#` lines before first data row | Collected into an internal buffer; excluded from the table; view with the `#` key | `# unit: deg` | Shown in popup, not a data row |
+| `# delimiter: ','` in the comment block | Sets the file delimiter | `# delimiter: ','` | Delimiter `,` instead of default space |
+| Blank lines between `#` block and data | Skipped during preamble | `#...\n\nra,dec,...` | Blank line not counted as a data row |
+| `#` line after data has started | Treated as a regular data row | `1,2\n#note\n3,4` | `#note` appears in the table |
+
+### Special characters & encoding
+
+| Input | Behavior | Example | Result |
+|---|---|---|---|
+| UTF-8 BOM (0xEF BB BF) at start of file | **Not stripped from field values.** U+FEFF is treated as zero-width for display, so it is visually invisible — but the header name in memory contains the BOM bytes, which may break filtering and search on the first column | `\xEF\xBB\xBFname,age` | Displays: `name  age`. Filter `name = "Alice"` — no match, because internal name is `\xEF\xBB\xBFname` |
+| Valid UTF-8 (CJK, Cyrillic, etc.) | Display width aware: CJK = 2 cells, Latin/Cyrillic = 1 | `Привет,你好` | 2 fields; column widths calculated correctly |
+| RTL text (Arabic, Hebrew) | Main table: left-aligned, BiDi handled by the terminal. Full frequency list: FSI/PDI Unicode isolates added for purely-RTL strings; count/pct/bar columns at fixed x-positions | `مرحبا` | Displayed with BiDi isolation; statistics columns remain in correct order |
+| ZWNJ U+200C (Persian compound words) | Counted as zero display-width | `خرم‌آباد` | Cell padding calculated correctly |
+
+### Line endings
+
+| Input | Behavior | Example | Result |
+|---|---|---|---|
+| `\n` (Unix LF) | Row boundary | `a,b\nc,d` | 2 rows, 2 fields each |
+| `\r\n` (Windows CRLF) | `\r` is stripped; `\n` is the row boundary | `a,b\r\nc,d\r\n` | 2 rows, 2 fields each; no `\r` in values |
+| `\r` without `\n` (classic Mac CR) | **Not supported.** `\r` is not a row boundary | `a,b\rc,d` | 1 row; field 2 = `b\rc` |
+| No final newline (EOF) | Handled correctly; last row read up to EOF | `a,b,c`⟨EOF⟩ | 3 fields |
+
+### Field parsing (RFC 4180 and deviations)
+
+| Input | Behavior | Example | Result |
+|---|---|---|---|
+| Standard quoted field | Quotes stripped; content is the field value | `"hello world"` | `hello world` |
+| Escaped quote `""` inside quotes | `""` → `"` | `"a ""b"" c"` | `a "b" c` |
+| Delimiter inside quotes | Not treated as a delimiter | `"a,b"` (csv) | 1 field: `a,b` |
+| Opening quote mid-field (non-RFC) | Switches to quoted mode from that position; quote char itself is consumed | `ab"cd,ef"` | Field 1: `abcd,ef` |
+| Leading spaces before a field | Stripped — **unless** the space is the delimiter (ECSV default) | `  a , b ` (csv) | Fields: `a`, `b ` (trailing spaces not stripped) |
+| Empty field | Returned as an empty string | `a,,c` | Fields: `a`, `""`, `c` |
+| Trailing delimiter | Creates an empty last field | `a,b,` | Fields: `a`, `b`, `""` |
+| Multiline field (quoted `\n`) | **Not supported.** Row boundary at every `\n`, even inside quotes | `"a\nb",c` | Row 1: field 1 = `"a`. Row 2: `b",c` |
+
+### Table structure
+
+| Input | Behavior | Example | Result |
+|---|---|---|---|
+| Inconsistent column counts | Each row parsed independently. Extra fields clipped to header count in display; short rows padded with empty cells | Header: 3 fields; data row: 5 fields | 3 fields displayed; fields 4–5 not shown |
+| Duplicate header names | Both stored; `col_name_to_num` returns the first match | `a,a,b` | Columns A, A, B; filter/formula targets first `a` |
+| Header names with spaces | Supported with backtick-quoting in filters and formulas | Column `Lost Reason` | Filter: `` `Lost Reason` = "x"`` |
+| More than 50 000 000 rows (MAX_ROWS) | Indexing stops; remainder of file not read | 60 M rows | First 50 M shown |
+| Line longer than 8 192 bytes (MAX_LINE_LEN) | Silently truncated to 8 191 bytes | 10 000-byte row | Field value cut off |
+| More than 702 columns (MAX_COLS, A–ZZ) | Columns beyond 702 not indexed | 800 fields per row | First 702 displayed |
+
+---
+
 ## Command reference
 
 ```
