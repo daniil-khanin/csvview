@@ -146,7 +146,7 @@ static void show_percentile_breakdown(const double *vals, long n, const char *co
     for (long i = 0; i < n; i++) { double d = sorted[i] - mean; var += d*d; }
     double stddev = (n > 1) ? sqrt(var / (n - 1)) : 0.0;
 
-    int pw = 34, ph = np + 10;
+    int pw = 36, ph = np + 13;
     if (ph > LINES - 4) ph = LINES - 4;
     int sy = (LINES - ph) / 2;
     int sx = (COLS - pw) / 2;
@@ -1024,9 +1024,9 @@ skip_num_alloc:
     // Close hint
     if (col_types[col_idx] == COL_NUM && numeric_count > 0) {
         if (freq_count > 0)
-            mvwprintw(win, STATS_H - 2, 2, "[f] Freq  [p] Percentiles  [T] Trends  [any] Close");
+            mvwprintw(win, STATS_H - 2, 2, "[f] Freq  [p] Percentiles  [e] Trends  [any] Close");
         else
-            mvwprintw(win, STATS_H - 2, 2, "[p] Percentiles  [T] Trends  [any key] Close");
+            mvwprintw(win, STATS_H - 2, 2, "[p] Percentiles  [e] Trends  [any key] Close");
     } else if (freq_count > 0) {
         mvwprintw(win, STATS_H - 2, 2, "[f] Full frequency list   [any key] Close");
     } else {
@@ -1045,7 +1045,7 @@ skip_num_alloc:
         show_freq_list(freqs, freq_count, valid_count, col_name);
     } else if (stats_ch == 'p' && col_types[col_idx] == COL_NUM && numeric_count > 0) {
         show_percentile_breakdown(numeric_values, numeric_count, col_name);
-    } else if (stats_ch == 'T' && col_types[col_idx] == COL_NUM && numeric_count > 0) {
+    } else if (stats_ch == 'e' && col_types[col_idx] == COL_NUM && numeric_count > 0) {
         show_value_trends(numeric_values, numeric_count, col_name);
     }
 
@@ -1474,14 +1474,14 @@ void show_outlier_report(double threshold)
             wrefresh(mw); wgetch(mw); delwin(mw);
             touchwin(stdscr); refresh();
         }
-        free(outliers); free(col_std);
+        free(outliers); free(col_std); col_std = NULL;
         goto outlier_cleanup_early;
     }
 
     /* ── Interactive list ── */
     {
         WINDOW *win = newwin(LINES, COLS, 0, 0);
-        if (!win) { free(outliers); free(col_std); goto outlier_cleanup_early; }
+        if (!win) { free(outliers); free(col_std); col_std = NULL; goto outlier_cleanup_early; }
         wbkgd(win, COLOR_PAIR(1));
         keypad(win, TRUE);
 
@@ -1593,6 +1593,7 @@ void show_outlier_report(double threshold)
         refresh();
         free(outliers);
         free(col_std);
+        col_std = NULL;
     }
 
 outlier_cleanup_early:

@@ -183,7 +183,7 @@ void show_help(int use_ncurses)
         "    Enter              Drill-down: filter main table by selected value",
         "    q / Esc            Close frequency list",
         "  [p]                  Percentile breakdown (numeric): P1/P5/P25/P50/P75/P90/P95/P99 + IQR",
-        "  [T]                  Value trends (numeric): rolling mean over row blocks + sparkline",
+        "  [e]                  Value trends (numeric): rolling mean over row blocks + sparkline",
         "",
         "Analytics commands:",
         "  :corr                Pearson r correlation matrix for all numeric columns",
