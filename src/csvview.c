@@ -981,6 +981,136 @@ static char *show_history_picker(void)
 }
 
 // ────────────────────────────────────────────────
+// Command history  (ring buffer, shared across all : invocations)
+// ────────────────────────────────────────────────
+
+#define CMD_HIST_MAX 50
+static char cmd_hist[CMD_HIST_MAX][128];
+static int  cmd_hist_n    = 0;   /* entries stored (capped at CMD_HIST_MAX) */
+static int  cmd_hist_head = 0;   /* next write slot */
+
+static void cmd_hist_push(const char *s) {
+    if (!s || !*s) return;
+    if (cmd_hist_n > 0) {
+        int prev = (cmd_hist_head + CMD_HIST_MAX - 1) % CMD_HIST_MAX;
+        if (strcmp(cmd_hist[prev], s) == 0) return;   /* no duplicates */
+    }
+    strncpy(cmd_hist[cmd_hist_head], s, 127);
+    cmd_hist[cmd_hist_head][127] = '\0';
+    cmd_hist_head = (cmd_hist_head + 1) % CMD_HIST_MAX;
+    if (cmd_hist_n < CMD_HIST_MAX) cmd_hist_n++;
+}
+
+/* idx 0 = most recent */
+static const char *cmd_hist_get(int idx) {
+    if (idx < 0 || idx >= cmd_hist_n) return NULL;
+    int slot = (cmd_hist_head - 1 - idx + CMD_HIST_MAX * 4) % CMD_HIST_MAX;
+    return cmd_hist[slot];
+}
+
+// ────────────────────────────────────────────────
+// Known commands list  (for Tab palette)
+// ────────────────────────────────────────────────
+
+static const char *s_cmds[] = {
+    "sort","fq","fqn","fqo","fqno","fqu","fs","fl",
+    "dr","cr","cd","cal","car","cf","cs","freeze",
+    "e","theme","corr","outliers","profile",
+    "gx","gc","gt","gy","ga","gp","gsvg","gsc","g2y","grid",
+    "dedup","split","cat",
+    NULL
+};
+
+/* Prefix match against s_cmds[], returns first match or NULL */
+static const char *cmd_ac_match(const char *word, int wlen) {
+    if (wlen <= 0) return NULL;
+    for (int i = 0; s_cmds[i]; i++) {
+        if ((int)strlen(s_cmds[i]) > wlen &&
+            strncmp(s_cmds[i], word, wlen) == 0)
+            return s_cmds[i];
+    }
+    return NULL;
+}
+
+/* Show a fuzzy-filtered command palette popup.
+   Writes selected command into buf[0..maxlen-1] and updates *pos. */
+static void cmd_palette_popup(char *buf, int maxlen, int *pos_ptr, int y, int x)
+{
+    int plen = *pos_ptr;
+
+    const char *matches[64];
+    int nm = 0;
+    for (int i = 0; s_cmds[i] && nm < 64; i++) {
+        if (plen == 0 || strncmp(s_cmds[i], buf, plen) == 0)
+            matches[nm++] = s_cmds[i];
+    }
+    if (nm == 0) return;
+
+    /* Single match → complete inline, no popup */
+    if (nm == 1) {
+        strncpy(buf, matches[0], maxlen - 1);
+        buf[maxlen - 1] = '\0';
+        *pos_ptr = (int)strlen(buf);
+        return;
+    }
+
+    int popup_w = 26;
+    int popup_h = nm + 2;
+    if (popup_h > LINES - 3) popup_h = LINES - 3;
+    int popup_y = y - popup_h - 1;
+    if (popup_y < 0) popup_y = y + 1;
+    int popup_x = x - 1;
+    if (popup_x < 0) popup_x = 0;
+    if (popup_x + popup_w > COLS) popup_x = COLS - popup_w;
+
+    WINDOW *pop = newwin(popup_h, popup_w, popup_y, popup_x);
+    if (!pop) return;
+    wbkgd(pop, COLOR_PAIR(1));
+    keypad(pop, TRUE);
+
+    int cur = 0, top = 0;
+    int page = popup_h - 2;
+
+    for (;;) {
+        if (cur < 0) cur = 0;
+        if (cur >= nm) cur = nm - 1;
+        if (cur < top) top = cur;
+        if (cur >= top + page) top = cur - page + 1;
+
+        werase(pop);
+        wattron(pop, COLOR_PAIR(6)); box(pop, 0, 0); wattroff(pop, COLOR_PAIR(6));
+        for (int r = 0; r < page; r++) {
+            int idx = top + r;
+            if (idx >= nm) break;
+            if (idx == cur) wattron(pop, COLOR_PAIR(2));
+            mvwprintw(pop, r + 1, 2, "%-*s", popup_w - 4, matches[idx]);
+            if (idx == cur) wattroff(pop, COLOR_PAIR(2));
+        }
+        wrefresh(pop);
+
+        int ch = wgetch(pop);
+        if (ch == 27) { break; }
+        else if (ch == KEY_UP   || ch == 'k') { cur--; }
+        else if (ch == KEY_DOWN || ch == 'j' || ch == '\t') { cur++; }
+        else if (ch == '\n' || ch == '\r' || ch == KEY_ENTER) {
+            strncpy(buf, matches[cur], maxlen - 1);
+            buf[maxlen - 1] = '\0';
+            *pos_ptr = (int)strlen(buf);
+            break;
+        } else {
+            /* Any other printable key: close and pass back */
+            ungetch(ch);
+            break;
+        }
+    }
+
+    delwin(pop);
+    touchwin(stdscr);
+    move(y, x); addstr(buf); clrtoeol();
+    refresh();
+}
+
+// ────────────────────────────────────────────────
 // Column-name autocomplete input
 // ────────────────────────────────────────────────
 
@@ -1000,30 +1130,42 @@ static const char *ac_match(const char *word, int wlen)
  * Caller draws the label; y,x is where the input itself starts.
  * Returns 1 on Enter (buf filled), 0 on Esc (buf cleared). */
 /* border_x > 0: redraw ACS_VLINE at that column after clearing (preserves box frame) */
-static int ac_readline(char *buf, int maxlen, int y, int x, int border_x)
+/* use_hist=1: enable UP/DOWN history + command Tab; 0: column-only Tab, no history */
+static int ac_readline(char *buf, int maxlen, int y, int x, int border_x, int use_hist)
 {
     int pos = 0;
     buf[0] = '\0';
     curs_set(1);
     noecho();
 
+    /* History navigation state */
+    int  hist_pos  = -1;          /* -1 = current input, 0 = most recent, … */
+    char hist_save[128] = "";     /* saved current input when entering history */
+
     while (1) {
-        /* Find start of current token (scan back over word chars) */
+        /* Determine if cursor is still in the first token (no space before pos) */
+        int in_first_token = 1;
+        for (int i = 0; i < pos; i++) { if (buf[i] == ' ') { in_first_token = 0; break; } }
+
+        /* Find start of current token */
         int ts = pos;
         while (ts > 0 && (isalnum((unsigned char)buf[ts-1]) || buf[ts-1] == '_'))
             ts--;
 
-        const char *full = (pos > ts) ? ac_match(buf + ts, pos - ts) : NULL;
-        const char *ghost = full ? full + (pos - ts) : NULL; /* suffix to display */
+        /* Ghost: command name if first token, else column name */
+        const char *full = NULL;
+        if (pos > ts) {
+            if (use_hist && in_first_token)
+                full = cmd_ac_match(buf + ts, pos - ts);
+            else
+                full = ac_match(buf + ts, pos - ts);
+        }
+        const char *ghost = full ? full + (pos - ts) : NULL;
 
-        /* Redraw: input + ghost */
+        /* Redraw */
         move(y, x);
         addstr(buf);
-        if (ghost) {
-            attron(A_DIM);
-            addstr(ghost);
-            attroff(A_DIM);
-        }
+        if (ghost) { attron(A_DIM); addstr(ghost); attroff(A_DIM); }
         clrtoeol();
         if (border_x > 0) {
             attron(COLOR_PAIR(6));
@@ -1037,14 +1179,40 @@ static int ac_readline(char *buf, int maxlen, int y, int x, int border_x)
 
         if (key == '\n' || key == KEY_ENTER) {
             break;
+
         } else if (key == 27) {
             buf[0] = '\0';
             curs_set(0);
             return 0;
+
+        } else if (key == KEY_UP && use_hist) {
+            /* Go back in history */
+            if (hist_pos == -1) {
+                strncpy(hist_save, buf, 127); hist_save[127] = '\0';
+            }
+            int next = hist_pos + 1;
+            if (next < cmd_hist_n) {
+                hist_pos = next;
+                const char *h = cmd_hist_get(hist_pos);
+                if (h) { strncpy(buf, h, maxlen - 1); buf[maxlen-1]='\0'; pos=(int)strlen(buf); }
+            }
+
+        } else if (key == KEY_DOWN && use_hist) {
+            if (hist_pos > 0) {
+                hist_pos--;
+                const char *h = cmd_hist_get(hist_pos);
+                if (h) { strncpy(buf, h, maxlen - 1); buf[maxlen-1]='\0'; pos=(int)strlen(buf); }
+            } else if (hist_pos == 0) {
+                hist_pos = -1;
+                strncpy(buf, hist_save, maxlen - 1); buf[maxlen-1]='\0'; pos=(int)strlen(buf);
+            }
+
         } else if (key == '\t') {
-            if (full) {
-                /* Replace token with canonical column name.
-                 * Wrap in backticks when name contains spaces. */
+            if (use_hist && in_first_token) {
+                /* Command palette: show popup */
+                cmd_palette_popup(buf, maxlen, &pos, y, x);
+            } else if (full) {
+                /* Column name completion */
                 int needs_bt = (strchr(full, ' ') != NULL);
                 int has_open_bt = (needs_bt && ts > 0 && buf[ts-1] == '`');
                 int ts_eff = has_open_bt ? ts - 1 : ts;
@@ -1066,11 +1234,18 @@ static int ac_readline(char *buf, int maxlen, int y, int x, int border_x)
                     }
                 }
             }
+
         } else if ((key == KEY_BACKSPACE || key == 127) && pos > 0) {
             buf[--pos] = '\0';
+        } else if (key == KEY_LEFT && pos > 0) {
+            pos--;
+        } else if (key == KEY_RIGHT && pos < (int)strlen(buf)) {
+            pos++;
         } else if (key >= 32 && key <= 126 && pos < maxlen - 1) {
+            /* Insert character — reset history navigation */
+            if (hist_pos >= 0) { hist_pos = -1; hist_save[0] = '\0'; }
+            memmove(buf + pos + 1, buf + pos, strlen(buf + pos) + 1);
             buf[pos++] = (char)key;
-            buf[pos] = '\0';
         }
     }
 
@@ -1841,7 +2016,8 @@ int main(int argc, char *argv[]) {
                 printw(" | :");
                 attroff(COLOR_PAIR(3));
                 refresh();
-                { int cy, cx; getyx(stdscr, cy, cx); ac_readline(cmd_buf, sizeof(cmd_buf), cy, cx, 0); }
+                { int cy, cx; getyx(stdscr, cy, cx); ac_readline(cmd_buf, sizeof(cmd_buf), cy, cx, 0, 1); }
+                if (cmd_buf[0]) cmd_hist_push(cmd_buf);
 
                 // Split command and argument (if any)
                 char *cmd = cmd_buf;
@@ -2897,7 +3073,7 @@ int main(int argc, char *argv[]) {
             clrtoeol();
             refresh();
 
-            if (!ac_readline(filter_query, sizeof(filter_query), 2, 4, width - 1))
+            if (!ac_readline(filter_query, sizeof(filter_query), 2, 4, width - 1, 0))
                 in_filter_mode = 0;
 
             if (in_filter_mode && strlen(filter_query) > 0) {
@@ -3514,7 +3690,8 @@ int main(int argc, char *argv[]) {
             printw(" | :");
             attroff(COLOR_PAIR(3));
             refresh();
-            { int cy, cx; getyx(stdscr, cy, cx); ac_readline(cmd_buf, sizeof(cmd_buf), cy, cx, 0); }
+            { int cy, cx; getyx(stdscr, cy, cx); ac_readline(cmd_buf, sizeof(cmd_buf), cy, cx, 0, 1); }
+            if (cmd_buf[0]) cmd_hist_push(cmd_buf);
 
             // Split command and argument (if any)
             char *cmd = cmd_buf;
