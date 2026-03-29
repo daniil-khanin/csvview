@@ -91,6 +91,24 @@ int find_max_index(double *values, int count);
  */
 double *extract_plot_values(int col, RowIndex *rows, FILE *f, int row_count, int *out_point_count, bool *out_aggregate, char *target_date_fmt_out );
 
+/**
+ * Pie/donut chart: shows value frequencies for column `col`.
+ * Up to 8 slices; excess merged into "Other". Donut hole in center.
+ */
+void draw_pie_chart(int col, int height, int width);
+
+/**
+ * Horizontal box-and-whisker plot for up to `ncols` numeric columns.
+ * Shows min, Q1, median, Q3, max per column on a shared X scale.
+ */
+void draw_box_plot(int *cols, int ncols, int height, int width);
+
+/**
+ * Full-screen correlation heatmap for all visible numeric columns.
+ * Cells are color-coded: green=strong positive, red=strong negative.
+ */
+void draw_heatmap(int height, int width);
+
 /* Multi-series overlay — set before calling draw_graph in a loop */
 extern double graph_global_min;
 extern double graph_global_max;

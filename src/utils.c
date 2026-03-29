@@ -2,6 +2,7 @@
 #include <time.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <wchar.h>
 
 // Parse a double, accepting both dot and comma as decimal separator.
 double parse_double(const char *s, char **endptr)
@@ -1258,47 +1259,19 @@ void format_number_with_spaces(long long num, char *buf, size_t bufsize)
    Arabic, Hebrew, Latin, Cyrillic, combining marks, controls) counts as 1 or 0. */
 int utf8_display_width(const char *s)
 {
+    if (!s) return 0;
     int cols = 0;
-    const unsigned char *p = (const unsigned char *)s;
+    mbstate_t st;
+    memset(&st, 0, sizeof(st));
+    const char *p = s;
     while (*p) {
-        uint32_t cp;
-        if      (*p < 0x80) { cp = *p++; }
-        else if (*p < 0xE0) { cp  = (uint32_t)(*p++ & 0x1F) << 6;
-                              cp |= (*p++ & 0x3F); }
-        else if (*p < 0xF0) { cp  = (uint32_t)(*p++ & 0x0F) << 12;
-                              cp |= (uint32_t)(*p++ & 0x3F) << 6;
-                              cp |= (*p++ & 0x3F); }
-        else                { cp  = (uint32_t)(*p++ & 0x07) << 18;
-                              cp |= (uint32_t)(*p++ & 0x3F) << 12;
-                              cp |= (uint32_t)(*p++ & 0x3F) << 6;
-                              cp |= (*p++ & 0x3F); }
-
-        /* Double-width East Asian ranges */
-        if ((cp >= 0x1100  && cp <= 0x115F)  ||
-             cp == 0x2329   || cp == 0x232A   ||
-            (cp >= 0x2E80  && cp <= 0x303E)  ||
-            (cp >= 0x3040  && cp <= 0xA4CF)  ||
-            (cp >= 0xAC00  && cp <= 0xD7AF)  ||
-            (cp >= 0xF900  && cp <= 0xFAFF)  ||
-            (cp >= 0xFE10  && cp <= 0xFE19)  ||
-            (cp >= 0xFE30  && cp <= 0xFE4F)  ||
-            (cp >= 0xFF01  && cp <= 0xFF60)  ||
-            (cp >= 0xFFE0  && cp <= 0xFFE6)  ||
-            (cp >= 0x1F300 && cp <= 0x1F64F) ||
-            (cp >= 0x1F900 && cp <= 0x1F9FF) ||
-            (cp >= 0x20000 && cp <= 0x2FFFD) ||
-            (cp >= 0x30000 && cp <= 0x3FFFD))
-            cols += 2;
-        else if (cp >= 0x20 &&
-                 cp != 0x00AD &&                        /* soft hyphen */
-                 cp != 0x200B && cp != 0x200C &&        /* ZW space, ZWNJ */
-                 cp != 0x200D && cp != 0x200E &&        /* ZWJ, LRM */
-                 cp != 0x200F &&                        /* RLM */
-                 cp != 0xFEFF &&                        /* BOM / ZWNBSP */
-                 !(cp >= 0x202A && cp <= 0x202E) &&     /* LRE, RLE, PDF, LRO, RLO */
-                 !(cp >= 0x2060 && cp <= 0x2069))       /* WJ, invisible, BiDi isolates */
-            cols += 1;
-        /* else: control chars / zero-width / combining marks → 0 columns */
+        wchar_t wc;
+        size_t n = mbrtowc(&wc, p, MB_CUR_MAX, &st);
+        if (n == (size_t)-1 || n == (size_t)-2) { p++; continue; } /* invalid byte */
+        if (n == 0) break;                                           /* null char */
+        int w = wcwidth(wc);
+        if (w > 0) cols += w;
+        p += n;
     }
     return cols;
 }

@@ -1,5 +1,47 @@
 # Changelog
 
+## v19 — 2026-03-29
+
+### New features
+
+- **Donut chart** (`:gpie [col]`): shows value-frequency distribution for any column as an
+  ASCII donut with colored slices. Up to 8 slices; remainder merged into "Other". Legend shows
+  name, percentage and total n. Pressing `Ctrl+G` on a non-numeric column automatically opens
+  the donut chart for that column instead of showing an error.
+
+- **Box plot** (`:gbox [col ...]`): horizontal box-and-whisker for one or more numeric columns
+  on a shared X scale. Shows min / Q1 / median / Q3 / max per column with numeric summary line.
+  Multiple columns can be given as space-separated names or letters; without args uses the
+  current column (or all columns marked with `M`).
+
+- **Correlation heatmap** (`:gheat`): full-screen Pearson r matrix for all visible numeric
+  columns. Cells are color-coded: green ≥ 0.7, cyan ≥ 0.3, blue ≈ 0, yellow ≤ −0.3, red ≤ −0.7.
+  Diagonal shown as bold 1.00. Color legend at the bottom.
+
+- **Command palette** (`: Tab`): pressing Tab at the start of a `:` command shows a popup
+  with matching known commands. Arrow keys navigate; Enter selects.
+
+- **Command history** (`:` + `↑`/`↓`): command history in the `:` prompt, shell-style.
+  Up to 50 entries, no duplicates.
+
+- **Percentile breakdown** (`[p]` in column stats): shows P1/P5/P10/P25/P50/P75/P90/P95/P99
+  plus IQR, stddev, and mean in a dedicated popup.
+
+- **Value trends** (`[e]` in column stats): splits numeric values into 20 equal time-buckets
+  and shows min/mean/max per bucket as a Unicode sparkline ▁▂▃▄▅▆▇█.
+
+- **Correlation matrix** (`:corr`): Pearson r popup for all numeric columns with arrow-key
+  navigation. Press Enter on a cell to launch a scatter plot for that pair.
+
+- **Outlier report** (`:outliers [sigma]`): lists rows with |z-score| ≥ threshold (default 3.0).
+  Press Enter on a row to jump to it in the table; `f` applies a filter for that value.
+
+### Bug fixes
+- Donut/box/heatmap chart area confined strictly inside the table frame (clears cols 1..width-2,
+  preserving left and right border characters).
+- Status bar shows mode name (`donut`, `boxplot`, `heatmap`) instead of line/bar/dot for new
+  chart types.
+
 ## v17 — 2026-03-22
 
 ### New features

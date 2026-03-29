@@ -395,18 +395,19 @@ void draw_table_body(int top, int offset __attribute__((unused)), int visible_ro
                 if (fr_w > fr_avail && fr_avail > 0) fr_w = fr_avail;
                 if (fr_w < 1) fr_w = 1;
                 char *disp = truncate_for_display(display_val, fr_w);
+                int text_w = utf8_display_width(disp);
+                /* Clear the cell area first to wipe any stale multi-byte chars */
+                mvhline(row_y, current_x, ' ', fr_w + 2);
                 if (col_types[fc] != COL_NUM && str_has_rtl(disp)) {
-                    /* RTL text: right-align using display columns, then wrap in
-                       Unicode FSI (U+2068) + PDI (U+2069) — isolates the BiDi
-                       context so the terminal's Bidi algorithm doesn't bleed
-                       into adjacent columns. */
-                    int text_w = utf8_display_width(disp);
                     int pad = (fr_w > text_w) ? fr_w - text_w : 0;
                     mvprintw(row_y, current_x, "%*s\xE2\x81\xA8%s\xE2\x81\xA9",
                              pad, "", disp);
+                } else if (col_types[fc] == COL_NUM) {
+                    int num_x = current_x + fr_w - text_w;
+                    if (num_x < current_x) num_x = current_x;
+                    mvaddstr(row_y, num_x, disp);
                 } else {
-                    const char *fmt = (col_types[fc] == COL_NUM) ? "%*s" : "%-*s";
-                    mvprintw(row_y, current_x, fmt, fr_w, disp);
+                    mvaddstr(row_y, current_x, disp);
                 }
                 free(disp);
             }
@@ -458,14 +459,19 @@ void draw_table_body(int top, int offset __attribute__((unused)), int visible_ro
             int draw_w = col_widths[sc_col] - 2;
             if (draw_w > avail_w) draw_w = avail_w;
             char *disp = truncate_for_display(display_val, draw_w);
+            int text_w = utf8_display_width(disp);
+            /* Clear the cell area first to wipe any stale multi-byte chars */
+            mvhline(row_y, current_x, ' ', draw_w + 2);
             if (col_types[sc_col] != COL_NUM && str_has_rtl(disp)) {
-                int text_w = utf8_display_width(disp);
                 int pad = (draw_w > text_w) ? draw_w - text_w : 0;
                 mvprintw(row_y, current_x, "%*s\xE2\x81\xA8%s\xE2\x81\xA9",
                          pad, "", disp);
+            } else if (col_types[sc_col] == COL_NUM) {
+                int num_x = current_x + draw_w - text_w;
+                if (num_x < current_x) num_x = current_x;
+                mvaddstr(row_y, num_x, disp);
             } else {
-                const char *fmt = (col_types[sc_col] == COL_NUM) ? "%*s" : "%-*s";
-                mvprintw(row_y, current_x, fmt, draw_w, disp);
+                mvaddstr(row_y, current_x, disp);
             }
 
             current_x += col_widths[sc_col] + 2;

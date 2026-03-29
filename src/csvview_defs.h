@@ -23,7 +23,7 @@
 // Project constants
 // ────────────────────────────────────────────────
 
-#define CSVVIEW_VERSION         18
+#define CSVVIEW_VERSION         19
 
 #define MAX_ROWS           		50000000
 #define MAX_COLS                702
@@ -226,6 +226,14 @@ extern int graph_anomaly_count;
 extern double *graph_anomalies;
 extern bool show_anomalies;
 extern bool show_graph_cursor;
+extern int graph_scatter_mode;
+extern int graph_scatter_x_col;
+extern int graph_pie_mode;
+extern int graph_pie_col;
+extern int graph_box_mode;
+extern int graph_heat_mode;
+extern int graph_series_hidden[10];
+extern int graph_dual_yaxis;
 
 /* Scatter plot viewport (zoom/pan) */
 extern double scatter_vp_xmin, scatter_vp_xmax;

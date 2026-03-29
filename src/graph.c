@@ -993,3 +993,512 @@ void draw_scatter(int x_col, int y_col, int height, int width,
     free(xs);
     free(ys);
 }
+
+// ────────────────────────────────────────────────
+// Pie / Donut Chart
+// ────────────────────────────────────────────────
+
+#define PIE_MAX_SLICES 8
+
+typedef struct { char key[64]; long count; } PieSlice;
+
+static int pie_cmp_desc(const void *a, const void *b) {
+    long diff = ((PieSlice*)b)->count - ((PieSlice*)a)->count;
+    return (diff > 0) ? 1 : (diff < 0) ? -1 : 0;
+}
+
+void draw_pie_chart(int col, int height, int width)
+{
+    if (col < 0 || col >= col_count) return;
+
+    /* Collect value frequencies ─────────────────────────────── */
+    int max_uniq = 512;
+    PieSlice *slices = calloc(max_uniq, sizeof(PieSlice));
+    if (!slices) return;
+    int n_slices = 0;
+    long total   = 0;
+
+    int n_rows = filter_active ? filtered_count
+                               : (row_count - (use_headers ? 1 : 0));
+    char line_buf[MAX_LINE_LEN], field_buf[256];
+
+    for (int i = 0; i < n_rows; i++) {
+        int r = get_real_row(i);
+        if (r < 0 || r >= row_count) continue;
+        const char *lp;
+        if (g_mmap_base) {
+            lp = csv_mmap_get_line(rows[r].offset, line_buf, sizeof(line_buf));
+            if (!lp) continue;
+        } else if (rows[r].line_cache) {
+            lp = rows[r].line_cache;
+        } else { continue; }
+        get_field_graph(lp, col, field_buf, sizeof(field_buf));
+        if (!field_buf[0]) continue;
+
+        int found = -1;
+        for (int j = 0; j < n_slices; j++)
+            if (strcmp(slices[j].key, field_buf) == 0) { found = j; break; }
+        if (found >= 0) {
+            slices[found].count++;
+        } else if (n_slices < max_uniq) {
+            snprintf(slices[n_slices].key, sizeof(slices[n_slices].key), "%.63s", field_buf);
+            slices[n_slices].count = 1;
+            n_slices++;
+        }
+        total++;
+    }
+
+    if (n_slices == 0 || total == 0) { free(slices); return; }
+
+    qsort(slices, n_slices, sizeof(PieSlice), pie_cmp_desc);
+
+    /* Merge tail into "Other" ─────────────────────────────────── */
+    int show_slices = (n_slices < PIE_MAX_SLICES) ? n_slices : PIE_MAX_SLICES;
+    if (n_slices > PIE_MAX_SLICES) {
+        long oth = 0;
+        for (int j = PIE_MAX_SLICES - 1; j < n_slices; j++) oth += slices[j].count;
+        slices[PIE_MAX_SLICES - 1].count = oth;
+        snprintf(slices[PIE_MAX_SLICES - 1].key,
+                 sizeof(slices[PIE_MAX_SLICES - 1].key), "Other");
+    }
+
+    /* Cumulative angles starting at top (−π/2), clockwise ───── */
+    double *angles = calloc(show_slices + 1, sizeof(double));
+    if (!angles) { free(slices); return; }
+    angles[0] = -M_PI / 2.0;
+    for (int j = 0; j < show_slices; j++)
+        angles[j+1] = angles[j] + (double)slices[j].count / total * 2.0 * M_PI;
+
+    /* Layout: donut on left, legend on right ─────────────────── */
+    int right    = width - 2;        /* right border is at width-1; stay inside */
+    int plot_x0  = ROW_DATA_OFFSET + 1;
+    int legend_w = 30;
+    int pie_w    = right - plot_x0 - legend_w - 2;
+    /* safe zone inside frame: 4..height-3
+     * title at 4, chart content 6..(height-4), hint at height-3 */
+    int chart_top = 6;
+    int chart_bot = height - 4;
+    int pie_h    = chart_bot - chart_top;
+    int legend_x = plot_x0 + pie_w + 2;
+
+    int cy = chart_top + pie_h / 2;
+    int cx = plot_x0 + pie_w / 2;
+
+    /* Radius in row-units; cells are ~2× wider than tall → dx*=0.5 */
+    double outer_r = fmin((double)(pie_h / 2 - 1), (double)(pie_w / 4 - 1));
+    if (outer_r < 3.0) outer_r = 3.0;
+    double inner_r = outer_r * 0.42;   /* donut hole */
+    double start_a = angles[0];
+
+    /* Draw donut ───────────────────────────────────────────────── */
+    for (int ry = cy - (int)outer_r - 1; ry <= cy + (int)outer_r + 1; ry++) {
+        if (ry < chart_top || ry >= chart_bot) continue;
+        for (int rx = cx - (int)(outer_r * 2 + 2); rx <= cx + (int)(outer_r * 2 + 2); rx++) {
+            if (rx < plot_x0 || rx >= legend_x) continue;
+            double dy = (double)(ry - cy);
+            double dx = (double)(rx - cx) * 0.5;
+            double dist = sqrt(dy*dy + dx*dx);
+            if (dist > outer_r || dist < inner_r) continue;
+
+            double a = atan2(dy, dx);
+            /* normalise to [start_a, start_a+2π) */
+            while (a < start_a)          a += 2.0 * M_PI;
+            while (a >= start_a + 2.0 * M_PI) a -= 2.0 * M_PI;
+
+            int si = show_slices - 1; /* fallback to last slice */
+            for (int j = 0; j < show_slices; j++) {
+                if (a >= angles[j] && a < angles[j+1]) { si = j; break; }
+            }
+            int cp = GRAPH_COLOR_BASE + (si % 7);
+            attron(COLOR_PAIR(cp));
+            mvaddch(ry, rx, '#');
+            attroff(COLOR_PAIR(cp));
+        }
+    }
+
+    /* Legend ──────────────────────────────────────────────────── */
+    char col_name[64] = "";
+    if (use_headers && column_names[col])
+        snprintf(col_name, sizeof(col_name), "%.30s", column_names[col]);
+    else
+        col_letter(col, col_name);
+    attron(COLOR_PAIR(1) | A_BOLD);
+    mvprintw(4, legend_x, "Donut: %s", col_name);    /* title: row 4, inside frame */
+    attroff(COLOR_PAIR(1) | A_BOLD);
+
+    for (int j = 0; j < show_slices; j++) {
+        int ly = chart_top + 1 + j;   /* legend inside chart area, row after center */
+        if (ly >= chart_bot) break;
+        double pct = 100.0 * slices[j].count / total;
+        int cp = GRAPH_COLOR_BASE + (j % 7);
+        attron(COLOR_PAIR(cp) | A_BOLD);
+        mvaddstr(ly, legend_x, "\xe2\x96\x88 ");   /* █ */
+        attroff(COLOR_PAIR(cp) | A_BOLD);
+        int leg_avail = right - legend_x - 3;
+        if (leg_avail > 4)
+            mvprintw(ly, legend_x + 3, "%-*.*s%5.1f%%",
+                     leg_avail - 6, leg_avail - 6, slices[j].key, pct);
+    }
+    mvprintw(chart_top + 1 + show_slices + 1, legend_x, "n = %ld", total);
+
+    /* Bottom hint */
+    attron(COLOR_PAIR(3));
+    mvprintw(height - 3, plot_x0, "Donut chart  |  q Close");
+    attroff(COLOR_PAIR(3));
+
+    free(angles);
+    free(slices);
+}
+
+// ────────────────────────────────────────────────
+// Box Plot
+// ────────────────────────────────────────────────
+
+static int box_cmp_dbl(const void *a, const void *b) {
+    double da = *(const double*)a, db = *(const double*)b;
+    return (da > db) - (da < db);
+}
+
+/* Returns array of n sorted doubles (caller frees). */
+static double *collect_sorted_col(int col, long *out_n)
+{
+    *out_n = 0;
+    int n_rows = filter_active ? filtered_count
+                               : (row_count - (use_headers ? 1 : 0));
+    /* Cap at 200 K to stay fast */
+    int cap = (n_rows < 200000) ? n_rows : 200000;
+    double *vals = malloc(cap * sizeof(double));
+    if (!vals) return NULL;
+    long cnt = 0;
+    char line_buf[MAX_LINE_LEN], field_buf[256];
+
+    for (int i = 0; i < n_rows && cnt < cap; i++) {
+        int r = get_real_row(i);
+        if (r < 0 || r >= row_count) continue;
+        const char *lp;
+        if (g_mmap_base) {
+            lp = csv_mmap_get_line(rows[r].offset, line_buf, sizeof(line_buf));
+            if (!lp) continue;
+        } else if (rows[r].line_cache) {
+            lp = rows[r].line_cache;
+        } else continue;
+        get_field_graph(lp, col, field_buf, sizeof(field_buf));
+        char *_end; double v = parse_double(field_buf, &_end);
+        if (_end != field_buf) vals[cnt++] = v;
+    }
+    if (cnt == 0) { free(vals); return NULL; }
+
+    /* Sort */
+    qsort(vals, cnt, sizeof(double), box_cmp_dbl);
+    *out_n = cnt;
+    return vals;
+}
+
+static double pctile(const double *sorted, long n, double p) {
+    if (n == 0) return 0.0;
+    double idx = p * (n - 1);
+    long lo = (long)idx;
+    if (lo >= n - 1) return sorted[n - 1];
+    double frac = idx - lo;
+    return sorted[lo] * (1.0 - frac) + sorted[lo + 1] * frac;
+}
+
+void draw_box_plot(int *cols, int ncols, int height, int width)
+{
+    if (ncols <= 0) return;
+
+    /* Collect statistics for each column ────────────────────── */
+    typedef struct {
+        double mn, q1, med, q3, mx;
+        char   name[24];
+        int    valid;
+    } BoxStat;
+
+    BoxStat *stats = calloc(ncols, sizeof(BoxStat));
+    if (!stats) return;
+
+    double gmin = INFINITY, gmax = -INFINITY;
+
+    for (int ci = 0; ci < ncols; ci++) {
+        long n = 0;
+        double *v = collect_sorted_col(cols[ci], &n);
+        if (!v || n == 0) { stats[ci].valid = 0; continue; }
+        stats[ci].valid = 1;
+        stats[ci].mn  = v[0];
+        stats[ci].q1  = pctile(v, n, 0.25);
+        stats[ci].med = pctile(v, n, 0.50);
+        stats[ci].q3  = pctile(v, n, 0.75);
+        stats[ci].mx  = v[n-1];
+        free(v);
+        if (use_headers && column_names[cols[ci]])
+            snprintf(stats[ci].name, sizeof(stats[ci].name), "%.23s", column_names[cols[ci]]);
+        else
+            col_letter(cols[ci], stats[ci].name);
+        if (stats[ci].mn < gmin) gmin = stats[ci].mn;
+        if (stats[ci].mx > gmax) gmax = stats[ci].mx;
+    }
+    if (isinf(gmin) || isinf(gmax)) { free(stats); return; }
+    if (gmin == gmax) { gmin -= 1.0; gmax += 1.0; }
+
+    /* Layout ────────────────────────────────────────────────── */
+    int lbl_w   = 14;   /* left label column width */
+    int plot_x0 = ROW_DATA_OFFSET + lbl_w + 1;
+    int box_right = width - 2;              /* stay left of right border */
+    int plot_w  = box_right - plot_x0;
+    if (plot_w < 20) plot_w = 20;
+
+#define TO_PX(v) ((int)(((v) - gmin) / (gmax - gmin) * (plot_w - 1)))
+
+    /* Title at row 4 (inside frame, row 3 is the border) */
+    attron(COLOR_PAIR(1) | A_BOLD);
+    mvprintw(4, ROW_DATA_OFFSET + 1, "Box Plot");
+    attroff(COLOR_PAIR(1) | A_BOLD);
+
+    int box_top = 4;
+    int box_bot = height - 3;
+    int row_y = box_top + 2;   /* data starts 2 rows below title */
+    for (int ci = 0; ci < ncols; ci++) {
+        if (row_y >= box_bot) break;
+        if (!stats[ci].valid) { row_y += 2; continue; }
+
+        int px_mn  = TO_PX(stats[ci].mn);
+        int px_q1  = TO_PX(stats[ci].q1);
+        int px_med = TO_PX(stats[ci].med);
+        int px_q3  = TO_PX(stats[ci].q3);
+        int px_mx  = TO_PX(stats[ci].mx);
+
+        int cp = GRAPH_COLOR_BASE + (ci % 7);
+
+        /* Label */
+        attron(COLOR_PAIR(cp) | A_BOLD);
+        mvprintw(row_y, ROW_DATA_OFFSET + 1, "%-13.13s", stats[ci].name);
+        attroff(COLOR_PAIR(cp) | A_BOLD);
+
+        /* Draw whisker + box on single row */
+        for (int px = 0; px < plot_w; px++) {
+            int sx = plot_x0 + px;
+            if (sx >= box_right) break;
+            char ch = ' ';
+            if      (px == px_mn)                   ch = '|';
+            else if (px == px_mx)                   ch = '|';
+            else if (px > px_mn && px < px_q1)      ch = '-';
+            else if (px > px_q3 && px < px_mx)      ch = '-';
+            else if (px >= px_q1 && px <= px_q3)    ch = '=';
+            if (px == px_med) ch = '|';
+            if (ch == ' ') continue;
+            attron(COLOR_PAIR(cp));
+            mvaddch(row_y, sx, ch);
+            attroff(COLOR_PAIR(cp));
+        }
+
+        /* Stats summary on next row */
+        attron(A_DIM);
+        char stat_buf[128];
+        snprintf(stat_buf, sizeof(stat_buf),
+                 "min:%-8.4g Q1:%-8.4g med:%-8.4g Q3:%-8.4g max:%-8.4g",
+                 stats[ci].mn, stats[ci].q1, stats[ci].med, stats[ci].q3, stats[ci].mx);
+        int max_stat = box_right - plot_x0;
+        if (max_stat > 0) mvprintw(row_y + 1, plot_x0, "%.*s", max_stat, stat_buf);
+        attroff(A_DIM);
+        row_y += 3;
+    }
+
+    /* X-axis scale */
+    int scale_y = row_y;
+    if (scale_y < box_bot) {
+        /* ticks: ~5 labels */
+        attron(A_DIM);
+        for (int t = 0; t <= 4; t++) {
+            double v = gmin + t * (gmax - gmin) / 4.0;
+            int px   = TO_PX(v);
+            mvprintw(scale_y, plot_x0 + px - 4, "%.4g", v);
+        }
+        attroff(A_DIM);
+    }
+
+    /* Bottom hint */
+    attron(COLOR_PAIR(3));
+    mvprintw(height - 3, ROW_DATA_OFFSET + 1,
+             "Box plot  |  min |  Q1═med═Q3  |  max  |  q Close");
+    attroff(COLOR_PAIR(3));
+
+    free(stats);
+#undef TO_PX
+}
+
+// ────────────────────────────────────────────────
+// Correlation Heatmap
+// ────────────────────────────────────────────────
+
+void draw_heatmap(int height, int width)
+{
+    /* Collect numeric columns ──────────────────────────────── */
+    int num_cols[MAX_COLS], nc = 0;
+    for (int c = 0; c < col_count && nc < 40; c++) {
+        if (col_hidden[c]) continue;
+        if (col_types[c] == COL_NUM) num_cols[nc++] = c;
+    }
+    if (nc < 2) {
+        attron(COLOR_PAIR(3));
+        mvprintw(height / 2, width / 2 - 16, "Need at least 2 numeric columns.");
+        attroff(COLOR_PAIR(3));
+        return;
+    }
+
+    /* Extract column means ─────────────────────────────────── */
+    int n_rows = filter_active ? filtered_count
+                               : (row_count - (use_headers ? 1 : 0));
+    double *means = calloc(nc, sizeof(double));
+    long   *cnts  = calloc(nc, sizeof(long));
+    if (!means || !cnts) { free(means); free(cnts); return; }
+
+    char line_buf[MAX_LINE_LEN], field_buf[256];
+    for (int i = 0; i < n_rows; i++) {
+        int r = get_real_row(i);
+        if (r < 0 || r >= row_count) continue;
+        const char *lp;
+        if (g_mmap_base) {
+            lp = csv_mmap_get_line(rows[r].offset, line_buf, sizeof(line_buf));
+            if (!lp) continue;
+        } else if (rows[r].line_cache) lp = rows[r].line_cache;
+        else continue;
+        for (int ci = 0; ci < nc; ci++) {
+            get_field_graph(lp, num_cols[ci], field_buf, sizeof(field_buf));
+            char *_ep1; double v = parse_double(field_buf, &_ep1);
+            if (_ep1 != field_buf) { means[ci] += v; cnts[ci]++; }
+        }
+    }
+    for (int ci = 0; ci < nc; ci++)
+        if (cnts[ci] > 0) means[ci] /= cnts[ci];
+
+    /* Compute Pearson r for each pair (upper triangle) ──────── */
+    double *corr = calloc(nc * nc, sizeof(double));
+    if (!corr) { free(means); free(cnts); return; }
+    /* diagonal = 1 */
+    for (int i = 0; i < nc; i++) corr[i * nc + i] = 1.0;
+
+    double *sx = calloc(nc, sizeof(double));
+    double *sy = calloc(nc, sizeof(double));
+    double *sxy= calloc(nc * nc, sizeof(double));
+    if (!sx || !sy || !sxy) { free(means); free(cnts); free(corr); free(sx); free(sy); free(sxy); return; }
+
+    for (int i = 0; i < n_rows; i++) {
+        int r = get_real_row(i);
+        if (r < 0 || r >= row_count) continue;
+        const char *lp;
+        if (g_mmap_base) {
+            lp = csv_mmap_get_line(rows[r].offset, line_buf, sizeof(line_buf));
+            if (!lp) continue;
+        } else if (rows[r].line_cache) lp = rows[r].line_cache;
+        else continue;
+        double vals[40] = {0};
+        int    valid[40] = {0};
+        for (int ci = 0; ci < nc; ci++) {
+            get_field_graph(lp, num_cols[ci], field_buf, sizeof(field_buf));
+            char *_ep2; double v = parse_double(field_buf, &_ep2);
+            if (_ep2 != field_buf) { vals[ci] = v - means[ci]; valid[ci] = 1; }
+        }
+        for (int a = 0; a < nc; a++) {
+            if (!valid[a]) continue;
+            sx[a]  += vals[a] * vals[a];
+            for (int b = a + 1; b < nc; b++) {
+                if (!valid[b]) continue;
+                sxy[a * nc + b] += vals[a] * vals[b];
+            }
+        }
+    }
+    for (int a = 0; a < nc; a++)
+        for (int b = a + 1; b < nc; b++) {
+            double denom = sqrt(sx[a] * sx[b]);
+            double r_val = (denom > 0) ? sxy[a * nc + b] / denom : 0.0;
+            corr[a * nc + b] = corr[b * nc + a] = r_val;
+        }
+    free(sx); free(sy); free(sxy); free(means); free(cnts);
+
+    /* Layout ────────────────────────────────────────────────── */
+    int cell_w  = 6;  /* chars per cell */
+    int lbl_w   = 10; /* row label width */
+    int hdr_h   = 1;  /* one row for column header labels */
+    int heat_top = 4;               /* first row inside frame */
+    int heat_bot = height - 3;      /* last row inside frame */
+    int heat_right = width - 2;
+    int x0      = ROW_DATA_OFFSET + lbl_w + 1;
+    int y0      = heat_top + 2 + hdr_h;  /* title(4) + blank(5) + col-header(6) → data at 7 */
+
+    /* Title at row 4, column-name header at row 6 */
+    attron(COLOR_PAIR(1) | A_BOLD);
+    mvprintw(heat_top, ROW_DATA_OFFSET + 1, "Correlation Heatmap");
+    attroff(COLOR_PAIR(1) | A_BOLD);
+
+    for (int b = 0; b < nc; b++) {
+        char lbl[8] = "";
+        if (use_headers && column_names[num_cols[b]])
+            snprintf(lbl, sizeof(lbl), "%.5s", column_names[num_cols[b]]);
+        else col_letter(num_cols[b], lbl);
+        int sx_pos = x0 + b * cell_w;
+        if (sx_pos + cell_w >= heat_right) break;
+        attron(COLOR_PAIR(1));
+        mvprintw(y0 - 1, sx_pos, "%-6.5s", lbl);
+        attroff(COLOR_PAIR(1));
+    }
+
+    /* Rows */
+    for (int a = 0; a < nc; a++) {
+        int ry = y0 + a;
+        if (ry >= heat_bot) break;
+        char row_lbl[12] = "";
+        if (use_headers && column_names[num_cols[a]])
+            snprintf(row_lbl, sizeof(row_lbl), "%-9.9s", column_names[num_cols[a]]);
+        else { col_letter(num_cols[a], row_lbl); }
+        attron(COLOR_PAIR(1));
+        mvprintw(ry, ROW_DATA_OFFSET + 1, "%-9.9s", row_lbl);
+        attroff(COLOR_PAIR(1));
+
+        for (int b = 0; b < nc; b++) {
+            int sx_pos = x0 + b * cell_w;
+            if (sx_pos + cell_w >= heat_right) break;
+            double rv = corr[a * nc + b];
+            /* Color by strength */
+            int cp;
+            if (a == b)                cp = GRAPH_COLOR_BASE + 6; /* white diagonal */
+            else if (rv >=  0.70)      cp = GRAPH_COLOR_BASE + 1; /* green */
+            else if (rv >=  0.30)      cp = GRAPH_COLOR_BASE + 4; /* cyan */
+            else if (rv <= -0.70)      cp = GRAPH_COLOR_BASE + 0; /* red */
+            else if (rv <= -0.30)      cp = GRAPH_COLOR_BASE + 3; /* yellow */
+            else                       cp = GRAPH_COLOR_BASE + 2; /* blue/neutral */
+
+            char cell[8];
+            if (a == b) snprintf(cell, sizeof(cell), " 1.00 ");
+            else        snprintf(cell, sizeof(cell), "%+.3f", rv);
+
+            int attr = (a == b) ? (COLOR_PAIR(cp) | A_BOLD) : COLOR_PAIR(cp);
+            attron(attr);
+            mvprintw(ry, sx_pos, "%-6s", cell);
+            attroff(attr);
+        }
+    }
+
+    /* Legend */
+    int leg_y = heat_bot - 2;
+    if (leg_y > 3) {
+        attron(A_DIM);
+        attron(COLOR_PAIR(GRAPH_COLOR_BASE + 1)); mvaddstr(leg_y, ROW_DATA_OFFSET + 1, "green"); attroff(COLOR_PAIR(GRAPH_COLOR_BASE + 1));
+        mvaddstr(leg_y, ROW_DATA_OFFSET + 7, "≥0.7  ");
+        attron(COLOR_PAIR(GRAPH_COLOR_BASE + 4)); mvaddstr(leg_y, ROW_DATA_OFFSET + 13, "cyan"); attroff(COLOR_PAIR(GRAPH_COLOR_BASE + 4));
+        mvaddstr(leg_y, ROW_DATA_OFFSET + 18, "≥0.3  ");
+        attron(COLOR_PAIR(GRAPH_COLOR_BASE + 2)); mvaddstr(leg_y, ROW_DATA_OFFSET + 24, "blue"); attroff(COLOR_PAIR(GRAPH_COLOR_BASE + 2));
+        mvaddstr(leg_y, ROW_DATA_OFFSET + 29, "≈0  ");
+        attron(COLOR_PAIR(GRAPH_COLOR_BASE + 3)); mvaddstr(leg_y, ROW_DATA_OFFSET + 33, "yellow"); attroff(COLOR_PAIR(GRAPH_COLOR_BASE + 3));
+        mvaddstr(leg_y, ROW_DATA_OFFSET + 40, "≤-0.3  ");
+        attron(COLOR_PAIR(GRAPH_COLOR_BASE + 0)); mvaddstr(leg_y, ROW_DATA_OFFSET + 47, "red"); attroff(COLOR_PAIR(GRAPH_COLOR_BASE + 0));
+        mvaddstr(leg_y, ROW_DATA_OFFSET + 51, "≤-0.7");
+        attroff(A_DIM);
+    }
+
+    /* Hint */
+    attron(COLOR_PAIR(3));
+    mvprintw(height - 3, ROW_DATA_OFFSET + 1, "Heatmap  |  q Close");
+    attroff(COLOR_PAIR(3));
+
+    free(corr);
+}

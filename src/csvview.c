@@ -94,6 +94,10 @@ int       graph_series_hidden[10] = {0}; /* 1 = series N is hidden (toggled by 1
 int       graph_dual_yaxis        = 0;   /* 1 = dual Y axis: series 0 left, rest right */
 int       graph_scatter_mode      = 0;   /* 1 = scatter plot active */
 int       graph_scatter_x_col     = -1; /* X column for scatter plot */
+int       graph_pie_mode          = 0;  /* 1 = pie/donut chart active */
+int       graph_pie_col           = -1; /* column for pie chart */
+int       graph_box_mode          = 0;  /* 1 = box plot active */
+int       graph_heat_mode         = 0;  /* 1 = correlation heatmap active */
 int       current_graph           = 0;
 int       graph_start             = 0;
 int       graph_scroll_step       = 1;
@@ -1016,7 +1020,7 @@ static const char *s_cmds[] = {
     "sort","fq","fqn","fqo","fqno","fqu","fs","fl",
     "dr","cr","cd","cal","car","cf","cs","freeze",
     "e","theme","corr","outliers","profile",
-    "gx","gc","gt","gy","ga","gp","gsvg","gsc","g2y","grid",
+    "gx","gc","gt","gy","ga","gp","gsvg","gsc","g2y","grid","gpie","gbox","gheat",
     "dedup","split","cat",
     NULL
 };
@@ -1648,7 +1652,26 @@ int main(int argc, char *argv[]) {
         draw_table_headers(table_top, ROW_DATA_OFFSET, visible_cols, left_col, cur_col);
 
         if (in_graph_mode) {
-            if (graph_col_count > 1) {
+            if (graph_pie_mode || graph_box_mode || graph_heat_mode) {
+                /* Clear inside the table frame: cols 1..width-2, rows 4..height-3.
+                 * mvhline preserves col 0 (left │) and col width-1 (right │). */
+                for (int _y = 4; _y <= height - 3; _y++)
+                    mvhline(_y, 1, ' ', width - 2);
+            }
+            if (graph_pie_mode) {
+                draw_pie_chart(graph_pie_col >= 0 ? graph_pie_col : cur_col, height, width);
+            } else if (graph_box_mode) {
+                int box_cols[10]; int box_n = 0;
+                if (graph_col_count > 0) {
+                    for (int _s = 0; _s < graph_col_count && box_n < 10; _s++)
+                        box_cols[box_n++] = graph_col_list[_s];
+                } else {
+                    box_cols[box_n++] = cur_col;
+                }
+                draw_box_plot(box_cols, box_n, height, width);
+            } else if (graph_heat_mode) {
+                draw_heatmap(height, width);
+            } else if (graph_col_count > 1) {
                 // Multi-series: compute Y scale(s)
                 // In dual-yaxis mode: first visible -> left axis, rest -> right axis
                 // In normal mode: all series share one scale
@@ -1866,15 +1889,22 @@ int main(int argc, char *argv[]) {
         draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
 
         if (in_graph_mode) {
-            const char *type_str = graph_scatter_mode ? "scatter"
+            const char *type_str = graph_pie_mode  ? "donut"
+                                 : graph_box_mode  ? "boxplot"
+                                 : graph_heat_mode ? "heatmap"
+                                 : graph_scatter_mode ? "scatter"
                                  : (graph_type == GRAPH_BAR) ? "bar"
                                  : (graph_type == GRAPH_DOT) ? "dot" : "line";
             const char *scale_str = (graph_scale == SCALE_LOG) ? "log" : "linear";
             attron(COLOR_PAIR(3));
-            if (graph_scatter_mode && scatter_vp_active)
-                printw(" | %s  Y:%s  [zoom]", type_str, scale_str);
-            else
-                printw(" | %s  Y:%s", type_str, scale_str);
+            if (!graph_pie_mode && !graph_box_mode && !graph_heat_mode) {
+                if (graph_scatter_mode && scatter_vp_active)
+                    printw(" | %s  Y:%s  [zoom]", type_str, scale_str);
+                else
+                    printw(" | %s  Y:%s", type_str, scale_str);
+            } else {
+                printw(" | %s", type_str);
+            }
             attroff(COLOR_PAIR(3));
             clrtoeol();
         } else if (search_count > 0) {
@@ -1918,6 +1948,9 @@ int main(int argc, char *argv[]) {
                 in_graph_mode = 0;
                 graph_scatter_mode = 0;
                 graph_scatter_x_col = -1;
+                graph_pie_mode = 0; graph_pie_col = -1;
+                graph_box_mode = 0;
+                graph_heat_mode = 0;
                 if (using_date_x) {
                     sort_col = save_sort_col; sort_level_count = save_sort_level_count;
                     sort_order = save_sort_order;
@@ -2509,6 +2542,54 @@ int main(int argc, char *argv[]) {
                         clrtoeol();
                     }
                     continue;
+                } else if (strcmp(cmd, "gpie") == 0) {
+                    /* :gpie [col]  — pie/donut chart of value frequencies */
+                    int target_col = cur_col;
+                    if (arg && *arg) {
+                        int tc = col_to_num(arg);
+                        if (tc < 0) tc = col_name_to_num(arg);
+                        if (tc >= 0) target_col = tc;
+                    }
+                    graph_pie_mode = 1; graph_box_mode = 0; graph_heat_mode = 0;
+                    graph_scatter_mode = 0; graph_pie_col = target_col;
+                    in_graph_mode = 1;
+                    continue;
+                } else if (strcmp(cmd, "gbox") == 0) {
+                    /* :gbox [col1 col2 ...]  — box-and-whisker plot */
+                    graph_box_mode = 1; graph_pie_mode = 0; graph_heat_mode = 0;
+                    graph_scatter_mode = 0;
+                    if (arg && *arg) {
+                        /* parse space-separated column names/letters */
+                        char abuf[256];
+                        strncpy(abuf, arg, sizeof(abuf) - 1); abuf[sizeof(abuf)-1] = '\0';
+                        graph_col_count = 0;
+                        char *tok = strtok(abuf, " \t,");
+                        while (tok && graph_col_count < 10) {
+                            int tc = col_to_num(tok);
+                            if (tc < 0) tc = col_name_to_num(tok);
+                            if (tc >= 0) graph_col_list[graph_col_count++] = tc;
+                            tok = strtok(NULL, " \t,");
+                        }
+                    }
+                    if (graph_col_count == 0) {
+                        /* no args → use current column (or all marked) */
+                        int nm = 0;
+                        for (int _c = 0; _c < col_count && nm < 10; _c++)
+                            if (graph_marked[_c]) graph_col_list[nm++] = _c;
+                        graph_col_count = (nm > 0) ? nm : 0;
+                        if (graph_col_count == 0) {
+                            graph_col_list[0] = cur_col;
+                            graph_col_count = 1;
+                        }
+                    }
+                    in_graph_mode = 1;
+                    continue;
+                } else if (strcmp(cmd, "gheat") == 0) {
+                    /* :gheat  — correlation heatmap */
+                    graph_heat_mode = 1; graph_pie_mode = 0; graph_box_mode = 0;
+                    graph_scatter_mode = 0;
+                    in_graph_mode = 1;
+                    continue;
                 }
 
                 clrtoeol();
@@ -2677,12 +2758,11 @@ int main(int argc, char *argv[]) {
                     graph_col_list[graph_col_count++] = cur_col;
             }
             if (graph_col_count == 0) {
-                draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
-                attron(COLOR_PAIR(1));
-                printw(" | No numeric columns selected (mark with Space or move to numeric column)");
-                attroff(COLOR_PAIR(1));
-                refresh();
-                getch();
+                /* Non-numeric column → auto-switch to donut chart */
+                graph_pie_mode = 1; graph_box_mode = 0; graph_heat_mode = 0;
+                graph_scatter_mode = 0;
+                graph_pie_col = cur_col;
+                in_graph_mode = 1;
                 continue;
             }
             current_graph = 0;
