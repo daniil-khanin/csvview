@@ -25,6 +25,16 @@ static const char *SVG_COLORS[7] = {
     "#aa3377", "#33bbee", "#888888"
 };
 
+/* 18-entry palette for pie/donut (index 17 = Other gray) */
+static const char *SVG_PIE_COLORS[18] = {
+    "#cc3311", "#009944", "#0077bb", "#ee7733",
+    "#33bbee", "#aa3377", "#555555",
+    "#ff8800", "#44bb00", "#ff44aa", "#8844ff",
+    "#44aaff", "#ffcc00", "#ff6666", "#cc66ff",
+    "#00ccaa", "#aabb00",
+    "#aaaaaa"  /* Other */
+};
+
 /* ── Layout helpers ───────────────────────────────────────────────────── */
 typedef struct {
     int w, h;           /* total SVG size */
@@ -600,6 +610,170 @@ static void export_scatter_svg(FILE *out, const SvgLayout *L,
     }
 }
 
+/* ── Pie / Donut SVG export ───────────────────────────────────────────── */
+
+typedef struct { char key[64]; long count; } SvgPieSlice;
+static int svg_pie_cmp(const void *a, const void *b) {
+    long d = ((SvgPieSlice*)b)->count - ((SvgPieSlice*)a)->count;
+    return (d > 0) ? 1 : (d < 0) ? -1 : 0;
+}
+
+static void export_pie_svg(FILE *out, const SvgLayout *L,
+                           RowIndex *rows_arr, FILE *fp, int total_rows)
+{
+    int col = (graph_pie_col >= 0) ? graph_pie_col : 0;
+    if (col < 0 || col >= col_count) return;
+
+    /* Collect frequencies ─────────────────────────────────────────── */
+    int max_uniq = 512;
+    SvgPieSlice *slices = calloc(max_uniq, sizeof(SvgPieSlice));
+    if (!slices) return;
+    int n_slices = 0;
+    long total   = 0;
+
+    char line_buf[8192], field_buf[256];
+    int n_rows = filter_active ? filtered_count
+                               : (total_rows - (use_headers ? 1 : 0));
+
+    for (int i = 0; i < n_rows; i++) {
+        int r;
+        if (filter_active) {
+            if (i >= filtered_count) break;
+            r = filtered_rows[i];
+        } else {
+            r = i + (use_headers ? 1 : 0);
+        }
+        if (r < 0 || r >= total_rows) continue;
+        const char *lp = NULL;
+        if (rows_arr[r].line_cache) {
+            lp = rows_arr[r].line_cache;
+        } else if (rows_arr[r].offset >= 0) {
+            if (!fp) continue;
+            fseek(fp, rows_arr[r].offset, SEEK_SET);
+            if (!fgets(line_buf, sizeof(line_buf), fp)) continue;
+            lp = line_buf;
+        }
+        if (!lp) continue;
+        svg_get_field(lp, col, field_buf, sizeof(field_buf));
+        if (!field_buf[0]) continue;
+
+        int found = -1;
+        for (int j = 0; j < n_slices; j++)
+            if (strcmp(slices[j].key, field_buf) == 0) { found = j; break; }
+        if (found >= 0) {
+            slices[found].count++;
+        } else if (n_slices < max_uniq) {
+            snprintf(slices[n_slices].key, sizeof(slices[n_slices].key),
+                     "%.63s", field_buf);
+            slices[n_slices].count = 1;
+            n_slices++;
+        }
+        total++;
+    }
+
+    if (n_slices == 0 || total == 0) { free(slices); return; }
+    qsort(slices, n_slices, sizeof(SvgPieSlice), svg_pie_cmp);
+
+    /* Cap at 17 regular + 1 Other = 18 ───────────────────────────── */
+    int max_slices = 18;
+    int show_slices = (n_slices < max_slices) ? n_slices : max_slices;
+    int has_other   = (n_slices > max_slices);
+    if (has_other) {
+        long oth = 0;
+        for (int j = max_slices - 1; j < n_slices; j++) oth += slices[j].count;
+        slices[max_slices - 1].count = oth;
+        snprintf(slices[max_slices - 1].key,
+                 sizeof(slices[max_slices - 1].key), "Other");
+    }
+
+    /* Geometry ────────────────────────────────────────────────────── */
+    double cx = L->ml + L->pw * 0.36;
+    double cy = L->mt + L->ph * 0.50;
+    double r_outer = fmin(L->pw * 0.28, L->ph * 0.44);
+    double r_inner = r_outer * 0.42;
+
+    /* Cumulative angles from top, clockwise ─────────────────────── */
+    double *angles = calloc(show_slices + 1, sizeof(double));
+    if (!angles) { free(slices); return; }
+    angles[0] = -M_PI / 2.0;
+    for (int j = 0; j < show_slices; j++)
+        angles[j+1] = angles[j] + (double)slices[j].count / total * 2.0 * M_PI;
+
+    /* Draw sectors ───────────────────────────────────────────────── */
+    for (int j = 0; j < show_slices; j++) {
+        double a1 = angles[j], a2 = angles[j+1];
+        int large_arc = (a2 - a1 > M_PI) ? 1 : 0;
+        int is_oth = (has_other && j == show_slices - 1);
+        const char *color = SVG_PIE_COLORS[is_oth ? 17 : j];
+
+        /* Outer arc start → end, then line to inner arc end → start */
+        fprintf(out,
+            "<path d=\"M %.2f %.2f "
+            "A %.2f %.2f 0 %d 1 %.2f %.2f "
+            "L %.2f %.2f "
+            "A %.2f %.2f 0 %d 0 %.2f %.2f Z\" "
+            "fill=\"%s\" stroke=\"white\" stroke-width=\"1.5\"/>\n",
+            cx + r_outer * cos(a1), cy + r_outer * sin(a1),
+            r_outer, r_outer, large_arc,
+            cx + r_outer * cos(a2), cy + r_outer * sin(a2),
+            cx + r_inner * cos(a2), cy + r_inner * sin(a2),
+            r_inner, r_inner, large_arc,
+            cx + r_inner * cos(a1), cy + r_inner * sin(a1),
+            color);
+    }
+
+    /* Legend ─────────────────────────────────────────────────────── */
+    double lx = cx + r_outer + 30;
+    double ly = L->mt + 20;
+    double row_h = 20;
+
+    /* Column name as title */
+    char col_name[64] = "";
+    if (use_headers && column_names[col])
+        snprintf(col_name, sizeof(col_name), "%.40s", column_names[col]);
+    else
+        col_letter(col, col_name);
+    fprintf(out,
+        "<text x=\"%.0f\" y=\"%.0f\" fill=\"#333\" font-weight=\"bold\" "
+        "font-family=\"monospace\" font-size=\"13\">Donut: %s  (n=%ld)</text>\n",
+        lx, ly, col_name, total);
+    ly += row_h + 4;
+
+    for (int j = 0; j < show_slices; j++) {
+        int is_oth = (has_other && j == show_slices - 1);
+        const char *color = SVG_PIE_COLORS[is_oth ? 17 : j];
+        double pct = 100.0 * slices[j].count / total;
+
+        /* Colour swatch */
+        fprintf(out,
+            "<rect x=\"%.0f\" y=\"%.0f\" width=\"14\" height=\"14\" "
+            "rx=\"2\" fill=\"%s\"/>\n",
+            lx, ly - 11, color);
+        /* Label + percent */
+        /* Escape key for SVG: replace & < > */
+        char safe[80] = "";
+        const char *k = slices[j].key;
+        int si = 0;
+        for (int ci = 0; k[ci] && si < 75; ci++) {
+            if      (k[ci] == '&')  { memcpy(safe+si,"&amp;",5);  si+=5; }
+            else if (k[ci] == '<')  { memcpy(safe+si,"&lt;",4);   si+=4; }
+            else if (k[ci] == '>')  { memcpy(safe+si,"&gt;",4);   si+=4; }
+            else                    { safe[si++] = k[ci]; }
+        }
+        safe[si] = '\0';
+        fprintf(out,
+            "<text x=\"%.0f\" y=\"%.0f\" fill=\"#333\" "
+            "font-family=\"monospace\" font-size=\"12\">"
+            "%s  <tspan fill=\"#666\">%.1f%%</tspan></text>\n",
+            lx + 20, ly, safe, pct);
+        ly += row_h;
+        if (ly > L->mt + L->ph + L->mb - 10) break; /* don't overflow */
+    }
+
+    free(angles);
+    free(slices);
+}
+
 /* ── Public entry point ───────────────────────────────────────────────── */
 int export_graph_svg(const char *filename, int svg_w, int svg_h,
                      RowIndex *rows_arr, FILE *fp, int total_rows)
@@ -612,19 +786,23 @@ int export_graph_svg(const char *filename, int svg_w, int svg_h,
 
     write_header(out, svg_w, svg_h);
 
-    /* Title: filename + graph type */
-    const char *mode_str = graph_scatter_mode ? "scatter"
-                         : (graph_type == GRAPH_BAR) ? "bar"
-                         : (graph_type == GRAPH_DOT) ? "dot" : "line";
-    fprintf(out,
-        "<text x=\"%d\" y=\"22\" fill=\"#333\" font-weight=\"bold\" "
-        "font-family=\"monospace\" font-size=\"13\">%s [%s]</text>\n",
-        L.ml, filename, mode_str);
-
-    if (graph_scatter_mode && graph_scatter_x_col >= 0) {
-        export_scatter_svg(out, &L, rows_arr, fp, total_rows);
+    if (graph_pie_mode) {
+        export_pie_svg(out, &L, rows_arr, fp, total_rows);
     } else {
-        export_regular_svg(out, &L, rows_arr, fp, total_rows);
+        /* Title: filename + graph type */
+        const char *mode_str = graph_scatter_mode ? "scatter"
+                             : (graph_type == GRAPH_BAR) ? "bar"
+                             : (graph_type == GRAPH_DOT) ? "dot" : "line";
+        fprintf(out,
+            "<text x=\"%d\" y=\"22\" fill=\"#333\" font-weight=\"bold\" "
+            "font-family=\"monospace\" font-size=\"13\">%s [%s]</text>\n",
+            L.ml, filename, mode_str);
+
+        if (graph_scatter_mode && graph_scatter_x_col >= 0) {
+            export_scatter_svg(out, &L, rows_arr, fp, total_rows);
+        } else {
+            export_regular_svg(out, &L, rows_arr, fp, total_rows);
+        }
     }
 
     write_footer(out);

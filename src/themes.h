@@ -12,7 +12,7 @@
  *   7  – search-match highlight
  *   8  – autocomplete ghost text
  *  11  – anomaly highlight in graphs
- *  10+ – GRAPH_COLOR_BASE series colours (7 entries)
+ *  10+ – GRAPH_COLOR_BASE series colours (18 entries, index 17 = "Other" gray)
  */
 
 typedef struct {
@@ -26,7 +26,7 @@ typedef struct {
     short pair7_fg,  pair7_bg;   /* search highlight         */
     short pair8_fg,  pair8_bg;   /* ghost text               */
     short pair11_fg, pair11_bg;  /* anomaly highlight        */
-    short graph_fg[7];           /* graph series fg colours  */
+    short graph_fg[18];          /* graph series fg colours (0-16 regular, 17 = Other) */
     short default_bg;            /* theme background         */
 } Theme;
 

@@ -2043,7 +2043,7 @@ int main(int argc, char *argv[]) {
             } else if (ch == 'r') {
                 // Redraw (no-op, loop will redraw)
             } else if (ch == ':') {  // Enter command mode
-                char cmd_buf[128] = {0};
+                char cmd_buf[1024] = {0};
 
                 attron(COLOR_PAIR(3));
                 printw(" | :");
@@ -3764,7 +3764,7 @@ int main(int argc, char *argv[]) {
             }
         }
         else if (ch == ':') {  // Enter command mode
-            char cmd_buf[128] = {0};
+            char cmd_buf[1024] = {0};
 
             attron(COLOR_PAIR(3));
             printw(" | :");

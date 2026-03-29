@@ -2023,7 +2023,7 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
 
         int ch = getch();
         if (ch == ':') {
-            char cmd_buf[128] = {0};
+            char cmd_buf[1024] = {0};
             draw_status_bar(height - 1, 1, csv_filename, row_count, file_size_str);
             attron(COLOR_PAIR(3));
             printw(" | :");

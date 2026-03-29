@@ -998,8 +998,6 @@ void draw_scatter(int x_col, int y_col, int height, int width,
 // Pie / Donut Chart
 // ────────────────────────────────────────────────
 
-#define PIE_MAX_SLICES 8
-
 typedef struct { char key[64]; long count; } PieSlice;
 
 static int pie_cmp_desc(const void *a, const void *b) {
@@ -1011,12 +1009,28 @@ void draw_pie_chart(int col, int height, int width)
 {
     if (col < 0 || col >= col_count) return;
 
+    /* Layout first — needed to compute dynamic slice limit ───── */
+    int right     = width - 2;
+    int plot_x0   = ROW_DATA_OFFSET + 1;
+    int legend_w  = 30;
+    int pie_w     = right - plot_x0 - legend_w - 2;
+    int chart_top = 6;
+    int chart_bot = height - 4;
+    int pie_h     = chart_bot - chart_top;
+    int legend_x  = plot_x0 + pie_w + 2;
+
+    /* Dynamic slice cap: rows available for legend, max 18 ───── */
+    int pie_max_slices = chart_bot - chart_top - 2;
+    if (pie_max_slices > 18) pie_max_slices = 18;
+    if (pie_max_slices < 2)  pie_max_slices = 2;
+
     /* Collect value frequencies ─────────────────────────────── */
     int max_uniq = 512;
     PieSlice *slices = calloc(max_uniq, sizeof(PieSlice));
     if (!slices) return;
     int n_slices = 0;
     long total   = 0;
+    long overflow_count = 0;  /* rows whose key didn't fit in max_uniq */
 
     int n_rows = filter_active ? filtered_count
                                : (row_count - (use_headers ? 1 : 0));
@@ -1044,6 +1058,8 @@ void draw_pie_chart(int col, int height, int width)
             snprintf(slices[n_slices].key, sizeof(slices[n_slices].key), "%.63s", field_buf);
             slices[n_slices].count = 1;
             n_slices++;
+        } else {
+            overflow_count++;  /* unique value beyond hash map capacity */
         }
         total++;
     }
@@ -1053,13 +1069,15 @@ void draw_pie_chart(int col, int height, int width)
     qsort(slices, n_slices, sizeof(PieSlice), pie_cmp_desc);
 
     /* Merge tail into "Other" ─────────────────────────────────── */
-    int show_slices = (n_slices < PIE_MAX_SLICES) ? n_slices : PIE_MAX_SLICES;
-    if (n_slices > PIE_MAX_SLICES) {
-        long oth = 0;
-        for (int j = PIE_MAX_SLICES - 1; j < n_slices; j++) oth += slices[j].count;
-        slices[PIE_MAX_SLICES - 1].count = oth;
-        snprintf(slices[PIE_MAX_SLICES - 1].key,
-                 sizeof(slices[PIE_MAX_SLICES - 1].key), "Other");
+    int show_slices = (n_slices < pie_max_slices) ? n_slices : pie_max_slices;
+    int has_other   = (n_slices > pie_max_slices) || (overflow_count > 0);
+    if (has_other) {
+        long oth = overflow_count;  /* rows beyond max_uniq capacity */
+        for (int j = pie_max_slices - 1; j < n_slices; j++) oth += slices[j].count;
+        slices[pie_max_slices - 1].count = oth;
+        snprintf(slices[pie_max_slices - 1].key,
+                 sizeof(slices[pie_max_slices - 1].key), "Other");
+        show_slices = pie_max_slices;
     }
 
     /* Cumulative angles starting at top (−π/2), clockwise ───── */
@@ -1068,18 +1086,6 @@ void draw_pie_chart(int col, int height, int width)
     angles[0] = -M_PI / 2.0;
     for (int j = 0; j < show_slices; j++)
         angles[j+1] = angles[j] + (double)slices[j].count / total * 2.0 * M_PI;
-
-    /* Layout: donut on left, legend on right ─────────────────── */
-    int right    = width - 2;        /* right border is at width-1; stay inside */
-    int plot_x0  = ROW_DATA_OFFSET + 1;
-    int legend_w = 30;
-    int pie_w    = right - plot_x0 - legend_w - 2;
-    /* safe zone inside frame: 4..height-3
-     * title at 4, chart content 6..(height-4), hint at height-3 */
-    int chart_top = 6;
-    int chart_bot = height - 4;
-    int pie_h    = chart_bot - chart_top;
-    int legend_x = plot_x0 + pie_w + 2;
 
     int cy = chart_top + pie_h / 2;
     int cx = plot_x0 + pie_w / 2;
@@ -1090,7 +1096,11 @@ void draw_pie_chart(int col, int height, int width)
     double inner_r = outer_r * 0.42;   /* donut hole */
     double start_a = angles[0];
 
-    /* Draw donut ───────────────────────────────────────────────── */
+    /* SDF density chars: light (edge) → heavy (interior) */
+    static const char *sdf_ch[] = { ".", ":", "+", "*", "#", "@" };
+    int sdf_n = 6;
+
+    /* Draw donut with SDF anti-aliasing ────────────────────────── */
     for (int ry = cy - (int)outer_r - 1; ry <= cy + (int)outer_r + 1; ry++) {
         if (ry < chart_top || ry >= chart_bot) continue;
         for (int rx = cx - (int)(outer_r * 2 + 2); rx <= cx + (int)(outer_r * 2 + 2); rx++) {
@@ -1102,16 +1112,39 @@ void draw_pie_chart(int col, int height, int width)
 
             double a = atan2(dy, dx);
             /* normalise to [start_a, start_a+2π) */
-            while (a < start_a)          a += 2.0 * M_PI;
-            while (a >= start_a + 2.0 * M_PI) a -= 2.0 * M_PI;
+            while (a < start_a)                a += 2.0 * M_PI;
+            while (a >= start_a + 2.0 * M_PI)  a -= 2.0 * M_PI;
 
-            int si = show_slices - 1; /* fallback to last slice */
+            int si = show_slices - 1;
             for (int j = 0; j < show_slices; j++) {
                 if (a >= angles[j] && a < angles[j+1]) { si = j; break; }
             }
-            int cp = GRAPH_COLOR_BASE + (si % 7);
+
+            /* SDF: distance to nearest boundary (ring edge or sector border) */
+            double d_ring = fmin(outer_r - dist, dist - inner_r);
+
+            double d_sector = 1e9;
+            for (int j = 0; j <= show_slices; j++) {
+                double da = fabs(a - angles[j]);
+                if (da > M_PI) da = 2.0 * M_PI - da;
+                double arc = dist * da;   /* arc-length distance to boundary */
+                if (arc < d_sector) d_sector = arc;
+            }
+
+            double edge_dist = fmin(d_ring, d_sector);
+            int di;
+            if      (edge_dist < 0.35) di = 0;
+            else if (edge_dist < 0.65) di = 1;
+            else if (edge_dist < 1.0)  di = 2;
+            else if (edge_dist < 1.6)  di = 3;
+            else if (edge_dist < 2.5)  di = 4;
+            else                       di = 5;
+            if (di >= sdf_n) di = sdf_n - 1;
+
+            int is_oth = (has_other && si == show_slices - 1);
+            int cp = GRAPH_COLOR_BASE + (is_oth ? 17 : si);
             attron(COLOR_PAIR(cp));
-            mvaddch(ry, rx, '#');
+            mvaddstr(ry, rx, sdf_ch[di]);
             attroff(COLOR_PAIR(cp));
         }
     }
@@ -1130,14 +1163,41 @@ void draw_pie_chart(int col, int height, int width)
         int ly = chart_top + 1 + j;   /* legend inside chart area, row after center */
         if (ly >= chart_bot) break;
         double pct = 100.0 * slices[j].count / total;
-        int cp = GRAPH_COLOR_BASE + (j % 7);
-        attron(COLOR_PAIR(cp) | A_BOLD);
+        int is_oth = (has_other && j == show_slices - 1);
+        int cp = GRAPH_COLOR_BASE + (is_oth ? 17 : j);
+        attr_t leg_attr = COLOR_PAIR(cp) | A_BOLD;
+        attron(leg_attr);
         mvaddstr(ly, legend_x, "\xe2\x96\x88 ");   /* █ */
-        attroff(COLOR_PAIR(cp) | A_BOLD);
-        int leg_avail = right - legend_x - 3;
-        if (leg_avail > 4)
-            mvprintw(ly, legend_x + 3, "%-*.*s%5.1f%%",
-                     leg_avail - 6, leg_avail - 6, slices[j].key, pct);
+        attroff(leg_attr);
+        /* Layout: █ 5.1%  Name
+         * Percentage at fixed position (RTL-safe), name after it */
+        int leg_avail = right - legend_x - 4;
+        if (leg_avail > 8) {
+            /* Print pct at fixed column right after swatch */
+            int pct_col  = legend_x + 3;
+            int name_col = pct_col + 7;  /* "100.0% " = 7 chars */
+            int name_avail = right - name_col - 4;
+            mvprintw(ly, pct_col, "%5.1f%%", pct);
+            if (name_avail > 0) {
+                /* Print name truncated to name_avail display columns */
+                mvaddch(ly, name_col - 1, ' ');
+                const char *k = slices[j].key;
+                int printed = 0;
+                const char *p = k;
+                while (*p) {
+                    unsigned char c0 = (unsigned char)*p;
+                    int seq = (c0 < 0x80) ? 1 : (c0 < 0xE0) ? 2 :
+                              (c0 < 0xF0) ? 3 : 4;
+                    char tmp[5] = {0};
+                    for (int s = 0; s < seq && p[s]; s++) tmp[s] = p[s];
+                    int cw = utf8_display_width(tmp);
+                    if (printed + cw > name_avail) break;
+                    mvaddstr(ly, name_col + printed, tmp);
+                    printed += cw;
+                    p += seq;
+                }
+            }
+        }
     }
     mvprintw(chart_top + 1 + show_slices + 1, legend_x, "n = %ld", total);
 
