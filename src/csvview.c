@@ -1082,7 +1082,7 @@ static void cmd_palette_popup(char *buf, int maxlen, int *pos_ptr, int y, int x)
         if (cur >= top + page) top = cur - page + 1;
 
         werase(pop);
-        wattron(pop, COLOR_PAIR(6)); box(pop, 0, 0); wattroff(pop, COLOR_PAIR(6));
+        wattron(pop, COLOR_PAIR(6)); draw_rounded_box(pop); wattroff(pop, COLOR_PAIR(6));
         for (int r = 0; r < page; r++) {
             int idx = top + r;
             if (idx >= nm) break;

@@ -1,4 +1,5 @@
 #include "profile.h"
+#include "utils.h"
 #include "csvview_defs.h"
 #include "csv_mmap.h"
 #include "sorting.h"
@@ -713,7 +714,7 @@ void show_profile_window(void)
 
         /* border in dimmed color (same as main table) */
         wattron(win, COLOR_PAIR(6));
-        box(win, 0, 0);
+        draw_rounded_box(win);
         wattroff(win, COLOR_PAIR(6));
 
         /* title on top border */

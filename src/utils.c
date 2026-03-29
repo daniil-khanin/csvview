@@ -1614,3 +1614,73 @@ int copy_to_clipboard(const char *text)
     }
     return 0;
 }
+/* ── Unicode line helpers (stdscr) ────────────────────────────────────── */
+void draw_unicode_hline(int y, int x, int n)
+{
+    if (n <= 0) return;
+    wchar_t buf[1024];
+    int len = (n < 1022) ? n : 1022;
+    for (int i = 0; i < len; i++) buf[i] = L'\u2500';
+    buf[len] = L'\0';
+    mvaddwstr(y, x, buf);
+}
+
+void draw_unicode_vline(int y, int x, int n)
+{
+    for (int i = 0; i < n; i++)
+        mvaddstr(y + i, x, "\u2502");
+}
+
+/* ── Same as draw_rounded_box but draws on stdscr at absolute coords ─── */
+/* row/col = top-left corner, h/w = total size (including border cells)  */
+void draw_rounded_box_stdscr(int row, int col, int h, int w)
+{
+    if (h < 2 || w < 2) return;
+
+    wchar_t hbuf[1024];
+    int hlen = (w - 2 < 1022) ? w - 2 : 1022;
+    for (int i = 0; i < hlen; i++) hbuf[i] = L'\u2500';
+    hbuf[hlen] = L'\0';
+    mvaddwstr(row,       col + 1, hbuf);
+    mvaddwstr(row + h-1, col + 1, hbuf);
+
+    for (int y = 1; y < h - 1; y++) {
+        mvaddstr(row + y, col,       "\u2502");
+        mvaddstr(row + y, col + w-1, "\u2502");
+    }
+
+    mvaddstr(row,       col,       "\u256D");
+    mvaddstr(row,       col + w-1, "\u256E");
+    mvaddstr(row + h-1, col,       "\u2570");
+    mvaddstr(row + h-1, col + w-1, "\u256F");
+}
+
+/* ── Rounded-corner box: pure Unicode (ncursesw), no ACS mixing ─────── */
+/* Using only U+2500 block chars ensures all glyphs render from the same  */
+/* font table and connect visually without gaps between lines and corners. */
+void draw_rounded_box(WINDOW *win)
+{
+    int h, w;
+    getmaxyx(win, h, w);
+    if (h < 2 || w < 2) return;
+
+    /* Horizontal lines: fill a wchar_t buffer, write in one call */
+    wchar_t hbuf[1024];
+    int hlen = (w - 2 < 1022) ? w - 2 : 1022;
+    for (int i = 0; i < hlen; i++) hbuf[i] = L'\u2500'; /* ─ */
+    hbuf[hlen] = L'\0';
+    mvwaddwstr(win, 0,   1, hbuf);
+    mvwaddwstr(win, h-1, 1, hbuf);
+
+    /* Vertical lines: one call per cell */
+    for (int y = 1; y < h - 1; y++) {
+        mvwaddstr(win, y, 0,   "\u2502"); /* │ */
+        mvwaddstr(win, y, w-1, "\u2502");
+    }
+
+    /* Rounded corners — drawn last so nothing overwrites them */
+    mvwaddstr(win, 0,   0,   "\u256D"); /* ╭ */
+    mvwaddstr(win, 0,   w-1, "\u256E"); /* ╮ */
+    mvwaddstr(win, h-1, 0,   "\u2570"); /* ╰ */
+    mvwaddstr(win, h-1, w-1, "\u256F"); /* ╯ */
+}

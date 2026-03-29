@@ -154,7 +154,7 @@ static void show_percentile_breakdown(const double *vals, long n, const char *co
     if (!win) { free(sorted); return; }
     wbkgd(win, COLOR_PAIR(1));
     keypad(win, TRUE);
-    wattron(win, COLOR_PAIR(6)); box(win, 0, 0); wattroff(win, COLOR_PAIR(6));
+    wattron(win, COLOR_PAIR(6)); draw_rounded_box(win); wattroff(win, COLOR_PAIR(6));
     wattron(win, COLOR_PAIR(3) | A_BOLD);
     mvwprintw(win, 0, (pw - 22) / 2, " Percentile Breakdown ");
     wattroff(win, COLOR_PAIR(3) | A_BOLD);
@@ -240,7 +240,7 @@ static void show_value_trends(const double *vals, long n, const char *col_name)
     if (!win) return;
     wbkgd(win, COLOR_PAIR(1));
     keypad(win, TRUE);
-    wattron(win, COLOR_PAIR(6)); box(win, 0, 0); wattroff(win, COLOR_PAIR(6));
+    wattron(win, COLOR_PAIR(6)); draw_rounded_box(win); wattroff(win, COLOR_PAIR(6));
     wattron(win, COLOR_PAIR(3) | A_BOLD);
     mvwprintw(win, 0, (pw - 16) / 2, " Value Trends ");
     wattroff(win, COLOR_PAIR(3) | A_BOLD);
@@ -382,7 +382,7 @@ static void show_freq_list(Freq *freqs, long freq_count, long valid_count,
 
         werase(win);
         wattron(win, COLOR_PAIR(6));
-        box(win, 0, 0);
+        draw_rounded_box(win);
         wattroff(win, COLOR_PAIR(6));
 
         /* Title */
@@ -547,9 +547,8 @@ void show_column_stats(int col_idx)
     }
     wbkgd(win, COLOR_PAIR(1));
 
-    scrollok(win, TRUE);
     wattron(win, COLOR_PAIR(6));
-    box(win, 0, 0);
+    draw_rounded_box(win);
     wattroff(win, COLOR_PAIR(6));
 
     // Window title
@@ -1080,7 +1079,7 @@ int show_correlation_matrix(int *out_x_col, int *out_y_col)
         WINDOW *mw = newwin(5, 44, (LINES - 5) / 2, (COLS - 44) / 2);
         if (mw) {
             wbkgd(mw, COLOR_PAIR(1));
-            wattron(mw, COLOR_PAIR(6)); box(mw, 0, 0); wattroff(mw, COLOR_PAIR(6));
+            wattron(mw, COLOR_PAIR(6)); draw_rounded_box(mw); wattroff(mw, COLOR_PAIR(6));
             mvwprintw(mw, 2, 3, "Need at least 2 numeric columns.");
             mvwprintw(mw, 3, 3, "[any key] Close");
             wrefresh(mw); wgetch(mw); delwin(mw);
@@ -1206,7 +1205,7 @@ int show_correlation_matrix(int *out_x_col, int *out_y_col)
 
         for (;;) {
             werase(win);
-            wattron(win, COLOR_PAIR(6)); box(win, 0, 0); wattroff(win, COLOR_PAIR(6));
+            wattron(win, COLOR_PAIR(6)); draw_rounded_box(win); wattroff(win, COLOR_PAIR(6));
             wattron(win, COLOR_PAIR(3) | A_BOLD);
             mvwprintw(win, 0, (pw - 22) / 2, " Correlation Matrix ");
             wattroff(win, COLOR_PAIR(3) | A_BOLD);
@@ -1367,7 +1366,7 @@ int show_outlier_report(double threshold)
         WINDOW *mw = newwin(5, 40, (LINES - 5) / 2, (COLS - 40) / 2);
         if (mw) {
             wbkgd(mw, COLOR_PAIR(1));
-            wattron(mw, COLOR_PAIR(6)); box(mw, 0, 0); wattroff(mw, COLOR_PAIR(6));
+            wattron(mw, COLOR_PAIR(6)); draw_rounded_box(mw); wattroff(mw, COLOR_PAIR(6));
             mvwprintw(mw, 2, 3, "No numeric columns found.");
             mvwprintw(mw, 3, 3, "[any key] Close");
             wrefresh(mw); wgetch(mw); delwin(mw);
@@ -1485,7 +1484,7 @@ int show_outlier_report(double threshold)
         WINDOW *mw = newwin(5, 52, (LINES - 5) / 2, (COLS - 52) / 2);
         if (mw) {
             wbkgd(mw, COLOR_PAIR(1));
-            wattron(mw, COLOR_PAIR(6)); box(mw, 0, 0); wattroff(mw, COLOR_PAIR(6));
+            wattron(mw, COLOR_PAIR(6)); draw_rounded_box(mw); wattroff(mw, COLOR_PAIR(6));
             mvwprintw(mw, 2, 3, "No outliers found (threshold: %.1f sigma).", threshold);
             mvwprintw(mw, 3, 3, "[any key] Close");
             wrefresh(mw); wgetch(mw); delwin(mw);
@@ -1516,7 +1515,7 @@ int show_outlier_report(double threshold)
             if (cur >= top + page_sz) top = cur - page_sz + 1;
 
             werase(win);
-            wattron(win, COLOR_PAIR(6)); box(win, 0, 0); wattroff(win, COLOR_PAIR(6));
+            wattron(win, COLOR_PAIR(6)); draw_rounded_box(win); wattroff(win, COLOR_PAIR(6));
             wattron(win, COLOR_PAIR(3) | A_BOLD);
             mvwprintw(win, 1, 2, "Outlier Report  (threshold: %.1f σ, found: %ld)", threshold, outlier_count);
             wattroff(win, COLOR_PAIR(3) | A_BOLD);

@@ -5,6 +5,7 @@
  */
 
 #include "help.h"
+#include "utils.h"
 #include "csvview_defs.h"   // CSVVIEW_VERSION
 
 #include <stdio.h>
@@ -338,7 +339,7 @@ void show_help(int use_ncurses)
 
         wbkgd(win, COLOR_PAIR(1));
         wattron(win, COLOR_PAIR(6));
-        box(win, 0, 0);
+        draw_rounded_box(win);
         wattroff(win, COLOR_PAIR(6));
         keypad(win, TRUE);
 
@@ -360,7 +361,7 @@ void show_help(int use_ncurses)
         {
             werase(win);
             wattron(win, COLOR_PAIR(6));
-            box(win, 0, 0);
+            draw_rounded_box(win);
             wattroff(win, COLOR_PAIR(6));
 
             // Redraw the title

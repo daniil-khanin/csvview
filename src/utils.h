@@ -1,11 +1,12 @@
 #ifndef UTILS_H
 #define UTILS_H
 
-#include <stdio.h>      
-#include <stdlib.h>     
-#include <string.h>     
-#include <strings.h>    
-#include <ctype.h>  
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <strings.h>
+#include <ctype.h>
+#include <ncurses.h>
 
 #include "csvview_defs.h"    
 
@@ -94,6 +95,13 @@ int str_has_rtl(const char *s);
 int copy_to_clipboard(const char *text);
 
 char *clean_column_name(const char *raw);
+
+/** Draw a rounded-corner box on a WINDOW using Unicode box-drawing chars.
+ *  Call with the desired color pair already set via wattron(). */
+void draw_rounded_box(WINDOW *win);
+void draw_rounded_box_stdscr(int row, int col, int h, int w);
+void draw_unicode_hline(int y, int x, int n);
+void draw_unicode_vline(int y, int x, int n);
 
 /**
  * Parses a single CSV line according to RFC 4180 rules (simple implementation).

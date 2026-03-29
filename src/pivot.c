@@ -976,24 +976,21 @@ char *get_agg_display(const Agg *agg, const char *aggregation, ColType value_typ
 
 void draw_table_frame(int y, int x, int height, int width) {
     attron(COLOR_PAIR(6));
-    mvaddch(y, x, ACS_ULCORNER);
-    mvaddch(y, x + width - 1, ACS_URCORNER);
-    mvaddch(y + height - 1, x, ACS_LLCORNER);
-    mvaddch(y + height - 1, x + width - 1, ACS_LRCORNER);
 
-    for (int i = 1; i < width - 1; i++) {
-        mvaddch(y, x + i, ACS_HLINE);
-        mvaddch(y + 2, x + i, ACS_HLINE);
-        mvaddch(y + height - 1, x + i, ACS_HLINE);
-    }
+    draw_unicode_hline(y,            x + 1, width - 2);
+    draw_unicode_hline(y + 2,        x + 1, width - 2);
+    draw_unicode_hline(y + height-1, x + 1, width - 2);
 
-    for (int i = 1; i < height - 1; i++) {
-        mvaddch(y + i, x, ACS_VLINE);
-        mvaddch(y + i, x + width - 1, ACS_VLINE);
-    }
+    draw_unicode_vline(y + 1, x,           height - 2);
+    draw_unicode_vline(y + 1, x + width-1, height - 2);
 
-    mvaddch(y + 2, x, ACS_LTEE);
-    mvaddch(y + 2, x + width - 1, ACS_RTEE);
+    mvaddstr(y, x,             "\u256D"); /* ╭ */
+    mvaddstr(y, x + width - 1, "\u256E"); /* ╮ */
+    mvaddstr(y + height - 1, x,             "\u2570"); /* ╰ */
+    mvaddstr(y + height - 1, x + width - 1, "\u256F"); /* ╯ */
+
+    mvaddstr(y + 2, x,             "\u251C"); /* ├ */
+    mvaddstr(y + 2, x + width - 1, "\u2524"); /* ┤ */
 
     attroff(COLOR_PAIR(6));
 
@@ -1005,7 +1002,7 @@ void show_pivot_settings_window(PivotSettings *settings, const char *csv_filenam
     WINDOW *win = newwin(win_h, win_w, (height - win_h) / 2, (width - win_w) / 2);
     wbkgd(win, COLOR_PAIR(1));
     wattron(win, COLOR_PAIR(6));
-    box(win, 0, 0);
+    draw_rounded_box(win);
     wattroff(win, COLOR_PAIR(6));
     keypad(win, TRUE);
 
@@ -1136,7 +1133,7 @@ void show_pivot_settings_window(PivotSettings *settings, const char *csv_filenam
     while (1) {
         werase(win);
         wattron(win, COLOR_PAIR(6));
-        box(win, 0, 0);
+        draw_rounded_box(win);
         wattroff(win, COLOR_PAIR(6));
         mvwprintw(win, 1, 2, "Pivot Table Settings");
 

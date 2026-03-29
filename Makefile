@@ -2,7 +2,17 @@
 
 CC       = clang
 CFLAGS   = -Wall -Wextra -g -O2
-LDFLAGS  = -lncurses -lm -lpthread
+
+# Use ncursesw for proper wide-character (UTF-8) support
+UNAME_S := $(shell uname -s)
+ifeq ($(UNAME_S),Darwin)
+    # Homebrew ncurses (wide-char build)
+    NCURSES_PREFIX ?= $(shell brew --prefix ncurses 2>/dev/null || echo /usr/local/opt/ncurses)
+    CFLAGS  += -I$(NCURSES_PREFIX)/include -D_XOPEN_SOURCE_EXTENDED
+    LDFLAGS  = -L$(NCURSES_PREFIX)/lib -lncursesw -lm -lpthread
+else
+    LDFLAGS  = -lncursesw -lm -lpthread
+endif
 
 TARGET   = csvview
 MAN      = csvview.1

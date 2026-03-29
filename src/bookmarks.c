@@ -1,4 +1,5 @@
 #include "bookmarks.h"
+#include "utils.h"
 #include "csvview_defs.h"
 #include "csv_mmap.h"
 #include "column_format.h"
@@ -126,7 +127,7 @@ int show_marks_window(const char *csv_filename)
 
         /* Border */
         wattron(win, COLOR_PAIR(6));
-        box(win, 0, 0);
+        draw_rounded_box(win);
         wattroff(win, COLOR_PAIR(6));
 
         /* Title */

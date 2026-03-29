@@ -631,20 +631,7 @@ int show_column_setup(const char *csv_filename)
 
         // Window border
         attron(COLOR_PAIR(6));
-        mvaddch(win_top, 1, ACS_ULCORNER);
-        for (int x = 2; x < win_width; x++) {
-            mvaddch(win_top, x, ACS_HLINE);
-        }
-        mvaddch(win_top, win_width, ACS_URCORNER);
-        for (int y = win_top + 1; y < win_top + win_height - 2; y++) {
-            mvaddch(y, 1, ACS_VLINE);
-            mvaddch(y, win_width, ACS_VLINE);
-        }
-        mvaddch(win_top + win_height - 2, 1, ACS_LLCORNER);
-        for (int x = 2; x < win_width; x++) {
-            mvaddch(win_top + win_height - 2, x, ACS_HLINE);
-        }
-        mvaddch(win_top + win_height - 2, win_width, ACS_LRCORNER);
+        draw_rounded_box_stdscr(win_top, 1, win_height - 1, win_width);
         attroff(COLOR_PAIR(6));
 
         // Table headers
@@ -906,16 +893,7 @@ int show_column_setup(const char *csv_filename)
 
         // Border
         attron(COLOR_PAIR(6));
-        mvaddch(win_top, 1, ACS_ULCORNER);
-        for (int x = 2; x < win_width; x++) mvaddch(win_top, x, ACS_HLINE);
-        mvaddch(win_top, win_width, ACS_URCORNER);
-        for (int y = win_top + 1; y < win_top + win_height - 2; y++) {
-            mvaddch(y, 1, ACS_VLINE);
-            mvaddch(y, win_width, ACS_VLINE);
-        }
-        mvaddch(win_top + win_height - 2, 1, ACS_LLCORNER);
-        for (int x = 2; x < win_width; x++) mvaddch(win_top + win_height - 2, x, ACS_HLINE);
-        mvaddch(win_top + win_height - 2, win_width, ACS_LRCORNER);
+        draw_rounded_box_stdscr(win_top, 1, win_height - 1, win_width);
         attroff(COLOR_PAIR(6));
 
         // Headers status

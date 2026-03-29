@@ -50,14 +50,11 @@ void draw_menu(int y, int x, int w, int menu_type)
 void draw_cell_view(int y, const char *col_name, int row_num, const char *raw_content, int width)
 {
     attron(COLOR_PAIR(6));
-    mvaddch(y - 1, 0, ACS_ULCORNER);
-    for (int i = 1; i < width - 1; i++) {
-        mvaddch(y - 1, i, ACS_HLINE);
-    }
-    mvaddch(y - 1, width - 1, ACS_URCORNER);
-
-    mvaddch(y, 0, ACS_VLINE);
-    mvaddch(y, width - 1, ACS_VLINE);
+    draw_unicode_hline(y - 1, 1, width - 2);
+    mvaddstr(y - 1, 0,         "\u256D"); /* ╭ */
+    mvaddstr(y - 1, width - 1, "\u256E"); /* ╮ */
+    mvaddstr(y, 0,         "\u2502"); /* │ */
+    mvaddstr(y, width - 1, "\u2502");
     attroff(COLOR_PAIR(6));
 
     // Format the value
@@ -123,20 +120,16 @@ void draw_table_border(int top, int height, int width)
 {
     attron(COLOR_PAIR(6));
 
-    mvaddch(top, 0, ACS_LTEE);
-    mvaddch(top, width - 1, ACS_RTEE);
-    mvaddch(top + height - 1, 0, ACS_LLCORNER);
-    mvaddch(top + height - 1, width - 1, ACS_LRCORNER);
+    mvaddstr(top, 0,         "\u251C"); /* ├ T-junction top-left */
+    mvaddstr(top, width - 1, "\u2524"); /* ┤ T-junction top-right */
+    mvaddstr(top + height - 1, 0,         "\u2570"); /* ╰ */
+    mvaddstr(top + height - 1, width - 1, "\u256F"); /* ╯ */
 
-    for (int x = 1; x < width - 1; x++) {
-        mvaddch(top, x, ACS_HLINE);
-        mvaddch(top + height - 1, x, ACS_HLINE);
-    }
+    draw_unicode_hline(top,            1, width - 2);
+    draw_unicode_hline(top + height-1, 1, width - 2);
 
-    for (int y = top + 1; y < top + height - 1; y++) {
-        mvaddch(y, 0, ACS_VLINE);
-        mvaddch(y, width - 1, ACS_VLINE);
-    }
+    draw_unicode_vline(top + 1, 0,         height - 2);
+    draw_unicode_vline(top + 1, width - 1, height - 2);
 
     attroff(COLOR_PAIR(6));
 }
@@ -567,7 +560,7 @@ void show_saved_filters_window(const char *csv_filename)
     WINDOW *win = newwin(height, width, start_y, start_x);
     wbkgd(win, COLOR_PAIR(1));
     wattron(win, COLOR_PAIR(6));
-    box(win, 0, 0);
+    draw_rounded_box(win);
     wattroff(win, COLOR_PAIR(6));
     mvwprintw(win, 0, (width - 18) / 2, " Saved Filters ");
 
@@ -580,7 +573,7 @@ void show_saved_filters_window(const char *csv_filename)
     {
         werase(win);
         wattron(win, COLOR_PAIR(6));
-        box(win, 0, 0);
+        draw_rounded_box(win);
         wattroff(win, COLOR_PAIR(6));
         mvwprintw(win, 0, (width - 18) / 2, " Saved Filters ");
 
@@ -846,7 +839,7 @@ void show_comments_window(void)
         // ── Border ──
         werase(win);
         wattron(win, COLOR_PAIR(6));
-        box(win, 0, 0);
+        draw_rounded_box(win);
         wattroff(win, COLOR_PAIR(6));
 
         // ── Title ──
