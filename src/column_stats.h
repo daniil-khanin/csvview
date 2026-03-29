@@ -52,4 +52,23 @@
  */
 void show_column_stats(int col_idx);
 
+/**
+ * @brief Shows an N×N Pearson r correlation matrix for all visible numeric columns.
+ *
+ * Navigate with arrows/hjkl. Press Enter on a non-diagonal cell to launch
+ * a scatter plot; the function returns 1 and fills *out_x_col / *out_y_col.
+ * Returns 0 if the user closes with q/Esc.
+ */
+int show_correlation_matrix(int *out_x_col, int *out_y_col);
+
+/**
+ * @brief Shows a scrollable outlier report for all visible numeric columns.
+ *
+ * Rows with |z-score| >= threshold are listed.
+ * Enter jumps to the row; 'f' applies a filter for that exact value.
+ *
+ * @param threshold  Z-score threshold (pass 0 to use default 3.0)
+ */
+void show_outlier_report(double threshold);
+
 #endif /* COLUMN_STATS_H */

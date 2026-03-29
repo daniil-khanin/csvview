@@ -3595,6 +3595,23 @@ int main(int argc, char *argv[]) {
                 return 1;
             } else if (strcmp(cmd, "profile") == 0) {
                 show_profile_window();
+            } else if (strcmp(cmd, "corr") == 0) {
+                /* Correlation matrix — Enter launches scatter plot */
+                int xcol = -1, ycol = -1;
+                if (show_correlation_matrix(&xcol, &ycol) && xcol >= 0 && ycol >= 0) {
+                    graph_scatter_x_col = xcol;
+                    graph_col_list[0]   = ycol;
+                    graph_col_count     = 1;
+                    graph_scatter_mode  = 1;
+                    scatter_vp_active   = 0;
+                    in_graph_mode       = 1;
+                    current_graph       = 0;
+                }
+            } else if (strcmp(cmd, "outliers") == 0) {
+                /* Outlier report. Optional arg: sigma threshold */
+                double thr = 3.0;
+                if (arg && *arg) thr = atof(arg);
+                show_outlier_report(thr);
             } else if (strcmp(cmd, "theme") == 0) {
                 if (arg && *arg) {
                     const Theme *t = theme_by_name(arg);
