@@ -146,7 +146,7 @@ static void show_percentile_breakdown(const double *vals, long n, const char *co
     for (long i = 0; i < n; i++) { double d = sorted[i] - mean; var += d*d; }
     double stddev = (n > 1) ? sqrt(var / (n - 1)) : 0.0;
 
-    int pw = 36, ph = np + 13;
+    int pw = 48, ph = np + 13;
     if (ph > LINES - 4) ph = LINES - 4;
     int sy = (LINES - ph) / 2;
     int sx = (COLS - pw) / 2;
@@ -232,7 +232,7 @@ static void show_value_trends(const double *vals, long n, const char *col_name)
     /* Braille-style block chars for sparkline */
     static const char *sparks[] = {"▁","▂","▃","▄","▅","▆","▇","█"};
 
-    int pw = 64, ph = 14 + NBLOCKS / 2;
+    int pw = 82, ph = 14 + NBLOCKS / 2;
     if (ph > LINES - 4) ph = LINES - 4;
     int sy = (LINES - ph) / 2;
     int sx = (COLS - pw) / 2;
@@ -262,7 +262,7 @@ static void show_value_trends(const double *vals, long n, const char *col_name)
 
     wattron(win, COLOR_PAIR(6)); mvwhline(win, y++, 1, ACS_HLINE, pw - 2); wattroff(win, COLOR_PAIR(6));
     wattron(win, A_BOLD);
-    mvwprintw(win, y++, 2, "%-5s %8s %10s %10s %10s", "Block", "Count", "Mean", "Min", "Max");
+    mvwprintw(win, y++, 2, "%-5s %8s %10s %10s %10s  %-16s", "Block", "Count", "Mean", "Min", "Max", "Rows");
     wattroff(win, A_BOLD);
     wattron(win, COLOR_PAIR(6)); mvwhline(win, y++, 1, ACS_HLINE, pw - 2); wattroff(win, COLOR_PAIR(6));
 
@@ -288,10 +288,9 @@ static void show_value_trends(const double *vals, long n, const char *col_name)
             long i1 = (long)((b + 1) * (double)n / NBLOCKS);
 
             if (b == cur) wattron(win, COLOR_PAIR(2));
-            mvwprintw(win, ry, 2, "%-5ld %8ld %10.4g %10.4g %10.4g",
-                      b + 1, block_n[b], block_mean[b], block_min[b], block_max[b]);
-            /* Row range annotation */
-            mvwprintw(win, ry, 48, "rows %ld-%ld", i0 + 1, i1);
+            mvwprintw(win, ry, 2, "%-5ld %8ld %10.4g %10.4g %10.4g  %ld-%ld",
+                      b + 1, block_n[b], block_mean[b], block_min[b], block_max[b],
+                      i0 + 1, i1);
             if (b == cur) wattroff(win, COLOR_PAIR(2));
         }
 
@@ -1192,8 +1191,10 @@ int show_correlation_matrix(int *out_x_col, int *out_y_col)
         int CELL_W = 7;   /* 6 digits + sign: "-0.9999" */
         int LBL_W  = 9;   /* label column on left */
         int pw = 2 + LBL_W + nc * (CELL_W + 1) + 2;
+        if (pw < 72) pw = 72;   /* minimum to fit bottom hint */
         if (pw > COLS) pw = COLS;
-        int ph = nc + 8;
+        int ph = nc + 11;       /* rows: border+title+blank+header+hline+nc+hline+legend+blank+hint+border */
+        if (ph < 12) ph = 12;
         if (ph > LINES - 2) ph = LINES - 2;
         int sy2 = (LINES - ph) / 2;
         int sx2 = (COLS - pw) / 2;
@@ -1271,11 +1272,24 @@ int show_correlation_matrix(int *out_x_col, int *out_y_col)
 
             wattron(win, COLOR_PAIR(6)); mvwhline(win, y++, 1, ACS_HLINE, pw - 2); wattroff(win, COLOR_PAIR(6));
 
-            /* Legend */
-            wattron(win, COLOR_PAIR(3)); waddstr(win, "  ≥0.7 strong+ "); wattroff(win, COLOR_PAIR(3));
-            wattron(win, COLOR_PAIR(2)); waddstr(win, "±0.3 moderate "); wattroff(win, COLOR_PAIR(2));
-            wattron(win, COLOR_PAIR(5)); waddstr(win, "≤-0.7 strong- "); wattroff(win, COLOR_PAIR(5));
-            y++;
+            /* Separator + legend — fixed rows so they never overlap the hint */
+            wattron(win, COLOR_PAIR(6)); mvwhline(win, ph - 5, 1, ACS_HLINE, pw - 2); wattroff(win, COLOR_PAIR(6));
+            {
+                int ly = ph - 4;
+                mvwhline(win, ly, 1, ' ', pw - 2);
+                int lx = 2;
+                wattron(win, COLOR_PAIR(3));
+                mvwprintw(win, ly, lx, ">=0.7 strong+");
+                wattroff(win, COLOR_PAIR(3));
+                lx += 14;
+                wattron(win, COLOR_PAIR(2));
+                mvwprintw(win, ly, lx, "+/-0.3 moderate");
+                wattroff(win, COLOR_PAIR(2));
+                lx += 16;
+                wattron(win, COLOR_PAIR(5));
+                mvwprintw(win, ly, lx, "<=-0.7 strong-");
+                wattroff(win, COLOR_PAIR(5));
+            }
 
             /* Cursor info */
             char cn_a[16] = "", cn_b[16] = "";
@@ -1284,8 +1298,10 @@ int show_correlation_matrix(int *out_x_col, int *out_y_col)
             if (use_headers && column_names[ncols[cur_b]]) strncpy(cn_b, column_names[ncols[cur_b]], 15);
             else col_letter(ncols[cur_b], cn_b);
             mvwprintw(win, ph - 2, 2,
-                "r(%s, %s)=%.4f  | arrows Navigate  | [Enter] Scatter  | [q] Close",
-                cn_a, cn_b, rmat[cur_a * nc + cur_b]);
+                "r=%.4f  hjkl Navigate  Enter Scatter  q Close",
+                rmat[cur_a * nc + cur_b]);
+            mvwprintw(win, ph - 2, pw - 2 - (int)strlen(cn_a) - 1 - (int)strlen(cn_b) - 1,
+                "%s/%s", cn_a, cn_b);
 
             wrefresh(win);
 
@@ -1336,8 +1352,9 @@ typedef struct {
     char   col_name[32];
 } Outlier;
 
-void show_outlier_report(double threshold)
+int show_outlier_report(double threshold)
 {
+    int jump_row = -1;
     if (threshold <= 0) threshold = 3.0;
 
     /* Collect numeric columns */
@@ -1356,7 +1373,7 @@ void show_outlier_report(double threshold)
             wrefresh(mw); wgetch(mw); delwin(mw);
             touchwin(stdscr); refresh();
         }
-        return;
+        return -1;
     }
 
     int display_count = filter_active ? filtered_count : row_count;
@@ -1559,12 +1576,10 @@ void show_outlier_report(double threshold)
             else if (ch == KEY_HOME || ch == 'g') { cur = 0; }
             else if (ch == KEY_END  || ch == 'G') { cur = outlier_count - 1; }
             else if (ch == '\n' || ch == '\r' || ch == KEY_ENTER) {
-                /* Jump to the outlier's display row */
+                /* Return the display row to the caller so it can navigate */
                 if (cur >= 0 && cur < outlier_count) {
                     long dr = outliers[cur].display_row;
-                    cur_display_row = (int)(dr < INT_MAX ? dr : INT_MAX);
-                    top_display_row = cur_display_row - (LINES - 4) / 2;
-                    if (top_display_row < 0) top_display_row = 0;
+                    jump_row = (int)(dr < INT_MAX ? dr : INT_MAX);
                 }
                 break;
             } else if (ch == 'f' || ch == 'F') {
@@ -1601,4 +1616,5 @@ outlier_cleanup_early:
     free(col_var);
     free(col_std);
     free(col_n);
+    return jump_row;
 }

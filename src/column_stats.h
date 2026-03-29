@@ -69,6 +69,7 @@ int show_correlation_matrix(int *out_x_col, int *out_y_col);
  *
  * @param threshold  Z-score threshold (pass 0 to use default 3.0)
  */
-void show_outlier_report(double threshold);
+/* Returns the display row index to jump to, or -1 if no jump requested. */
+int show_outlier_report(double threshold);
 
 #endif /* COLUMN_STATS_H */

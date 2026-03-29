@@ -3611,7 +3611,13 @@ int main(int argc, char *argv[]) {
                 /* Outlier report. Optional arg: sigma threshold */
                 double thr = 3.0;
                 if (arg && *arg) thr = atof(arg);
-                show_outlier_report(thr);
+                int jump_to = show_outlier_report(thr);
+                if (jump_to >= 0) {
+                    cur_display_row = jump_to;
+                    top_display_row = cur_display_row - visible_rows / 2;
+                    if (top_display_row < 0) top_display_row = 0;
+                    if (cur_display_row >= display_count) cur_display_row = display_count - 1;
+                }
             } else if (strcmp(cmd, "theme") == 0) {
                 if (arg && *arg) {
                     const Theme *t = theme_by_name(arg);
