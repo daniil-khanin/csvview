@@ -8,6 +8,7 @@
 
 #include "pivot.h"
 #include "utils.h"          // get_column_value, col_name_to_num, col_to_num
+#include "file_format.h"    // g_fmt, has_header_row
 #include "csvview_defs.h"   // globals, RowIndex, ColType
 #include "ui_draw.h"
 #include "sorting.h"
@@ -1031,7 +1032,7 @@ void show_pivot_settings_window(PivotSettings *settings, const char *csv_filenam
     char **col_options = malloc((col_count + 1) * sizeof(char*));
     col_options[0] = strdup("None");
     for (int i = 0; i < col_count; i++) {
-        if (use_headers && column_names[i]) {
+        if ((use_headers || (g_fmt && !g_fmt->has_header_row)) && column_names[i]) {
             col_options[i + 1] = strdup(column_names[i]);
         } else {
             char buf[16];

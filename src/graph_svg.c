@@ -242,7 +242,7 @@ static void write_legend(FILE *out, const SvgLayout *L)
         if (graph_series_hidden[s]) continue;
         const char *color = SVG_COLORS[s % 7];
         char cn[24] = "";
-        if (use_headers && column_names[graph_col_list[s]])
+        if ((use_headers || (g_fmt && !g_fmt->has_header_row)) && column_names[graph_col_list[s]])
             snprintf(cn, sizeof(cn), "%.20s", column_names[graph_col_list[s]]);
         else
             col_letter(graph_col_list[s], cn);
@@ -541,11 +541,11 @@ static void export_scatter_svg(FILE *out, const SvgLayout *L,
 
     /* Axis column name labels */
     char xname[32] = "", yname[32] = "";
-    if (use_headers && column_names[x_col])
+    if ((use_headers || (g_fmt && !g_fmt->has_header_row)) && column_names[x_col])
         snprintf(xname, sizeof(xname), "%.28s", column_names[x_col]);
     else
         col_letter(x_col, xname);
-    if (use_headers && column_names[graph_col_list[0]])
+    if ((use_headers || (g_fmt && !g_fmt->has_header_row)) && column_names[graph_col_list[0]])
         snprintf(yname, sizeof(yname), "%.28s", column_names[graph_col_list[0]]);
     else
         col_letter(graph_col_list[0], yname);
@@ -742,7 +742,7 @@ static void export_pie_svg(FILE *out, const SvgLayout *L,
 
     /* Column name as title */
     char col_name[64] = "";
-    if (use_headers && column_names[col])
+    if ((use_headers || (g_fmt && !g_fmt->has_header_row)) && column_names[col])
         snprintf(col_name, sizeof(col_name), "%.40s", column_names[col]);
     else
         col_letter(col, col_name);

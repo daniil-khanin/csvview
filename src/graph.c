@@ -874,7 +874,7 @@ void draw_scatter(int x_col, int y_col, int height, int width,
         }
         // X axis caption centered at the bottom
         char x_name[32] = "";
-        if (use_headers && column_names[x_col])
+        if ((use_headers || (g_fmt && !g_fmt->has_header_row)) && column_names[x_col])
             snprintf(x_name, sizeof(x_name), "%.24s", column_names[x_col]);
         else
             col_letter(x_col, x_name);
@@ -885,7 +885,7 @@ void draw_scatter(int x_col, int y_col, int height, int width,
         attroff(COLOR_PAIR(1) | A_BOLD);
 
         // Prepare y_name for drawing AFTER braille canvas (issue 27: caption overwritten by dots)
-        if (use_headers && column_names[y_col])
+        if ((use_headers || (g_fmt && !g_fmt->has_header_row)) && column_names[y_col])
             snprintf(y_name, sizeof(y_name), "%.24s", column_names[y_col]);
         else
             col_letter(y_col, y_name);
@@ -1164,7 +1164,7 @@ void draw_pie_chart(int col, int height, int width)
 
     /* Legend ──────────────────────────────────────────────────── */
     char col_name[64] = "";
-    if (use_headers && column_names[col])
+    if ((use_headers || (g_fmt && !g_fmt->has_header_row)) && column_names[col])
         snprintf(col_name, sizeof(col_name), "%.30s", column_names[col]);
     else
         col_letter(col, col_name);
@@ -1303,7 +1303,7 @@ void draw_box_plot(int *cols, int ncols, int height, int width)
         stats[ci].q3  = pctile(v, n, 0.75);
         stats[ci].mx  = v[n-1];
         free(v);
-        if (use_headers && column_names[cols[ci]])
+        if ((use_headers || (g_fmt && !g_fmt->has_header_row)) && column_names[cols[ci]])
             snprintf(stats[ci].name, sizeof(stats[ci].name), "%.23s", column_names[cols[ci]]);
         else
             col_letter(cols[ci], stats[ci].name);
@@ -1505,7 +1505,7 @@ void draw_heatmap(int height, int width)
 
     for (int b = 0; b < nc; b++) {
         char lbl[8] = "";
-        if (use_headers && column_names[num_cols[b]])
+        if ((use_headers || (g_fmt && !g_fmt->has_header_row)) && column_names[num_cols[b]])
             snprintf(lbl, sizeof(lbl), "%.5s", column_names[num_cols[b]]);
         else col_letter(num_cols[b], lbl);
         int sx_pos = x0 + b * cell_w;
@@ -1520,7 +1520,7 @@ void draw_heatmap(int height, int width)
         int ry = y0 + a;
         if (ry >= heat_bot) break;
         char row_lbl[12] = "";
-        if (use_headers && column_names[num_cols[a]])
+        if ((use_headers || (g_fmt && !g_fmt->has_header_row)) && column_names[num_cols[a]])
             snprintf(row_lbl, sizeof(row_lbl), "%-9.9s", column_names[num_cols[a]]);
         else { col_letter(num_cols[a], row_lbl); }
         attron(COLOR_PAIR(1));
