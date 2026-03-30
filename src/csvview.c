@@ -1799,7 +1799,7 @@ int main(int argc, char *argv[]) {
                 for (int s = 0; s < graph_col_count; s++) {
                     int cp = GRAPH_COLOR_BASE + (s % 7);
                     char cn[20] = "";
-                    if (use_headers && column_names[graph_col_list[s]])
+                    if ((use_headers || (g_fmt && !g_fmt->has_header_row)) && column_names[graph_col_list[s]])
                         snprintf(cn, sizeof(cn), "%.14s", column_names[graph_col_list[s]]);
                     else
                         col_letter(graph_col_list[s], cn);
@@ -1853,7 +1853,7 @@ int main(int argc, char *argv[]) {
                     for (int s = 0; s < graph_col_count; s++) {
                         int cp = GRAPH_COLOR_BASE + (s % 7);
                         char cn[20] = "";
-                        if (use_headers && column_names[graph_col_list[s]])
+                        if ((use_headers || (g_fmt && !g_fmt->has_header_row)) && column_names[graph_col_list[s]])
                             snprintf(cn, sizeof(cn), "%.14s", column_names[graph_col_list[s]]);
                         else col_letter(graph_col_list[s], cn);
                         if (graph_series_hidden[s]) attron(A_DIM);
@@ -2455,7 +2455,8 @@ int main(int argc, char *argv[]) {
                     #define RESOLVE_COL(name, out) do { \
                         (out) = -1; \
                         for (int _ci = 0; _ci < col_count; _ci++) { \
-                            if (use_headers && column_names[_ci] && \
+                            if ((use_headers || (g_fmt && !g_fmt->has_header_row)) && \
+                                column_names[_ci] && \
                                 strcasecmp(column_names[_ci], (name)) == 0) \
                                 { (out) = _ci; break; } \
                         } \
@@ -4105,7 +4106,7 @@ int main(int argc, char *argv[]) {
 
                     if (!col_tok[0]) continue;
 
-                    int cidx = use_headers ? col_name_to_num(col_tok) : col_to_num(col_tok);
+                    int cidx = col_name_to_num(col_tok);
                     if (cidx < 0) cidx = col_to_num(col_tok);
                     if (cidx < 0 || cidx >= col_count) continue;
 
@@ -4144,7 +4145,7 @@ int main(int argc, char *argv[]) {
 
                 // Get current column name
                 char col_name[64] = {0};
-                if (use_headers && column_names[cur_col]) {
+                if ((use_headers || (g_fmt && !g_fmt->has_header_row)) && column_names[cur_col]) {
                     strncpy(col_name, column_names[cur_col], sizeof(col_name) - 1);
                 } else {
                     col_letter(cur_col, col_name);
@@ -4213,7 +4214,7 @@ int main(int argc, char *argv[]) {
 
                 // Get column name
                 char col_name[64] = {0};
-                if (use_headers && column_names[cur_col]) {
+                if ((use_headers || (g_fmt && !g_fmt->has_header_row)) && column_names[cur_col]) {
                     strncpy(col_name, column_names[cur_col], sizeof(col_name) - 1);
                 } else {
                     col_letter(cur_col, col_name);
@@ -4401,7 +4402,7 @@ int main(int argc, char *argv[]) {
 
                 // Old name for the message
                 char old_name[64] = {0};
-                if (use_headers && column_names[cur_col]) {
+                if ((use_headers || (g_fmt && !g_fmt->has_header_row)) && column_names[cur_col]) {
                     strncpy(old_name, column_names[cur_col], sizeof(old_name) - 1);
                 } else {
                     col_letter(cur_col, old_name);
@@ -4469,7 +4470,7 @@ int main(int argc, char *argv[]) {
                     filename[sizeof(filename) - 5] = '\0';
                 } else {
                     // Name from column
-                    if (use_headers && column_names[cur_col]) {
+                    if ((use_headers || (g_fmt && !g_fmt->has_header_row)) && column_names[cur_col]) {
                         strncpy(filename, column_names[cur_col], sizeof(filename) - 5);
                     } else {
                         col_letter(cur_col, filename);
@@ -4495,7 +4496,7 @@ int main(int argc, char *argv[]) {
                 }
 
                 // Write header (if any)
-                if (use_headers && column_names[cur_col]) {
+                if ((use_headers || (g_fmt && !g_fmt->has_header_row)) && column_names[cur_col]) {
                     fprintf(out, "\"%s\"\n", column_names[cur_col]);
                 } else {
                     char letter_buf[16];
