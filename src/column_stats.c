@@ -8,6 +8,7 @@
 #include "utils.h"          // get_column_value, trim, col_letter, etc.
 #include "csv_mmap.h"
 #include "filtering.h"      // apply_filter
+#include "file_format.h"    // g_fmt, has_header_row
 
 #include <ncurses.h>        // newwin, mvwprintw, wrefresh, etc.
 #include <stdlib.h>         // malloc, realloc, free, qsort
@@ -558,7 +559,7 @@ void show_column_stats(int col_idx)
 
     // Column name
     char col_name[64];
-    if (use_headers && column_names[col_idx]) {
+    if ((use_headers || (g_fmt && !g_fmt->has_header_row)) && column_names[col_idx]) {
         strncpy(col_name, column_names[col_idx], sizeof(col_name)-1);
         col_name[sizeof(col_name)-1] = '\0';
     } else {
@@ -1216,7 +1217,7 @@ int show_correlation_matrix(int *out_x_col, int *out_y_col)
             wattron(win, A_BOLD);
             for (int b = 0; b < nc; b++) {
                 char lbl[10] = "";
-                if (use_headers && column_names[ncols[b]])
+                if ((use_headers || (g_fmt && !g_fmt->has_header_row)) && column_names[ncols[b]])
                     strncpy(lbl, column_names[ncols[b]], CELL_W);
                 else
                     col_letter(ncols[b], lbl);
@@ -1230,7 +1231,7 @@ int show_correlation_matrix(int *out_x_col, int *out_y_col)
             /* Data rows */
             for (int a = 0; a < nc; a++) {
                 char rlbl[10] = "";
-                if (use_headers && column_names[ncols[a]])
+                if ((use_headers || (g_fmt && !g_fmt->has_header_row)) && column_names[ncols[a]])
                     strncpy(rlbl, column_names[ncols[a]], LBL_W - 1);
                 else
                     col_letter(ncols[a], rlbl);
@@ -1292,9 +1293,9 @@ int show_correlation_matrix(int *out_x_col, int *out_y_col)
 
             /* Cursor info */
             char cn_a[16] = "", cn_b[16] = "";
-            if (use_headers && column_names[ncols[cur_a]]) strncpy(cn_a, column_names[ncols[cur_a]], 15);
+            if ((use_headers || (g_fmt && !g_fmt->has_header_row)) && column_names[ncols[cur_a]]) strncpy(cn_a, column_names[ncols[cur_a]], 15);
             else col_letter(ncols[cur_a], cn_a);
-            if (use_headers && column_names[ncols[cur_b]]) strncpy(cn_b, column_names[ncols[cur_b]], 15);
+            if ((use_headers || (g_fmt && !g_fmt->has_header_row)) && column_names[ncols[cur_b]]) strncpy(cn_b, column_names[ncols[cur_b]], 15);
             else col_letter(ncols[cur_b], cn_b);
             mvwprintw(win, ph - 2, 2,
                 "r=%.4f  hjkl Navigate  Enter Scatter  q Close",
@@ -1467,7 +1468,7 @@ int show_outlier_report(double threshold)
                         o->display_row = i;
                         o->value      = v;
                         o->zscore     = z;
-                        if (use_headers && column_names[ncols[ci]])
+                        if ((use_headers || (g_fmt && !g_fmt->has_header_row)) && column_names[ncols[ci]])
                             strncpy(o->col_name, column_names[ncols[ci]], 31);
                         else
                             col_letter(ncols[ci], o->col_name);
