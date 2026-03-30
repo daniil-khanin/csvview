@@ -143,7 +143,11 @@ static void draw_one_header(int top, int current_x, int col_idx, int cur_col, in
 {
     if (max_w < 1) return;
     char name[64] = {0};
-    if (use_headers && column_names[col_idx]) {
+    /* Show column_names[] if: CSV with headers ON, or format that discovers
+       column names without a header row (e.g. NDJSON uses JSON keys). */
+    int show_named = use_headers ||
+                     (g_fmt && !g_fmt->has_header_row && column_names[col_idx]);
+    if (show_named && column_names[col_idx]) {
         strncpy(name, column_names[col_idx], sizeof(name) - 6);
         name[sizeof(name) - 6] = '\0';
     } else {

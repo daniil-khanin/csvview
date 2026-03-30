@@ -897,13 +897,12 @@ int show_column_setup(const char *csv_filename)
         draw_rounded_box_stdscr(win_top, 1, win_height - 1, win_width);
         attroff(COLOR_PAIR(6));
 
-        // Headers status
-        attron(COLOR_PAIR(use_headers ? 3 : 2) | A_BOLD);
-        mvprintw(win_top + 1, 3, "Headers: %s", use_headers ? "ON  [H to toggle]" : "OFF [H to toggle]");
-        attroff(COLOR_PAIR(use_headers ? 3 : 2) | A_BOLD);
+        if (!g_fmt || g_fmt->has_header_row) {
+            // CSV: show headers toggle and delimiter selector
+            attron(COLOR_PAIR(use_headers ? 3 : 2) | A_BOLD);
+            mvprintw(win_top + 1, 3, "Headers: %s", use_headers ? "ON  [H to toggle]" : "OFF [H to toggle]");
+            attroff(COLOR_PAIR(use_headers ? 3 : 2) | A_BOLD);
 
-        // Current delimiter
-        {
             const char *delim_name;
             switch (csv_delimiter) {
                 case ',':  delim_name = "comma  ,"; break;
@@ -914,6 +913,11 @@ int show_column_setup(const char *csv_filename)
             }
             attron(COLOR_PAIR(3) | A_BOLD);
             mvprintw(win_top + 1, 35, "Separator: %-12s [C to cycle]", delim_name);
+            attroff(COLOR_PAIR(3) | A_BOLD);
+        } else {
+            // NDJSON: fixed format, no header row concept
+            attron(COLOR_PAIR(3) | A_BOLD);
+            mvprintw(win_top + 1, 3, "Format: NDJSON  (column names from JSON keys)");
             attroff(COLOR_PAIR(3) | A_BOLD);
         }
 
@@ -1102,7 +1106,7 @@ int show_column_setup(const char *csv_filename)
             col_hidden[cur_item] = !col_hidden[cur_item];
             save_column_settings(csv_filename);
         }
-        else if (ch == 'h' || ch == 'H')
+        else if ((ch == 'h' || ch == 'H') && (!g_fmt || g_fmt->has_header_row))
         {
             use_headers = !use_headers;
             save_column_settings(csv_filename);
@@ -1143,7 +1147,7 @@ int show_column_setup(const char *csv_filename)
                 }
             }
         }
-        else if (ch == 'c' || ch == 'C')
+        else if ((ch == 'c' || ch == 'C') && (!g_fmt || g_fmt->has_header_row))
         {
             // Delimiter cycle: , → ; → \t → | → ,
             switch (csv_delimiter) {

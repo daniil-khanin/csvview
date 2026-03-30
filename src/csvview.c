@@ -1605,9 +1605,15 @@ int main(int argc, char *argv[]) {
         // is always the column header row.
         if (skip_comments) use_headers = 1;
         auto_detect_column_types();
-        if (show_column_setup(file_to_open)) {
-            endwin();
-            return 0;
+        if (g_fmt->has_header_row) {
+            // CSV: show the interactive column setup wizard
+            if (show_column_setup(file_to_open)) {
+                endwin();
+                return 0;
+            }
+        } else {
+            // NDJSON: columns already discovered; just save settings silently
+            save_column_settings(file_to_open);
         }
     } else if (settings_loaded == 2) {
         // Partial load: col_count changed due to skip_comments.
