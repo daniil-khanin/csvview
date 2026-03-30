@@ -1888,20 +1888,22 @@ int main(int argc, char *argv[]) {
                 }
             }
 
-            // Call the helper function here
-            char *cell_content = get_cell_content(rows[cur_real_row].line_cache, cur_col);
-
-            // Guard against overly long content
-            if (strlen(cell_content) > 200) {
-                strcpy(current_cell_content, "(very long text)");
-            } else {
-                strncpy(current_cell_content, cell_content, sizeof(current_cell_content)-1);
-                current_cell_content[sizeof(current_cell_content)-1] = '\0';
+            // Parse the row via the format driver to get the correct field value
+            {
+                int fc = 0;
+                char **flds = g_fmt ? g_fmt->parse_row(rows[cur_real_row].line_cache, &fc)
+                                    : parse_csv_line(rows[cur_real_row].line_cache, &fc);
+                const char *cell_content = (flds && cur_col < fc && flds[cur_col]) ? flds[cur_col] : "";
+                if (strlen(cell_content) > 200) {
+                    strcpy(current_cell_content, "(very long text)");
+                } else {
+                    strncpy(current_cell_content, cell_content, sizeof(current_cell_content)-1);
+                    current_cell_content[sizeof(current_cell_content)-1] = '\0';
+                }
+                if (flds) free_csv_fields(flds, fc);
             }
-
-            free(cell_content);
         }
-        if (use_headers && column_names[cur_col]) {
+        if ((use_headers || (g_fmt && !g_fmt->has_header_row)) && column_names[cur_col]) {
             strncpy(col_name, column_names[cur_col], sizeof(col_name) - 1);
             col_name[sizeof(col_name) - 1] = '\0';
         } else {
