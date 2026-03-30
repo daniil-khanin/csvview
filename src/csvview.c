@@ -4565,9 +4565,10 @@ int main(int argc, char *argv[]) {
                     clrtoeol();
                 }
 
-                // Append .csv if missing
-                if (strstr(filename, ".csv") == NULL) {
-                    strcat(filename, ".csv");
+                // Append .csv if no known extension
+                {
+                    const char *ext = strrchr(filename, '.');
+                    if (!ext) strcat(filename, ".csv");
                 }
 
                 FILE *out = fopen(filename, "w");
@@ -4584,57 +4585,102 @@ int main(int argc, char *argv[]) {
                     continue;
                 }
 
-                // Write header (if any)
-                if (use_headers && row_count > 0) {
-                    char *header = rows[0].line_cache ? rows[0].line_cache : "";
-                    if (!rows[0].line_cache) {
-                        fseek(f, rows[0].offset, SEEK_SET);
-                        char buf[MAX_LINE_LEN];
-                        if (fgets(buf, sizeof(buf), f)) {
-                            size_t len = strlen(buf);
-                            if (len > 0 && buf[len-1] == '\n') buf[len-1] = '\0';
-                            header = buf;
-                        }
-                    }
-                    fprintf(out, "%s\n", header);
-                }
+                /* Determine target format driver */
+                FileFormatDriver *out_fmt = fmt_for_filename(filename);
+                int converting = (out_fmt != g_fmt);
 
                 // Write rows (filtered or all)
                 int count_exported = 0;
                 int display_count = filter_active ? filtered_count : row_count;
-                int row_start = use_headers ? 1 : 0;
+                int row_start = (g_fmt && g_fmt->has_header_row) ? 1 : 0;
 
-                for (int i = 0; i < display_count; i++) {
-                    int display_pos = i;
-                    int real_row = get_real_row(display_pos);
-                    if (real_row < row_start) continue;
-
-                    if (!rows[real_row].line_cache) {
-                        if (g_mmap_base) {
-                            char mmap_buf[MAX_LINE_LEN];
-                            char *ml = csv_mmap_get_line(rows[real_row].offset, mmap_buf, sizeof(mmap_buf));
-                            rows[real_row].line_cache = strdup(ml ? ml : "");
-                        } else {
-                            fseek(f, rows[real_row].offset, SEEK_SET);
-                            char line_buf[MAX_LINE_LEN];
-                            if (fgets(line_buf, sizeof(line_buf), f)) {
-                                line_buf[strcspn(line_buf, "\n")] = '\0';
-                                rows[real_row].line_cache = strdup(line_buf);
+                if (converting) {
+                    /* Cross-format export: parse each row with source driver,
+                       serialize with target driver. */
+                    if (out_fmt->has_header_row) {
+                        /* Target is CSV: write a header row from column_names[] */
+                        for (int c = 0; c < col_count; c++) {
+                            if (c > 0) fputc(csv_delimiter, out);
+                            const char *cn = column_names[c] ? column_names[c] : "";
+                            /* Quote if contains delimiter or quote */
+                            if (strchr(cn, csv_delimiter) || strchr(cn, '"'))
+                                fprintf(out, "\"%s\"", cn);
+                            else
+                                fputs(cn, out);
+                        }
+                        fputc('\n', out);
+                    }
+                    for (int i = 0; i < display_count; i++) {
+                        int real_row = get_real_row(i);
+                        if (real_row < row_start) continue;
+                        if (!rows[real_row].line_cache) {
+                            if (g_mmap_base) {
+                                char mmap_buf[MAX_LINE_LEN];
+                                char *ml = csv_mmap_get_line(rows[real_row].offset, mmap_buf, sizeof(mmap_buf));
+                                rows[real_row].line_cache = strdup(ml ? ml : "");
                             } else {
-                                rows[real_row].line_cache = strdup("");
+                                fseek(f, rows[real_row].offset, SEEK_SET);
+                                char line_buf[MAX_LINE_LEN];
+                                if (fgets(line_buf, sizeof(line_buf), f)) {
+                                    line_buf[strcspn(line_buf, "\n")] = '\0';
+                                    rows[real_row].line_cache = strdup(line_buf);
+                                } else {
+                                    rows[real_row].line_cache = strdup("");
+                                }
                             }
                         }
+                        int fc = 0;
+                        char **fields = g_fmt->parse_row(rows[real_row].line_cache, &fc);
+                        if (!fields) continue;
+                        char *line = out_fmt->build_row(fields, fc, column_names, col_types);
+                        free_csv_fields(fields, fc);
+                        if (line) { fprintf(out, "%s\n", line); free(line); }
+                        count_exported++;
                     }
-
-                    fprintf(out, "%s\n", rows[real_row].line_cache);
-                    count_exported++;
+                } else {
+                    /* Same format: write header row if CSV, then raw line_cache */
+                    if (use_headers && row_count > 0) {
+                        char *header = rows[0].line_cache ? rows[0].line_cache : "";
+                        if (!rows[0].line_cache) {
+                            fseek(f, rows[0].offset, SEEK_SET);
+                            char buf[MAX_LINE_LEN];
+                            if (fgets(buf, sizeof(buf), f)) {
+                                size_t len = strlen(buf);
+                                if (len > 0 && buf[len-1] == '\n') buf[len-1] = '\0';
+                                header = buf;
+                            }
+                        }
+                        fprintf(out, "%s\n", header);
+                    }
+                    for (int i = 0; i < display_count; i++) {
+                        int real_row = get_real_row(i);
+                        if (real_row < row_start) continue;
+                        if (!rows[real_row].line_cache) {
+                            if (g_mmap_base) {
+                                char mmap_buf[MAX_LINE_LEN];
+                                char *ml = csv_mmap_get_line(rows[real_row].offset, mmap_buf, sizeof(mmap_buf));
+                                rows[real_row].line_cache = strdup(ml ? ml : "");
+                            } else {
+                                fseek(f, rows[real_row].offset, SEEK_SET);
+                                char line_buf[MAX_LINE_LEN];
+                                if (fgets(line_buf, sizeof(line_buf), f)) {
+                                    line_buf[strcspn(line_buf, "\n")] = '\0';
+                                    rows[real_row].line_cache = strdup(line_buf);
+                                } else {
+                                    rows[real_row].line_cache = strdup("");
+                                }
+                            }
+                        }
+                        fprintf(out, "%s\n", rows[real_row].line_cache);
+                        count_exported++;
+                    }
                 }
 
                 fclose(out);
 
                 draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
                 attron(COLOR_PAIR(3));
-                printw(" | Exported %d rows to '%s'", count_exported, filename);
+                printw(" | Exported %d rows to '%s' (%s)", count_exported, filename, out_fmt->name);
                 attroff(COLOR_PAIR(3));
 
                 refresh();

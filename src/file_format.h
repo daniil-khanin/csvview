@@ -49,4 +49,8 @@ extern FileFormatDriver *g_fmt;
 /* Detect format from filename extension and set g_fmt. */
 void fmt_detect(const char *filename);
 
+/* Return a driver for the given filename without changing g_fmt.
+   Returns NULL if the extension maps to the same driver as g_fmt. */
+FileFormatDriver *fmt_for_filename(const char *filename);
+
 #endif /* FILE_FORMAT_H */

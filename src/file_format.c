@@ -30,3 +30,18 @@ void fmt_detect(const char *filename)
 
     g_fmt = &csv_driver;
 }
+
+FileFormatDriver *fmt_for_filename(const char *filename)
+{
+    if (!filename) return &csv_driver;
+
+    const char *ext = strrchr(filename, '.');
+    if (ext) {
+        if (strcasecmp(ext, ".ndjson") == 0 ||
+            strcasecmp(ext, ".jsonl")  == 0 ||
+            strcasecmp(ext, ".ldjson") == 0) {
+            return &ndjson_driver;
+        }
+    }
+    return &csv_driver;
+}
