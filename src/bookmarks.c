@@ -3,6 +3,7 @@
 #include "csvview_defs.h"
 #include "csv_mmap.h"
 #include "column_format.h"
+#include "file_format.h"
 
 #include <ncurses.h>
 #include <stdio.h>
@@ -174,10 +175,18 @@ int show_marks_window(const char *csv_filename)
             /* Arrow + row number */
             mvwprintw(win, row_y, 4, "->  row %-10s", rownum);
 
-            /* Preview fields */
+            /* Preview fields — use format driver for correct field extraction */
             int px = prefix_w + 2;
+            int fcount = 0;
+            char **fields = g_fmt ? g_fmt->parse_row(linebuf, &fcount)
+                                  : NULL;
             for (int c = 0; c < nprev; c++) {
-                bm_get_field(linebuf, c, field, sizeof(field));
+                if (fields && c < fcount && fields[c]) {
+                    strncpy(field, fields[c], sizeof(field) - 1);
+                    field[sizeof(field) - 1] = '\0';
+                } else {
+                    bm_get_field(linebuf, c, field, sizeof(field));
+                }
                 /* Truncate to BM_PREVIEW_W */
                 if ((int)strlen(field) > BM_PREVIEW_W) {
                     field[BM_PREVIEW_W - 1] = '>';
@@ -186,6 +195,7 @@ int show_marks_window(const char *csv_filename)
                 mvwprintw(win, row_y, px, "%-*s", BM_PREVIEW_W + 1, field);
                 px += BM_PREVIEW_W + 2;
             }
+            if (fields) free_csv_fields(fields, fcount);
 
             if (is_sel) wattroff(win, A_REVERSE);
         }
