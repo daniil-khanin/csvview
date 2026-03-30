@@ -751,7 +751,7 @@ char *get_column_value(const char *line, const char *col_name, int use_headers)
     for (int i = 0; i < count; i++)
     {
         const char *current_name;
-        if (use_headers && i < MAX_COLS && column_names[i])
+        if ((use_headers || (g_fmt && !g_fmt->has_header_row)) && i < MAX_COLS && column_names[i])
         {
             current_name = column_names[i];
         }

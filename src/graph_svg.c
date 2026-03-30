@@ -13,6 +13,7 @@
 #include "csv_mmap.h"
 #include "sorting.h"
 #include "utils.h"
+#include "file_format.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -76,6 +77,18 @@ static void svg_get_field(const char *line, int idx, char *buf, int bsz)
 {
     buf[0] = '\0';
     if (!line || idx < 0) return;
+
+    /* NDJSON: use format driver to extract field by column index */
+    if (g_fmt && !g_fmt->has_header_row) {
+        int count = 0;
+        char **fields = g_fmt->parse_row(line, &count);
+        if (fields && idx < count && fields[idx])
+            snprintf(buf, bsz, "%s", fields[idx]);
+        if (fields) free_csv_fields(fields, count);
+        return;
+    }
+
+    /* CSV fast path: inline, no malloc */
     int field = 0;
     const char *p = line;
     int in_q = 0;
