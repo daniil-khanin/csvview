@@ -598,8 +598,10 @@ void show_saved_filters_window(const char *csv_filename)
             if (i == selected) wattroff(win, A_REVERSE);
         }
 
+        wattron(win, COLOR_PAIR(6));
         mvwprintw(win, height - 1, 2,
                   "[ ↑↓: select • Enter: insert • Shift+Enter: apply • D: delete •  Q/Esc: close ]");
+        wattroff(win, COLOR_PAIR(6));
         wrefresh(win);
 
         ch = getch();
