@@ -450,6 +450,8 @@ typedef struct {
     int  col_count;
     int  col_widths[PREV_COLS];
     int  ok;           /* 1 = loaded (even if empty/unreadable) */
+    int  is_ndjson;    /* 1 = file is NDJSON, use positional JSON parser */
+    char ndjson_keys[PREV_COLS][64]; /* column key names extracted from first row */
 } PrevCache;
 
 /* Read the delimiter from an ECSV file's comment header block.
@@ -545,33 +547,105 @@ static void prev_load(PrevCache *pc, const char *path)
     pc->row_count = n;
     if (n == 0) { pc->ok = 1; return; }
 
-    /* Prefer the delimiter saved in .csvf (most accurate); fall back to
-       extension/content heuristic. */
-    char saved = prev_delim_from_csvf(path);
-    pc->delim = saved ? saved : prev_detect_delim(pc->lines[0], path);
-
-    /* Compute per-column max widths by scanning all loaded rows */
-    for (int r = 0; r < n; r++) {
-        const char *p = pc->lines[r];
-        int c = 0;
-        while (*p && c < PREV_COLS) {
-            int w = 0;
-            if (*p == '"') {
-                p++;
-                while (*p) {
-                    if (*p == '"' && *(p+1) == '"') { w++; p += 2; }
-                    else if (*p == '"')             { p++; break; }
-                    else                            { w++; p++; }
-                }
-                if (*p == pc->delim) p++;
-            } else {
-                while (*p && *p != pc->delim) { w++; p++; }
-                if (*p == pc->delim) p++;
-            }
-            if (w > pc->col_widths[c]) pc->col_widths[c] = w;
-            c++;
+    /* Detect NDJSON by extension */
+    {
+        const char *ext = strrchr(path, '.');
+        if (ext && (strcasecmp(ext, ".ndjson") == 0 ||
+                    strcasecmp(ext, ".jsonl")  == 0 ||
+                    strcasecmp(ext, ".ldjson") == 0)) {
+            pc->is_ndjson = 1;
         }
-        if (c > pc->col_count) pc->col_count = c;
+    }
+
+    if (pc->is_ndjson) {
+        /* NDJSON: extract key names from first row, then measure value widths */
+        if (n > 0) {
+            /* Extract keys by scanning JSON object of first row */
+            const char *p = pc->lines[0];
+            while (*p && *p != '{') p++;
+            if (*p == '{') p++;
+            int ki = 0;
+            while (*p && *p != '}' && ki < PREV_COLS) {
+                while (*p == ' ' || *p == '\t' || *p == '\n' || *p == ',') p++;
+                if (*p == '"') {
+                    /* Read key string */
+                    p++;
+                    int kn = 0;
+                    while (*p && *p != '"' && kn < 63) {
+                        pc->ndjson_keys[ki][kn++] = *p++;
+                    }
+                    pc->ndjson_keys[ki][kn] = '\0';
+                    if (*p == '"') p++;
+                    /* Skip : and value */
+                    while (*p == ' ' || *p == '\t') p++;
+                    if (*p == ':') p++;
+                    while (*p == ' ' || *p == '\t') p++;
+                    /* Skip value (string, number, literal, or nested) */
+                    if (*p == '"') {
+                        p++;
+                        while (*p && !(*p == '"' && *(p-1) != '\\')) p++;
+                        if (*p == '"') p++;
+                    } else if (*p == '{' || *p == '[') {
+                        int depth = 1; p++;
+                        while (*p && depth > 0) {
+                            if (*p == '{' || *p == '[') depth++;
+                            else if (*p == '}' || *p == ']') depth--;
+                            p++;
+                        }
+                    } else {
+                        while (*p && *p != ',' && *p != '}') p++;
+                    }
+                    /* Account for key width in col_widths */
+                    int kw = (int)strlen(pc->ndjson_keys[ki]);
+                    if (kw > pc->col_widths[ki]) pc->col_widths[ki] = kw;
+                    ki++;
+                } else {
+                    break;
+                }
+            }
+            if (ki > pc->col_count) pc->col_count = ki;
+        }
+        /* Measure value widths across all rows */
+        for (int r = 0; r < n; r++) {
+            int count = 0;
+            char **fields = ndjson_parse_positional(pc->lines[r], &count);
+            if (!fields) continue;
+            if (count > pc->col_count) pc->col_count = count;
+            for (int c = 0; c < count && c < PREV_COLS; c++) {
+                int w = fields[c] ? (int)strlen(fields[c]) : 0;
+                if (w > pc->col_widths[c]) pc->col_widths[c] = w;
+            }
+            free_csv_fields(fields, count);
+        }
+    } else {
+        /* Prefer the delimiter saved in .csvf (most accurate); fall back to
+           extension/content heuristic. */
+        char saved = prev_delim_from_csvf(path);
+        pc->delim = saved ? saved : prev_detect_delim(pc->lines[0], path);
+
+        /* Compute per-column max widths by scanning all loaded rows */
+        for (int r = 0; r < n; r++) {
+            const char *p = pc->lines[r];
+            int c = 0;
+            while (*p && c < PREV_COLS) {
+                int w = 0;
+                if (*p == '"') {
+                    p++;
+                    while (*p) {
+                        if (*p == '"' && *(p+1) == '"') { w++; p += 2; }
+                        else if (*p == '"')             { p++; break; }
+                        else                            { w++; p++; }
+                    }
+                    if (*p == pc->delim) p++;
+                } else {
+                    while (*p && *p != pc->delim) { w++; p++; }
+                    if (*p == pc->delim) p++;
+                }
+                if (w > pc->col_widths[c]) pc->col_widths[c] = w;
+                c++;
+            }
+            if (c > pc->col_count) pc->col_count = c;
+        }
     }
     for (int c = 0; c < pc->col_count; c++) {
         if (pc->col_widths[c] > 25) pc->col_widths[c] = 25;
@@ -583,27 +657,47 @@ static void prev_load(PrevCache *pc, const char *path)
 /* Draw one preview row at screen y, parsing fields from line on the fly.
    is_hdr=1 → bold+COLOR_PAIR(5), data → COLOR_PAIR(1). */
 static void prev_draw_row(int y, const char *line, char delim,
-                           const int *widths, int vis_cols, int is_hdr, int max_x)
+                           const int *widths, int vis_cols, int is_hdr, int max_x,
+                           int is_ndjson)
 {
     int x = 1;
+
+    /* For NDJSON: parse all fields up-front, then render */
+    char **ndjson_fields = NULL;
+    int    ndjson_count  = 0;
+    if (is_ndjson) {
+        ndjson_fields = ndjson_parse_positional(line, &ndjson_count);
+    }
+
     const char *p = line;
     for (int c = 0; c < vis_cols && x < max_x; c++) {
-        /* Extract field into tmp (capped at 128 chars) */
         char tmp[128];
         int tn = 0;
-        if (*p == '"') {
-            p++;
-            while (*p) {
-                if (*p == '"' && *(p+1) == '"') { if (tn < 127) tmp[tn++] = '"'; p += 2; }
-                else if (*p == '"')             { p++; break; }
-                else                            { if (tn < 127) tmp[tn++] = *p++; else p++; }
+
+        if (is_ndjson) {
+            /* Extract from pre-parsed fields array */
+            if (ndjson_fields && c < ndjson_count && ndjson_fields[c]) {
+                strncpy(tmp, ndjson_fields[c], 127);
+                tmp[127] = '\0';
+            } else {
+                tmp[0] = '\0';
             }
-            if (*p == delim) p++;
         } else {
-            while (*p && *p != delim) { if (tn < 127) tmp[tn++] = *p; p++; }
-            if (*p == delim) p++;
+            /* CSV: extract field inline */
+            if (*p == '"') {
+                p++;
+                while (*p) {
+                    if (*p == '"' && *(p+1) == '"') { if (tn < 127) tmp[tn++] = '"'; p += 2; }
+                    else if (*p == '"')             { p++; break; }
+                    else                            { if (tn < 127) tmp[tn++] = *p++; else p++; }
+                }
+                if (*p == delim) p++;
+            } else {
+                while (*p && *p != delim) { if (tn < 127) tmp[tn++] = *p; p++; }
+                if (*p == delim) p++;
+            }
+            tmp[tn] = '\0';
         }
-        tmp[tn] = '\0';
 
         int w = widths[c];
         if (x + w > max_x) w = max_x - x;
@@ -625,8 +719,10 @@ static void prev_draw_row(int y, const char *line, char delim,
             attroff(COLOR_PAIR(6));
             x += 3;
         }
-        if (!*p) break;
+        if (!is_ndjson && !*p) break;
     }
+
+    if (ndjson_fields) free_csv_fields(ndjson_fields, ndjson_count);
 }
 
 /* ────────────────────────────────────────────── */
@@ -883,15 +979,46 @@ static char *show_history_picker(void)
                 if (vis_cols == 0 && pc.col_count > 0) vis_cols = 1;
 
                 int shown = pc.row_count < prev_rows ? pc.row_count : prev_rows;
+
+                /* NDJSON: draw synthetic header row from extracted key names */
+                int data_start = 0;
+                if (pc.is_ndjson && prev_rows > 1) {
+                    int y = prev_top;
+                    attron(COLOR_PAIR(5));
+                    mvhline(y, 0, ' ', COLS);
+                    attroff(COLOR_PAIR(5));
+                    int x = 1;
+                    for (int c = 0; c < vis_cols && x < COLS - 1; c++) {
+                        int w = pc.col_widths[c];
+                        if (x + w > COLS - 1) w = COLS - 1 - x;
+                        if (w <= 0) break;
+                        attron(A_BOLD | COLOR_PAIR(5));
+                        mvprintw(y, x, "%-*.*s", w, w,
+                                 pc.ndjson_keys[c][0] ? pc.ndjson_keys[c] : "");
+                        attroff(A_BOLD | COLOR_PAIR(5));
+                        x += w;
+                        if (c < vis_cols - 1 && x + 3 <= COLS - 1) {
+                            attron(COLOR_PAIR(6));
+                            mvaddch(y, x, ' '); mvaddch(y, x+1, ACS_VLINE); mvaddch(y, x+2, ' ');
+                            attroff(COLOR_PAIR(6));
+                            x += 3;
+                        }
+                    }
+                    data_start = 1;
+                    shown = (pc.row_count < prev_rows - 1) ? pc.row_count : prev_rows - 1;
+                }
+
                 for (int r = 0; r < shown; r++) {
-                    int y = prev_top + r;
-                    if (r == 0) {
+                    int y = prev_top + data_start + r;
+                    int is_hdr = (!pc.is_ndjson && r == 0);
+                    if (is_hdr) {
                         attron(COLOR_PAIR(5));
                         mvhline(y, 0, ' ', COLS);
                         attroff(COLOR_PAIR(5));
                     }
                     prev_draw_row(y, pc.lines[r], pc.delim,
-                                  pc.col_widths, vis_cols, r == 0, COLS - 1);
+                                  pc.col_widths, vis_cols, is_hdr, COLS - 1,
+                                  pc.is_ndjson);
                 }
             }
         }
