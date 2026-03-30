@@ -12,6 +12,7 @@
 #include "formula.h"          // formula_compile / eval
 #include "filtering.h"        // filtered_rows, filtered_count, filter_active
 #include "sorting.h"          // sorted_rows, sorted_count, sort_col
+#include "file_format.h"      // g_fmt, parse_row, build_row
 
 #include <ncurses.h>          // main ncurses header: mvprintw, refresh, getch, LINES, COLOR_PAIR, etc.
 #include <stdio.h>            // fopen, fprintf, rename
@@ -67,71 +68,37 @@ void add_column_and_save(int insert_pos, const char *new_name, const char *csv_f
 
     for (int r = 0; r < row_count; r++)
     {
-        char buf[MAX_LINE_LEN];  /* declared here — valid for the entire loop */
+        char buf[MAX_LINE_LEN];
         const char *line = rows[r].line_cache ? rows[r].line_cache : "";
         if (!rows[r].line_cache)
         {
-            if (fseek(f, rows[r].offset, SEEK_SET) == 0)
+            if (fseek(f, rows[r].offset, SEEK_SET) == 0 &&
+                fgets(buf, sizeof(buf), f))
             {
-                if (fgets(buf, sizeof(buf), f))
-                {
-                    size_t len = strlen(buf);
-                    if (len > 0 && buf[len-1] == '\n') buf[len-1] = '\0';
-                    line = buf;
-                }
+                buf[strcspn(buf, "\r\n")] = '\0';
+                line = buf;
             }
         }
 
-        // Insert the new column
-        char new_line[MAX_LINE_LEN * 2] = {0};
-        int pos = 0;
-        int col = 0;
-        const char *p = line;
-        int in_quotes = 0;
+        int count = 0;
+        char **fields = g_fmt->parse_row(line, &count);
 
-        while (*p)
+        /* For CSV: parse_row returns old col_count-1 fields — insert the new slot.
+           For NDJSON: parse_row already returns col_count fields (new key absent → ""). */
+        if (count < col_count)
         {
-            if (col == insert_pos)
-            {
-                // Insert value + trailing comma (separator before the next field)
-                const char *val = (r == 0 && use_headers) ? new_name : "";
-                strcpy(new_line + pos, val);
-                pos += strlen(val);
-                new_line[pos++] = ',';
-            }
-
-            // Copy the current field
-            while (*p)
-            {
-                if (*p == '"' && !in_quotes) in_quotes = 1;
-                else if (*p == '"' && in_quotes) in_quotes = 0;
-                else if (*p == ',' && !in_quotes) break;
-                new_line[pos++] = *p++;
-            }
-
-            if (*p == ',') {
-                new_line[pos++] = *p++;
-            }
-
-            col++;
+            fields = realloc(fields, (size_t)col_count * sizeof(char *));
+            for (int i = count; i > insert_pos; i--) fields[i] = fields[i - 1];
+            const char *val = (r == 0 && use_headers && g_fmt->has_header_row)
+                              ? new_name : "";
+            fields[insert_pos] = strdup(val);
+            count = col_count;
         }
 
-        // If the new column is at the end of the line
-        if (insert_pos >= col)
-        {
-            while (col < insert_pos)
-            {
-                new_line[pos++] = ',';
-                col++;
-            }
-            new_line[pos++] = ','; // comma before the new value
-            const char *val = (r == 0 && use_headers) ? new_name : "";
-            strcpy(new_line + pos, val);
-            pos += strlen(val);
-        }
-
-        new_line[pos] = '\0';
-        fprintf(out, "%s\n", new_line);
+        char *new_line = g_fmt->build_row(fields, count, column_names, col_types);
+        free_csv_fields(fields, count);
+        fprintf(out, "%s\n", new_line ? new_line : "");
+        free(new_line);
     }
 
     fclose(out);
@@ -328,44 +295,20 @@ void fill_column(int col_idx, const char *arg, const char *csv_filename)
             }
 
             /* reconstruct the line with temp_val at col_idx */
-            char new_line[MAX_LINE_LEN * 2] = {0};
-            int  pos = 0;
-            const char *p = rows[r].line_cache;
-            int current_col = 0;
-            int in_quotes   = 0;
-
-            while (*p) {
-                if (current_col == col_idx) {
-                    while (*p) {
-                        if (*p=='"' && !in_quotes) in_quotes=1;
-                        else if (*p=='"' && in_quotes) in_quotes=0;
-                        else if (*p==',' && !in_quotes) { p++; break; }
-                        p++;
-                    }
-                    size_t vl = strlen(temp_val);
-                    memcpy(new_line+pos, temp_val, vl); pos += (int)vl;
-                    if (current_col < col_count-1) new_line[pos++]=',';
-                } else {
-                    while (*p) {
-                        if (*p=='"' && !in_quotes) in_quotes=1;
-                        else if (*p=='"' && in_quotes) in_quotes=0;
-                        else if (*p==',' && !in_quotes) break;
-                        new_line[pos++]=*p++;
-                    }
-                    if (*p==',') new_line[pos++]=*p++;
-                }
-                current_col++;
+            {
+            int count = 0;
+            char **fields = g_fmt->parse_row(rows[r].line_cache, &count);
+            if (count <= col_idx) {
+                fields = realloc(fields, (size_t)(col_idx + 1) * sizeof(char *));
+                while (count <= col_idx) fields[count++] = strdup("");
             }
-            if (current_col <= col_idx) {
-                while (current_col < col_idx) { new_line[pos++]=','; current_col++; }
-                size_t vl = strlen(temp_val);
-                memcpy(new_line+pos, temp_val, vl); pos += (int)vl;
-                if (col_idx < col_count-1) new_line[pos++]=',';
-            }
-            new_line[pos]='\0';
-
+            free(fields[col_idx]);
+            fields[col_idx] = strdup(temp_val);
+            char *new_line = g_fmt->build_row(fields, count, column_names, col_types);
+            free_csv_fields(fields, count);
             free(rows[r].line_cache);
-            rows[r].line_cache = strdup(new_line);
+            rows[r].line_cache = new_line ? new_line : strdup("");
+            }
 
             done++;
             if (done % 500000 == 0) {
@@ -400,7 +343,7 @@ void fill_column(int col_idx, const char *arg, const char *csv_filename)
             char line_buf[MAX_LINE_LEN];
             if (fgets(line_buf, sizeof(line_buf), f))
             {
-                line_buf[strcspn(line_buf, "\n")] = '\0';
+                line_buf[strcspn(line_buf, "\r\n")] = '\0';
                 rows[r].line_cache = strdup(line_buf);
             }
             else
@@ -409,102 +352,36 @@ void fill_column(int col_idx, const char *arg, const char *csv_filename)
             }
         }
 
-        // Build the new line with the replaced value
-        char new_line[MAX_LINE_LEN * 2] = {0};
-        int pos = 0;
-        const char *p = rows[r].line_cache;
-        int current_col = 0;
-        int in_quotes = 0;
-
-        while (*p)
+        char temp_val[256];
+        if (strncmp(arg, "num(", 4) == 0)
         {
-            if (current_col == col_idx)
-            {
-                // Skip the old value (up to comma or end of line)
-                while (*p)
-                {
-                    if (*p == '"' && !in_quotes) in_quotes = 1;
-                    else if (*p == '"' && in_quotes) in_quotes = 0;
-                    else if (*p == ',' && !in_quotes) {
-                        p++;
-                        break;
-                    }
-                    p++;
-                }
-
-                // Insert the new value
-                char temp_val[256];
-                if (strncmp(arg, "num(", 4) == 0)
-                {
-                    snprintf(temp_val, sizeof(temp_val), "%d", num);
-                    num += step;
-                }
-                else
-                {
-                    strncpy(temp_val, value, sizeof(temp_val) - 1);
-                    temp_val[sizeof(temp_val) - 1] = '\0';
-                }
-
-                strcpy(new_line + pos, temp_val);
-                pos += strlen(temp_val);
-
-                // Comma after the value (if not the last column)
-                if (current_col < col_count - 1) {
-                    new_line[pos++] = ',';
-                }
-            }
-            else
-            {
-                // Copy the field as-is
-                while (*p)
-                {
-                    if (*p == '"' && !in_quotes) in_quotes = 1;
-                    else if (*p == '"' && in_quotes) in_quotes = 0;
-                    else if (*p == ',' && !in_quotes) break;
-                    new_line[pos++] = *p++;
-                }
-                if (*p == ',') {
-                    new_line[pos++] = *p++;
-                }
-            }
-
-            current_col++;
+            snprintf(temp_val, sizeof(temp_val), "%d", num);
+            num += step;
+        }
+        else
+        {
+            strncpy(temp_val, value, sizeof(temp_val) - 1);
+            temp_val[sizeof(temp_val) - 1] = '\0';
         }
 
-        // If the column is at the end of the line
-        if (current_col <= col_idx)
+        int count = 0;
+        char **fields = g_fmt->parse_row(rows[r].line_cache, &count);
+
+        /* Extend if row has fewer fields than expected */
+        if (count <= col_idx)
         {
-            while (current_col < col_idx)
-            {
-                new_line[pos++] = ',';
-                current_col++;
-            }
-
-            char temp_val[256];
-            if (strncmp(arg, "num(", 4) == 0)
-            {
-                snprintf(temp_val, sizeof(temp_val), "%d", num);
-                num += step;
-            }
-            else
-            {
-                strncpy(temp_val, value, sizeof(temp_val) - 1);
-                temp_val[sizeof(temp_val) - 1] = '\0';
-            }
-
-            strcpy(new_line + pos, temp_val);
-            pos += strlen(temp_val);
-
-            if (col_idx < col_count - 1) {
-                new_line[pos++] = ',';
-            }
+            fields = realloc(fields, (size_t)(col_idx + 1) * sizeof(char *));
+            while (count <= col_idx) fields[count++] = strdup("");
         }
 
-        new_line[pos] = '\0';
+        free(fields[col_idx]);
+        fields[col_idx] = strdup(temp_val);
 
-        // Replace the row cache
+        char *new_line = g_fmt->build_row(fields, count, column_names, col_types);
+        free_csv_fields(fields, count);
+
         free(rows[r].line_cache);
-        rows[r].line_cache = strdup(new_line);
+        rows[r].line_cache = new_line ? new_line : strdup("");
     }
     } /* end text/num block */
 
@@ -604,64 +481,34 @@ void delete_column(int col_idx, const char *arg, const char *csv_filename)
 
     for (int r = 0; r < row_count; r++)
     {
-        char buf[MAX_LINE_LEN];  /* declared here — valid for the entire loop */
+        char buf[MAX_LINE_LEN];
         const char *line = rows[r].line_cache ? rows[r].line_cache : "";
         if (!rows[r].line_cache)
         {
-            if (fseek(f, rows[r].offset, SEEK_SET) == 0)
+            if (fseek(f, rows[r].offset, SEEK_SET) == 0 &&
+                fgets(buf, sizeof(buf), f))
             {
-                if (fgets(buf, sizeof(buf), f))
-                {
-                    size_t len = strlen(buf);
-                    if (len > 0 && buf[len-1] == '\n') buf[len-1] = '\0';
-                    line = buf;
-                }
+                buf[strcspn(buf, "\r\n")] = '\0';
+                line = buf;
             }
         }
 
-        // Build the new line without col_idx
-        char new_line[MAX_LINE_LEN * 2] = {0};
-        int pos = 0;
-        const char *p = line;
-        int current_col = 0;
-        int in_quotes = 0;
+        int count = 0;
+        char **fields = g_fmt->parse_row(line, &count);
 
-        while (*p)
+        /* For CSV: parse_row returns old (pre-delete) col_count fields — remove col_idx.
+           For NDJSON: parse_row uses updated column_names[] so already excludes deleted key. */
+        if (count > col_count)
         {
-            if (current_col == col_idx)
-            {
-                // Skip the column being deleted
-                while (*p)
-                {
-                    if (*p == '"' && !in_quotes) in_quotes = 1;
-                    else if (*p == '"' && in_quotes) in_quotes = 0;
-                    else if (*p == ',' && !in_quotes) {
-                        p++;
-                        break;
-                    }
-                    p++;
-                }
-            }
-            else
-            {
-                // Copy the field
-                while (*p)
-                {
-                    if (*p == '"' && !in_quotes) in_quotes = 1;
-                    else if (*p == '"' && in_quotes) in_quotes = 0;
-                    else if (*p == ',' && !in_quotes) break;
-                    new_line[pos++] = *p++;
-                }
-                if (*p == ',') {
-                    new_line[pos++] = *p++;
-                }
-            }
-
-            current_col++;
+            free(fields[col_idx]);
+            for (int i = col_idx; i < count - 1; i++) fields[i] = fields[i + 1];
+            count--;
         }
 
-        new_line[pos] = '\0';
-        fprintf(out, "%s\n", new_line);
+        char *new_line = g_fmt->build_row(fields, count, column_names, col_types);
+        free_csv_fields(fields, count);
+        fprintf(out, "%s\n", new_line ? new_line : "");
+        free(new_line);
     }
 
     fclose(out);
@@ -713,13 +560,6 @@ void delete_column(int col_idx, const char *arg, const char *csv_filename)
 
 void rebuild_header_row(void)
 {
-    if (row_count == 0 || !use_headers) {
-        return;
-    }
-
-    char *new_header = build_csv_line(column_names, col_count, csv_delimiter);
-    if (new_header) {
-        free(rows[0].line_cache);
-        rows[0].line_cache = new_header;
-    }
+    if (row_count == 0) return;
+    g_fmt->rebuild_header();
 }

@@ -7,6 +7,7 @@
 #include "search.h"
 #include "utils.h"          // strcasestr_custom, get_column_value, etc.
 #include "ui_draw.h"        // spinner_tick / spinner_clear
+#include "file_format.h"    // g_fmt
 
 #include <stdio.h>          // fseek, fgets
 #include <stdlib.h>         // malloc, strdup
@@ -51,7 +52,10 @@ void perform_search(RowIndex *rows, FILE *f, int row_count)
         }
 
         int field_count = 0;
-        char **fields = parse_csv_line(rows[r].line_cache, &field_count);
+        char **fields = g_fmt ? g_fmt->parse_row(
+                            rows[r].line_cache ? rows[r].line_cache : "",
+                            &field_count)
+                              : parse_csv_line(rows[r].line_cache, &field_count);
         if (!fields) continue;
 
         for (int c = 0; c < field_count && c < col_count && search_count < MAX_SEARCH_RESULTS; c++)

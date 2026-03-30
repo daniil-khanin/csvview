@@ -8,6 +8,7 @@
 
 #include "column_format.h"
 #include "utils.h"          // trim, col_letter
+#include "file_format.h"    // g_fmt
 
 #include <ncurses.h>
 #include <stdio.h>          // snprintf
@@ -274,7 +275,7 @@ void auto_detect_column_types(void)
             }
 
             int field_count = 0;
-            char **fields = parse_csv_line(rows[r].line_cache, &field_count);
+            char **fields = g_fmt ? g_fmt->parse_row(rows[r].line_cache ? rows[r].line_cache : "", &field_count) : parse_csv_line(rows[r].line_cache, &field_count);
             if (!fields) continue;
 
             const char *val = (c < field_count) ? fields[c] : "";
@@ -608,7 +609,7 @@ int show_column_setup(const char *csv_filename)
 
         // Parse the line using the new function
         int field_count = 0;
-        char **fields = parse_csv_line(rows[preview_row].line_cache, &field_count);
+        char **fields = g_fmt ? g_fmt->parse_row(rows[preview_row].line_cache ? rows[preview_row].line_cache : "", &field_count) : parse_csv_line(rows[preview_row].line_cache, &field_count);
 
         if (fields && field_count > 0)
         {
@@ -872,7 +873,7 @@ int show_column_setup(const char *csv_filename)
         }
 
         int field_count = 0;
-        char **fields = parse_csv_line(rows[preview_row].line_cache, &field_count);
+        char **fields = g_fmt ? g_fmt->parse_row(rows[preview_row].line_cache ? rows[preview_row].line_cache : "", &field_count) : parse_csv_line(rows[preview_row].line_cache, &field_count);
         if (fields)
         {
             for (int c = 0; c < field_count && c < col_count; c++)
@@ -1128,7 +1129,7 @@ int show_column_setup(const char *csv_filename)
                     }
                 }
                 int field_count = 0;
-                char **fields = parse_csv_line(rows[preview_row].line_cache, &field_count);
+                char **fields = g_fmt ? g_fmt->parse_row(rows[preview_row].line_cache ? rows[preview_row].line_cache : "", &field_count) : parse_csv_line(rows[preview_row].line_cache, &field_count);
                 if (fields)
                 {
                     for (int c = 0; c < field_count && c < col_count; c++)
@@ -1177,8 +1178,8 @@ int show_column_setup(const char *csv_filename)
                 }
             }
 
-            // Parse headers with the new delimiter
-            if (rows[0].line_cache) {
+            // Parse headers with the new delimiter (CSV only)
+            if (g_fmt && g_fmt->has_header_row && rows[0].line_cache) {
                 int hdr_count = 0;
                 char **hdr_fields = parse_csv_line(rows[0].line_cache, &hdr_count);
                 if (hdr_fields) {
@@ -1215,7 +1216,7 @@ int show_column_setup(const char *csv_filename)
                 }
                 if (rows[preview_row].line_cache) {
                     int field_count = 0;
-                    char **fields = parse_csv_line(rows[preview_row].line_cache, &field_count);
+                    char **fields = g_fmt ? g_fmt->parse_row(rows[preview_row].line_cache ? rows[preview_row].line_cache : "", &field_count) : parse_csv_line(rows[preview_row].line_cache, &field_count);
                     if (fields) {
                         for (int c = 0; c < field_count && c < col_count; c++) {
                             strncpy(preview_values[c], fields[c], sizeof(preview_values[c]) - 1);

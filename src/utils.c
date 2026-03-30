@@ -1,4 +1,5 @@
 #include "utils.h"
+#include "file_format.h"
 #include <time.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -739,7 +740,8 @@ char *get_column_value(const char *line, const char *col_name, int use_headers)
         return strdup("");
 
     int count;
-    char **fields = parse_csv_line(line, &count);
+    char **fields = g_fmt ? g_fmt->parse_row(line, &count)
+                          : parse_csv_line(line, &count);
     if (!fields)
         return strdup("");
 

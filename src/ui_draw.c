@@ -7,6 +7,7 @@
 #include "ui_draw.h"
 #include "utils.h"          // col_letter, format_cell_value, truncate_string, etc.
 #include "csvview_defs.h"   // globals (cur_col, cur_display_row, etc.)
+#include "file_format.h"    // g_fmt
 
 #include <ncurses.h>        // all ncurses functions
 #include <string.h>         // strlen, strncpy
@@ -345,9 +346,11 @@ void draw_table_body(int top, int offset __attribute__((unused)), int visible_ro
             }
         }
 
-        // Parse the row using the new function
         int field_count = 0;
-        char **fields = parse_csv_line(rows[real_row].line_cache, &field_count);
+        char **fields = g_fmt ? g_fmt->parse_row(
+                            rows[real_row].line_cache ? rows[real_row].line_cache : "",
+                            &field_count)
+                              : parse_csv_line(rows[real_row].line_cache, &field_count);
 
         if (!fields) {
             // on parse error — draw an empty row

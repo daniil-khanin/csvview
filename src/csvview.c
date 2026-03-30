@@ -32,6 +32,8 @@
 #include "csv_mmap.h"
 #include "themes.h"
 #include "splash.h"
+#include "file_format.h"
+#include "json_parse.h"
 
 // ────────────────────────────────────────────────
 // Global variables — definitions (initialization)
@@ -270,6 +272,13 @@ static void reparse_column_names(void)
 {
     for (int i = 0; i < col_count; i++) { free(column_names[i]); column_names[i] = NULL; }
     col_count = 0;
+
+    if (!g_fmt->has_header_row) {
+        /* NDJSON: re-discover column names from file content */
+        col_count = ndjson_discover_columns(f, column_names, MAX_COLS);
+        for (int i = 0; i < col_count; i++) col_types[i] = COL_STR;
+        return;
+    }
 
     if (!rows[0].line_cache) {
         fseek(f, rows[0].offset, SEEK_SET);
@@ -1474,8 +1483,11 @@ int main(int argc, char *argv[]) {
         free(input_files);
     }
 
+    /* Set the active format driver before anything else. */
+    fmt_detect(file_to_open);
+
     // Auto-detect delimiter from file extension (if --sep not specified)
-    if (csv_delimiter == ',') {
+    if (csv_delimiter == ',' && g_fmt->id != FMT_NDJSON) {
         const char *ext = strrchr(file_to_open, '.');
         if (ext) {
             if (strcasecmp(ext, ".tsv") == 0)       { csv_delimiter = '\t'; sep_explicit = 1; }
@@ -1533,46 +1545,49 @@ int main(int argc, char *argv[]) {
     }
 
     if (col_count == 0) {  // guard against double-parsing
-        if (!rows[0].line_cache) {
-            fseek(f, rows[0].offset, SEEK_SET);
-            char line_buf[MAX_LINE_LEN];
-            if (fgets(line_buf, sizeof(line_buf), f)) {
-                // Strip ALL possible line endings and garbage
-                line_buf[strcspn(line_buf, "\r\n")] = '\0';
-                // Additionally strip trailing spaces (including non-breaking space)
-                char *end = line_buf + strlen(line_buf) - 1;
-                while (end >= line_buf &&
-                       (*end == ' ' || *end == '\t' || (unsigned char)*end == 0xA0)) {
-                    *end-- = '\0';
+        if (!g_fmt->has_header_row) {
+            /* NDJSON: discover columns by scanning the file content */
+            use_headers = 0;
+            col_count = ndjson_discover_columns(f, column_names, MAX_COLS);
+            for (int i = 0; i < col_count; i++) col_types[i] = COL_STR;
+        } else {
+            /* CSV: row 0 is the header */
+            if (!rows[0].line_cache) {
+                fseek(f, rows[0].offset, SEEK_SET);
+                char line_buf[MAX_LINE_LEN];
+                if (fgets(line_buf, sizeof(line_buf), f)) {
+                    line_buf[strcspn(line_buf, "\r\n")] = '\0';
+                    char *end = line_buf + strlen(line_buf) - 1;
+                    while (end >= line_buf &&
+                           (*end == ' ' || *end == '\t' || (unsigned char)*end == 0xA0)) {
+                        *end-- = '\0';
+                    }
+                    rows[0].line_cache = strdup(line_buf);
+                } else {
+                    rows[0].line_cache = strdup("");
                 }
-                rows[0].line_cache = strdup(line_buf);
-            } else {
-                rows[0].line_cache = strdup("");
             }
-        }
 
-        col_count = 0;
-        int hdr_count = 0;
-        char **hdr_fields = parse_csv_line(rows[0].line_cache, &hdr_count);
+            col_count = 0;
+            int hdr_count = 0;
+            char **hdr_fields = parse_csv_line(rows[0].line_cache, &hdr_count);
 
-        if (hdr_fields) {
-            while (col_count < hdr_count && col_count < MAX_COLS) {
-                char *t = hdr_fields[col_count];
-                // Strip leading spaces/tabs/non-breaking spaces
-                while (*t == ' ' || *t == '\t' || (unsigned char)*t == 0xA0) t++;
-                // Strip trailing spaces/tabs/non-breaking spaces
-                char *end = t + strlen(t) - 1;
-                while (end >= t &&
-                       (*end == ' ' || *end == '\t' || (unsigned char)*end == 0xA0))
-                    *end-- = '\0';
-
-                column_names[col_count] = strdup(t);
-                if (!column_names[col_count])
-                    column_names[col_count] = strdup("(memory error)");
-                col_types[col_count] = COL_STR;
-                col_count++;
+            if (hdr_fields) {
+                while (col_count < hdr_count && col_count < MAX_COLS) {
+                    char *t = hdr_fields[col_count];
+                    while (*t == ' ' || *t == '\t' || (unsigned char)*t == 0xA0) t++;
+                    char *end = t + strlen(t) - 1;
+                    while (end >= t &&
+                           (*end == ' ' || *end == '\t' || (unsigned char)*end == 0xA0))
+                        *end-- = '\0';
+                    column_names[col_count] = strdup(t);
+                    if (!column_names[col_count])
+                        column_names[col_count] = strdup("(memory error)");
+                    col_types[col_count] = COL_STR;
+                    col_count++;
+                }
+                free_csv_fields(hdr_fields, hdr_count);
             }
-            free_csv_fields(hdr_fields, hdr_count);
         }
 
         // Initialize formats after col_count is determined
@@ -1602,6 +1617,9 @@ int main(int argc, char *argv[]) {
         auto_detect_column_types();
         save_column_settings(file_to_open);
     }
+
+    /* NDJSON has no header row — override any setting loaded from .csvf */
+    if (!g_fmt->has_header_row) use_headers = 0;
 
     char cfg_path[1024];
     snprintf(cfg_path, sizeof(cfg_path), "%s.csvf", file_to_open);
@@ -3068,14 +3086,15 @@ int main(int argc, char *argv[]) {
                 undo_push(cur_real_row, rows[cur_real_row].line_cache);
 
                 int field_count = 0;
-                char **fields = parse_csv_line(
+                char **fields = g_fmt->parse_row(
                     rows[cur_real_row].line_cache ? rows[cur_real_row].line_cache : "",
                     &field_count);
 
                 if (fields && cur_col < field_count) {
                     free(fields[cur_col]);
                     fields[cur_col] = strdup(edit_buffer);
-                    char *new_line = build_csv_line(fields, field_count, csv_delimiter);
+                    char *new_line = g_fmt->build_row(fields, field_count,
+                                                      column_names, col_types);
                     free_csv_fields(fields, field_count);
                     if (new_line) {
                         free(rows[cur_real_row].line_cache);

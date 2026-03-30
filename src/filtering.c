@@ -9,6 +9,7 @@
 #include "filtering.h"
 #include "ui_draw.h"
 #include "csv_mmap.h"
+#include "file_format.h"
 
 #include <ncurses.h>
 #include <stdio.h>
@@ -111,7 +112,8 @@ static int old_syntax_match(const char *line, const OldSyntaxState *s)
     if (!s->valid) return 0;
 
     int field_count = 0;
-    char **fields = parse_csv_line(line, &field_count);
+    char **fields = g_fmt ? g_fmt->parse_row(line, &field_count)
+                          : parse_csv_line(line, &field_count);
     if (!fields) return 0;
 
     int match = 0;
@@ -301,7 +303,8 @@ void apply_filter(RowIndex *rows_arg, FILE *f_arg, int row_count_arg)
                 }
 
                 int field_count = 0;
-                char **fields = parse_csv_line(line, &field_count);
+                char **fields = g_fmt ? g_fmt->parse_row(line, &field_count)
+                                      : parse_csv_line(line, &field_count);
                 if (fields) {
                     for (int c = 0; c < field_count && c < col_count && !match; c++) {
                         const char *token = fields[c];
