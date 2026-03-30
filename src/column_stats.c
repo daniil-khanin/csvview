@@ -179,7 +179,9 @@ static void show_percentile_breakdown(const double *vals, long n, const char *co
     mvwprintw(win, y++, 2, "%-14s %14.4g", "Std Dev", stddev);
     mvwprintw(win, y++, 2, "%-14s %14.4g", "Mean", mean);
 
-    mvwprintw(win, ph - 2, 2, "[any key] Close");
+    wattron(win, COLOR_PAIR(6));
+    mvwprintw(win, ph - 2, 2, "[ any key: Close ]");
+    wattroff(win, COLOR_PAIR(6));
     wrefresh(win);
     wgetch(win);
 
@@ -296,7 +298,9 @@ static void show_value_trends(const double *vals, long n, const char *col_name)
         }
 
         wattron(win, COLOR_PAIR(6)); mvwhline(win, data_y0 + page_sz, 1, ACS_HLINE, pw - 2); wattroff(win, COLOR_PAIR(6));
-        mvwprintw(win, data_y0 + page_sz + 1, 2, "j/k Navigate  |  [q] Close");
+        wattron(win, COLOR_PAIR(6));
+        mvwprintw(win, data_y0 + page_sz + 1, 2, "[ j/k: Navigate  |  q: Close ]");
+        wattroff(win, COLOR_PAIR(6));
         wrefresh(win);
 
         int ch = wgetch(win);
@@ -395,7 +399,9 @@ static void show_freq_list(Freq *freqs, long freq_count, long valid_count,
         mvwprintw(win, 1, COLS - 2 - (int)strlen(info_buf), "%s", info_buf);
 
         /* Sort hint */
-        mvwprintw(win, 2, 2, "Sort: %s   [s] cycle", freq_sort_names[sort_mode]);
+        wattron(win, COLOR_PAIR(6));
+        mvwprintw(win, 2, 2, "[ Sort: %s   s: cycle ]", freq_sort_names[sort_mode]);
+        wattroff(win, COLOR_PAIR(6));
 
         /* Divider + header */
         wattron(win, COLOR_PAIR(6));
@@ -479,9 +485,11 @@ static void show_freq_list(Freq *freqs, long freq_count, long valid_count,
         mvwhline(win, data_y1, 1, ACS_HLINE, COLS - 2);
         wattroff(win, COLOR_PAIR(6));
 
+        wattron(win, COLOR_PAIR(6));
         mvwprintw(win, data_y1 + 1, 2,
-            "Row %ld/%ld  |  j/k/arrows Navigate  |  [s] Sort  |  [Enter] Drilldown filter  |  [q] Close",
+            "[ Row %ld/%ld  |  j/k: Navigate  |  s: Sort  |  Enter: Drilldown filter  |  q: Close ]",
             cur + 1, freq_count);
+        wattroff(win, COLOR_PAIR(6));
 
         wrefresh(win);
 
@@ -1021,16 +1029,18 @@ skip_num_alloc:
     }
 
     // Close hint
+    wattron(win, COLOR_PAIR(6));
     if (col_types[col_idx] == COL_NUM && numeric_count > 0) {
         if (freq_count > 0)
-            mvwprintw(win, STATS_H - 2, 2, "[f] Freq  [p] Percentiles  [e] Trends  [any] Close");
+            mvwprintw(win, STATS_H - 2, 2, "[ f: Freq  p: Percentiles  e: Trends  any key: Close ]");
         else
-            mvwprintw(win, STATS_H - 2, 2, "[p] Percentiles  [e] Trends  [any key] Close");
+            mvwprintw(win, STATS_H - 2, 2, "[ p: Percentiles  e: Trends  any key: Close ]");
     } else if (freq_count > 0) {
-        mvwprintw(win, STATS_H - 2, 2, "[f] Full frequency list   [any key] Close");
+        mvwprintw(win, STATS_H - 2, 2, "[ f: Full frequency list   any key: Close ]");
     } else {
-        mvwprintw(win, STATS_H - 2, 2, "Press any key to close");
+        mvwprintw(win, STATS_H - 2, 2, "[ any key: Close ]");
     }
+    wattroff(win, COLOR_PAIR(6));
     wrefresh(win);
 
     // Wait for keypress
@@ -1082,7 +1092,9 @@ int show_correlation_matrix(int *out_x_col, int *out_y_col)
             wbkgd(mw, COLOR_PAIR(1));
             wattron(mw, COLOR_PAIR(6)); draw_rounded_box(mw); wattroff(mw, COLOR_PAIR(6));
             mvwprintw(mw, 2, 3, "Need at least 2 numeric columns.");
-            mvwprintw(mw, 3, 3, "[any key] Close");
+            wattron(mw, COLOR_PAIR(6));
+            mvwprintw(mw, 3, 3, "[ any key: Close ]");
+            wattroff(mw, COLOR_PAIR(6));
             wrefresh(mw); wgetch(mw); delwin(mw);
             touchwin(stdscr); refresh();
         }
@@ -1297,9 +1309,11 @@ int show_correlation_matrix(int *out_x_col, int *out_y_col)
             else col_letter(ncols[cur_a], cn_a);
             if ((use_headers || (g_fmt && !g_fmt->has_header_row)) && column_names[ncols[cur_b]]) strncpy(cn_b, column_names[ncols[cur_b]], 15);
             else col_letter(ncols[cur_b], cn_b);
+            wattron(win, COLOR_PAIR(6));
             mvwprintw(win, ph - 2, 2,
-                "r=%.4f  hjkl Navigate  Enter Scatter  q Close",
+                "[ r=%.4f  hjkl: Navigate  Enter: Scatter  q: Close ]",
                 rmat[cur_a * nc + cur_b]);
+            wattroff(win, COLOR_PAIR(6));
             mvwprintw(win, ph - 2, pw - 2 - (int)strlen(cn_a) - 1 - (int)strlen(cn_b) - 1,
                 "%s/%s", cn_a, cn_b);
 
@@ -1369,7 +1383,9 @@ int show_outlier_report(double threshold)
             wbkgd(mw, COLOR_PAIR(1));
             wattron(mw, COLOR_PAIR(6)); draw_rounded_box(mw); wattroff(mw, COLOR_PAIR(6));
             mvwprintw(mw, 2, 3, "No numeric columns found.");
-            mvwprintw(mw, 3, 3, "[any key] Close");
+            wattron(mw, COLOR_PAIR(6));
+            mvwprintw(mw, 3, 3, "[ any key: Close ]");
+            wattroff(mw, COLOR_PAIR(6));
             wrefresh(mw); wgetch(mw); delwin(mw);
             touchwin(stdscr); refresh();
         }
@@ -1487,7 +1503,9 @@ int show_outlier_report(double threshold)
             wbkgd(mw, COLOR_PAIR(1));
             wattron(mw, COLOR_PAIR(6)); draw_rounded_box(mw); wattroff(mw, COLOR_PAIR(6));
             mvwprintw(mw, 2, 3, "No outliers found (threshold: %.1f sigma).", threshold);
-            mvwprintw(mw, 3, 3, "[any key] Close");
+            wattron(mw, COLOR_PAIR(6));
+            mvwprintw(mw, 3, 3, "[ any key: Close ]");
+            wattroff(mw, COLOR_PAIR(6));
             wrefresh(mw); wgetch(mw); delwin(mw);
             touchwin(stdscr); refresh();
         }
@@ -1560,9 +1578,11 @@ int show_outlier_report(double threshold)
             }
 
             wattron(win, COLOR_PAIR(6)); mvwhline(win, data_y1, 1, ACS_HLINE, COLS - 2); wattroff(win, COLOR_PAIR(6));
+            wattron(win, COLOR_PAIR(6));
             mvwprintw(win, data_y1 + 1, 2,
-                "Row %ld/%ld  |  j/k Navigate  |  [Enter] Jump to row  |  [f] Filter by column  |  [q] Close",
+                "[ Row %ld/%ld  |  j/k: Navigate  |  Enter: Jump to row  |  f: Filter  |  q: Close ]",
                 cur + 1, outlier_count);
+            wattroff(win, COLOR_PAIR(6));
 
             wrefresh(win);
             int ch = wgetch(win);

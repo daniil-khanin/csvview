@@ -193,7 +193,7 @@ int show_marks_window(const char *csv_filename)
         /* Footer on bottom border */
         wattron(win, COLOR_PAIR(6));
         mvwprintw(win, win_h - 1, 2,
-                  "j/k ↑↓ — select  Enter — jump  d — delete  q/Esc — close");
+                  "[ j/k/↑↓: select  Enter: jump  d: delete  q/Esc: close ]");
         wattroff(win, COLOR_PAIR(6));
 
         /* Scroll indicator */

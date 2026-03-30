@@ -1177,7 +1177,9 @@ void show_pivot_settings_window(PivotSettings *settings, const char *csv_filenam
             if (f == current_field) wattroff(win, A_REVERSE);
         }
 
-        mvwprintw(win, win_h - 1, 2, "↑↓ j/k - select | ←→ h/l - change | Enter - Build | Esc/q - Cancel");
+        wattron(win, COLOR_PAIR(6));
+        mvwprintw(win, win_h - 1, 2, "[ ↑↓/jk: select  ←→/hl: change  Enter: Build  Esc/q: Cancel ]");
+        wattroff(win, COLOR_PAIR(6));
         wrefresh(win);
 
         int ch = wgetch(win);
