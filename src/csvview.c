@@ -98,6 +98,7 @@ int       graph_scatter_mode      = 0;   /* 1 = scatter plot active */
 int       graph_scatter_x_col     = -1; /* X column for scatter plot */
 int       graph_pie_mode          = 0;  /* 1 = pie/donut chart active */
 int       graph_pie_col           = -1; /* column for pie chart */
+double    graph_pie_inner_ratio   = 0.42; /* donut hole size: 0.0=full pie … 0.9=thin ring */
 int       graph_box_mode          = 0;  /* 1 = box plot active */
 int       graph_heat_mode         = 0;  /* 1 = correlation heatmap active */
 int       current_graph           = 0;
@@ -2055,6 +2056,8 @@ int main(int argc, char *argv[]) {
                     printw(" | %s  Y:%s  [zoom]", type_str, scale_str);
                 else
                     printw(" | %s  Y:%s", type_str, scale_str);
+            } else if (graph_pie_mode) {
+                printw(" | %s  hole:%.0f%%  [<>:resize]", type_str, graph_pie_inner_ratio * 100.0);
             } else {
                 printw(" | %s", type_str);
             }
@@ -2828,6 +2831,12 @@ int main(int argc, char *argv[]) {
                     graph_zoom_end   = -1;
                     graph_cursor_pos = 0;
                 }
+            } else if (ch == '<' && graph_pie_mode) {
+                graph_pie_inner_ratio -= 0.05;
+                if (graph_pie_inner_ratio < 0.0) graph_pie_inner_ratio = 0.0;
+            } else if (ch == '>' && graph_pie_mode) {
+                graph_pie_inner_ratio += 0.05;
+                if (graph_pie_inner_ratio > 0.85) graph_pie_inner_ratio = 0.85;
             } else if (ch == '?') {
                 show_help(1);
             }

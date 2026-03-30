@@ -1106,7 +1106,7 @@ void draw_pie_chart(int col, int height, int width)
     /* Radius in row-units; cells are ~2× wider than tall → dx*=0.5 */
     double outer_r = fmin((double)(pie_h / 2 - 1), (double)(pie_w / 4 - 1));
     if (outer_r < 3.0) outer_r = 3.0;
-    double inner_r = outer_r * 0.42;   /* donut hole */
+    double inner_r = outer_r * graph_pie_inner_ratio;   /* donut hole */
     double start_a = angles[0];
 
     /* SDF density chars: light (edge) → heavy (interior) */

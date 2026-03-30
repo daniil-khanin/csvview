@@ -230,6 +230,7 @@ extern int graph_scatter_mode;
 extern int graph_scatter_x_col;
 extern int graph_pie_mode;
 extern int graph_pie_col;
+extern double graph_pie_inner_ratio;
 extern int graph_box_mode;
 extern int graph_heat_mode;
 extern int graph_series_hidden[10];
