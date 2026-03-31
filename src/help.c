@@ -350,8 +350,7 @@ void show_help(int use_ncurses)
 
         // Navigation hint (always at the bottom)
         wattron(win, COLOR_PAIR(6));
-        mvwprintw(win, win_h - 1, 2,
-                  "[ ↑↓/jk: scroll  PgUp/PgDn: page  Home/End: top/bottom  Esc/q: close ]");
+        mvwprintw(win, win_h - 1, 2, "[ ↑↓ / j k — scroll | PageUp/PageDown — page | Home/End — top/bottom | Esc/q — close ]");
         wattroff(win, COLOR_PAIR(6));
 
         int top_line = 0;                   // first visible text line
@@ -412,7 +411,7 @@ void show_help(int use_ncurses)
 
             // Navigation hint (always visible)
             wattron(win, COLOR_PAIR(6));
-            mvwprintw(win, win_h - 1, 2, "↑↓ / j k — scroll | PageUp/PageDown — page | Home/End — top/bottom | Esc/q — close");
+            mvwprintw(win, win_h - 1, 2, "[ ↑↓ / j k — scroll | PageUp/PageDown — page | Home/End — top/bottom | Esc/q — close ]");
             wattroff(win, COLOR_PAIR(6));
 
             wrefresh(win);
