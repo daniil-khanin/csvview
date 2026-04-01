@@ -703,7 +703,7 @@ static void export_pie_svg(FILE *out, const SvgLayout *L,
     double cx = L->ml + L->pw * 0.36;
     double cy = L->mt + L->ph * 0.50;
     double r_outer = fmin(L->pw * 0.28, L->ph * 0.44);
-    double r_inner = r_outer * 0.42;
+    double r_inner = r_outer * graph_pie_inner_ratio;
 
     /* Cumulative angles from top, clockwise ─────────────────────── */
     double *angles = calloc(show_slices + 1, sizeof(double));
