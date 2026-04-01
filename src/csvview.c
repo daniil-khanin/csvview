@@ -3580,6 +3580,66 @@ int main(int argc, char *argv[]) {
                     msg = "Date (%Y-%m-%d)";
                 }
                 if (msg) {
+                    /* When switching to numeric (ci/cf), strip formatting:
+                       commas (1,456,678 → 1456678), currency ($, €, £, ¥),
+                       spaces, and surrounding whitespace */
+                    if (ch2 == 'i' || ch2 == 'f') {
+                        int sr = use_headers ? 1 : 0;
+                        long cleaned = 0;
+                        for (int r = sr; r < row_count; r++) {
+                            if (!rows[r].line_cache) {
+                                if (f) {
+                                    fseek(f, rows[r].offset, SEEK_SET);
+                                    char lb[MAX_LINE_LEN];
+                                    if (fgets(lb, sizeof(lb), f)) {
+                                        lb[strcspn(lb, "\r\n")] = '\0';
+                                        rows[r].line_cache = strdup(lb);
+                                    } else {
+                                        rows[r].line_cache = strdup("");
+                                    }
+                                } else {
+                                    char *ml = csv_mmap_get_line(rows[r].offset, NULL, 0);
+                                    rows[r].line_cache = strdup(ml ? ml : "");
+                                }
+                            }
+                            int fc2 = 0;
+                            char **fields = g_fmt->parse_row(rows[r].line_cache, &fc2);
+                            if (fields && cur_col < fc2 && fields[cur_col]) {
+                                const char *src = fields[cur_col];
+                                /* Strip number formatting: currency symbols, thousand
+                                   separators (comma, space, NBSP, thin/narrow space) */
+                                char clean[MAX_LINE_LEN];
+                                int ci2 = 0;
+                                for (const char *p = src; *p && ci2 < MAX_LINE_LEN - 1; p++) {
+                                    unsigned char c = (unsigned char)*p;
+                                    /* skip ASCII: comma, space, tab, $  */
+                                    if (c == ',' || c == ' ' || c == '\t' || c == '$') continue;
+                                    /* NBSP U+00A0 (c2 a0), £ U+00A3 (c2 a3), ¥ U+00A5 (c2 a5) */
+                                    if (c == 0xc2 && ((unsigned char)p[1] == 0xa0 ||
+                                                      (unsigned char)p[1] == 0xa3 ||
+                                                      (unsigned char)p[1] == 0xa5)) { p++; continue; }
+                                    /* € U+20AC (e2 82 ac) */
+                                    if (c == 0xe2 && (unsigned char)p[1] == 0x82 && (unsigned char)p[2] == 0xac) { p += 2; continue; }
+                                    /* thin space U+2009 (e2 80 89), narrow no-break space U+202F (e2 80 af) */
+                                    if (c == 0xe2 && (unsigned char)p[1] == 0x80 &&
+                                        ((unsigned char)p[2] == 0x89 || (unsigned char)p[2] == 0xaf)) { p += 2; continue; }
+                                    clean[ci2++] = *p;
+                                }
+                                clean[ci2] = '\0';
+                                if (strcmp(fields[cur_col], clean) != 0) {
+                                    free(fields[cur_col]);
+                                    fields[cur_col] = strdup(clean);
+                                    char *new_line = g_fmt->build_row(fields, fc2, column_names, col_types);
+                                    free(rows[r].line_cache);
+                                    rows[r].line_cache = new_line ? new_line : strdup("");
+                                    cleaned++;
+                                }
+                            }
+                            free_csv_fields(fields, fc2);
+                        }
+                        if (cleaned > 0)
+                            msg = (ch2 == 'i') ? "Integer (cleaned)" : "Float (cleaned)";
+                    }
                     save_column_settings(file_to_open);
                     draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
                     attron(COLOR_PAIR(3));
