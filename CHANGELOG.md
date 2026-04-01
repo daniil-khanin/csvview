@@ -1,5 +1,34 @@
 # Changelog
 
+## v20 — 2026-04-01
+
+### New features
+
+- **Theme picker** (`:theme`): interactive popup window with live preview. Navigate
+  themes with ↑↓/jk, see changes instantly; Enter or q/Esc to confirm.
+
+- **Numeric cleanup on type change** (`ci`/`cf`): when switching a column to
+  Integer or Float, formatting is automatically stripped — commas (`1,456,678` →
+  `1456678`), currency symbols ($, €, £, ¥), non-breaking spaces, thin spaces.
+
+- **NaN filtering**: advanced filter now handles NaN values correctly.
+  `col = nan` finds all NaN rows; `col != nan` excludes them.
+
+- **Reworked menu bar**: hotkeys highlighted in bold accent color, added
+  `f` Filter and `/` Search shortcuts, replaced `g:` with `^G` Graph.
+
+### Bug fixes
+
+- **Graph crash on NaN**: line/bar/dot charts no longer crash when a numeric
+  column contains NaN values (treated as 0). Scatter, box plot, and heatmap
+  skip NaN rows instead of producing garbage.
+- **SVG pie export**: donut hole radius now respects the `<`/`>` setting
+  instead of using a hardcoded 42%.
+- **Light theme**: accent color changed from black-on-yellow background to
+  clean blue text on white — consistent with other themes.
+- **Help screen**: version number is now dynamic from `CSVVIEW_VERSION`
+  (was hardcoded as v18).
+
 ## v19 — 2026-03-29
 
 ### New features
