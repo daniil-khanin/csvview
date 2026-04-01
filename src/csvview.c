@@ -129,6 +129,7 @@ int    scatter_vp_active = 0;
 int   save_sort_col       = -1;
 int   save_sort_order     = 0;
 int   save_sort_level_count = 0;
+SortLevel save_sort_levels[MAX_SORT_LEVELS];
 int   save_sorted_count   = 0;
 int  *save_sorted_rows    = NULL;
 int   save_filtered_count = 0;
@@ -147,6 +148,7 @@ int relative_line_numbers = 0;
 
 // 12a. Bookmarks (vim-style): 26 letters a-z, store display row (-1 = not set)
 int bookmarks[26];
+int col_bookmarks[26];
 
 // 12. Drill-down from pivot: filter for returning to the main table
 char pivot_drilldown_filter[512] = "";
@@ -1447,7 +1449,7 @@ static const char *program_path = NULL;
 
 int main(int argc, char *argv[]) {
     program_path = argv[0];
-    for (int i = 0; i < 26; i++) bookmarks[i] = -1;
+    for (int i = 0; i < 26; i++) { bookmarks[i] = -1; col_bookmarks[i] = -1; }
     if (argc == 2 && (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "-?") == 0 || strcmp(argv[1], "/h") == 0)) {
         show_help(0);
         return 0;
@@ -2087,6 +2089,14 @@ int main(int argc, char *argv[]) {
                     break;
                 }
             }
+            for (int bi = 0; bi < 26; bi++) {
+                if (col_bookmarks[bi] == cur_col) {
+                    attron(COLOR_PAIR(3));
+                    printw(" [col:%c]", 'a' + bi);
+                    attroff(COLOR_PAIR(3));
+                    break;
+                }
+            }
         }
 
         refresh();
@@ -2110,6 +2120,7 @@ int main(int argc, char *argv[]) {
                 if (using_date_x) {
                     sort_col = save_sort_col; sort_level_count = save_sort_level_count;
                     sort_order = save_sort_order;
+                    memcpy(sort_levels, save_sort_levels, sizeof(sort_levels));
                     if (filter_active) {
                         memcpy(filtered_rows, save_filtered_rows, sizeof(int) * save_filtered_count);
                         filtered_count = save_filtered_count;
@@ -2249,6 +2260,7 @@ int main(int argc, char *argv[]) {
                         if (save_sort_col != -999) {  // -999 as "not saved" marker
                             sort_col = save_sort_col; sort_level_count = save_sort_level_count;
                             sort_order = save_sort_order;
+                            memcpy(sort_levels, save_sort_levels, sizeof(sort_levels));
 
                             if (filter_active) {
                                 // Restore filtered indices (if needed)
@@ -2306,6 +2318,7 @@ int main(int argc, char *argv[]) {
                     if (save_sort_col == -999) {  // "not saved" marker
                         save_sort_col = sort_col; save_sort_level_count = sort_level_count;
                         save_sort_order = sort_order;
+                        memcpy(save_sort_levels, sort_levels, sizeof(sort_levels));
                         if (filter_active) {
                             save_filtered_count = filtered_count;
                             save_filtered_rows = malloc(sizeof(int) * filtered_count);
@@ -2324,20 +2337,19 @@ int main(int argc, char *argv[]) {
                     // Sort the table by the selected date column (ascending)
                     sort_col = selected_col;
                     sort_order = 1;
+                    sort_level_count = 1;
+                    sort_levels[0].col = selected_col;
+                    sort_levels[0].order = 1;
 
                     if (filter_active) {
                         qsort(filtered_rows, filtered_count, sizeof(int), compare_rows_by_column);
                     } else {
                         build_sorted_index();
-                        sorted_count = row_count - (use_headers ? 1 : 0);
                     }
 
-                    // Restore old sort_col / sort_order (but indices are already sorted by date!)
-                    sort_col = save_sort_col; sort_level_count = save_sort_level_count;
-                    sort_order = save_sort_order;
-
-                    // Set the new X axis
+                    // Set the new X axis (keep sort state active for display_count / get_real_row)
                     date_x_col = selected_col;
+                    date_col = selected_col;
                     using_date_x = 1;
 
                     // If already in graph mode — redraw immediately
@@ -2960,10 +2972,12 @@ int main(int argc, char *argv[]) {
                     using_date_x = 1;
                     save_sort_col = sort_col; save_sort_level_count = sort_level_count;
                     save_sort_order = sort_order;
-                    int temp_sort_col = sort_col;
-                    int temp_sort_order = sort_order;
+                    memcpy(save_sort_levels, sort_levels, sizeof(sort_levels));
                     sort_col = date_col;
                     sort_order = 1;
+                    sort_level_count = 1;
+                    sort_levels[0].col = date_col;
+                    sort_levels[0].order = 1;
 
                     draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
                     attron(COLOR_PAIR(3));
@@ -2986,8 +3000,6 @@ int main(int argc, char *argv[]) {
                         }
                         build_sorted_index();
                     }
-                    sort_col = temp_sort_col;
-                    sort_order = temp_sort_order;
                 }
             }
             in_graph_mode = 1;
@@ -3987,6 +3999,83 @@ int main(int argc, char *argv[]) {
                 }
             }
         }
+        else if (ch == 'M') {  /* column bookmark: M (auto) or M<a-z> (explicit) */
+            halfdelay(3);
+            int label = getch();
+            cbreak();
+
+            draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
+
+            if (label >= 'a' && label <= 'z') {
+                int bi = label - 'a';
+                if (col_bookmarks[bi] == cur_col) {
+                    col_bookmarks[bi] = -1;
+                    attron(COLOR_PAIR(6));
+                    printw(" | Col bookmark '%c' cleared", label);
+                    attroff(COLOR_PAIR(6));
+                } else {
+                    col_bookmarks[bi] = cur_col;
+                    char clet[4]; col_letter(cur_col, clet);
+                    attron(COLOR_PAIR(3));
+                    printw(" | Col bookmark '%c' -> %s", label,
+                           column_names[cur_col] ? column_names[cur_col] : clet);
+                    attroff(COLOR_PAIR(3));
+                }
+            } else if (label != 27) {
+                /* Auto-assign: toggle off if column already bookmarked */
+                int found = -1;
+                for (int bi = 0; bi < 26; bi++)
+                    if (col_bookmarks[bi] == cur_col) { found = bi; break; }
+                if (found >= 0) {
+                    col_bookmarks[found] = -1;
+                    attron(COLOR_PAIR(6));
+                    printw(" | Col bookmark '%c' cleared", 'a' + found);
+                    attroff(COLOR_PAIR(6));
+                } else {
+                    int bi = -1;
+                    for (int i = 0; i < 26; i++)
+                        if (col_bookmarks[i] < 0) { bi = i; break; }
+                    if (bi < 0) {
+                        attron(COLOR_PAIR(11));
+                        printw(" | All 26 col bookmarks in use");
+                        attroff(COLOR_PAIR(11));
+                    } else {
+                        col_bookmarks[bi] = cur_col;
+                        char clet[4]; col_letter(cur_col, clet);
+                        attron(COLOR_PAIR(3));
+                        printw(" | Col bookmark '%c' -> %s", 'a' + bi,
+                               column_names[cur_col] ? column_names[cur_col] : clet);
+                        attroff(COLOR_PAIR(3));
+                    }
+                }
+            }
+            refresh();
+        }
+        else if (ch == '"') {  /* jump to column bookmark: "<a-z> */
+            int label = getch();
+            if (label >= 'a' && label <= 'z') {
+                int target_col = col_bookmarks[label - 'a'];
+                if (target_col < 0 || target_col >= col_count) {
+                    draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
+                    attron(COLOR_PAIR(11));
+                    printw(" | No col bookmark '%c'", label);
+                    attroff(COLOR_PAIR(11));
+                } else {
+                    cur_col = target_col;
+                    /* Ensure the column is visible on screen */
+                    if (cur_col < left_col) left_col = cur_col;
+                    if (cur_col >= left_col + visible_cols) left_col = cur_col - visible_cols + 1;
+                    if (left_col < 0) left_col = 0;
+                    char clet[4]; col_letter(target_col, clet);
+                    draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
+                    attron(COLOR_PAIR(3));
+                    printw(" | Col bookmark '%c' -> %s", label,
+                           column_names[target_col] ? column_names[target_col] : clet);
+                    attroff(COLOR_PAIR(3));
+                }
+                refresh();
+            }
+        }
         else if (ch == ':') {  // Enter command mode
             char cmd_buf[1024] = {0};
 
@@ -4145,8 +4234,15 @@ int main(int argc, char *argv[]) {
                 cur_col = 0;
                 left_col = freeze_cols;
             } else if (strcmp(cmd, "marks") == 0) {
-                int target_real = show_marks_window(file_to_open);
-                if (target_real >= 0) {
+                int jump_col = -1;
+                int target_real = show_marks_window(file_to_open, &jump_col);
+                if (jump_col >= 0 && jump_col < col_count) {
+                    /* Column bookmark selected */
+                    cur_col = jump_col;
+                    if (cur_col < left_col) left_col = cur_col;
+                    if (cur_col >= left_col + visible_cols) left_col = cur_col - visible_cols + 1;
+                    if (left_col < 0) left_col = 0;
+                } else if (target_real >= 0) {
                     int disp = find_display_for_real(target_real, display_count);
                     if (disp >= 0) {
                         bookmark_scroll(disp, &cur_display_row, &top_display_row, visible_rows);

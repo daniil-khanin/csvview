@@ -218,7 +218,9 @@ double *extract_plot_values(
 
     int display_count = filter_active ? filtered_count :
                         (sort_col >= 0 ? sorted_count : row_count);
-    int start_row = use_headers ? 1 : 0;
+    /* sorted_rows/filtered_rows already exclude header → start at 0;
+       only raw row_count needs header offset */
+    int start_row = (filter_active || sort_col >= 0) ? 0 : (use_headers ? 1 : 0);
 
     if (display_count <= start_row) return NULL;
     display_count -= start_row;
@@ -356,7 +358,7 @@ void draw_graph(int col, int height, int width, RowIndex *rows, FILE *f, int row
         }
     }
     int display_count = filter_active ? filtered_count : (sort_col >= 0 ? sorted_count : row_count);
-    int start_row = use_headers ? 1 : 0;
+    int start_row = (filter_active || sort_col >= 0) ? 0 : (use_headers ? 1 : 0);
     if (display_count <= start_row) return;
     display_count -= start_row;
     // ─── Retrieve numeric values ───────────────────────────────────────────────
@@ -523,14 +525,27 @@ void draw_graph(int col, int height, int width, RowIndex *rows, FILE *f, int row
                 int row_idx = start_row + orig_idx;
                 int real_row = get_real_row(row_idx);
                 if (real_row >= 0 && real_row < row_count) {
-                    char *date_raw = get_column_value(rows[real_row].line_cache,
-                                                      column_names[date_col] ? column_names[date_col] : "",
-                                                      use_headers);
-                    if (date_raw) {
-                        char *formatted = format_date(date_raw, target_date_fmt);
+                    char date_field[64] = "";
+                    const char *lp = rows[real_row].line_cache;
+                    char lbl_line_buf[MAX_LINE_LEN];
+                    if (!lp) {
+                        if (g_mmap_base)
+                            lp = csv_mmap_get_line(rows[real_row].offset, lbl_line_buf, sizeof(lbl_line_buf));
+                        else if (f) {
+                            fseek(f, rows[real_row].offset, SEEK_SET);
+                            if (fgets(lbl_line_buf, sizeof(lbl_line_buf), f)) {
+                                lbl_line_buf[strcspn(lbl_line_buf, "\r\n")] = '\0';
+                                lp = lbl_line_buf;
+                            }
+                        }
+                    }
+                    if (lp) {
+                        get_field_graph(lp, date_col, date_field, sizeof(date_field));
+                    }
+                    if (date_field[0]) {
+                        char *formatted = format_date(date_field, target_date_fmt);
                         strncpy(label, formatted, sizeof(label) - 1);
                         free(formatted);
-                        free(date_raw);
                     }
                 }
             } else {
@@ -683,14 +698,27 @@ void draw_graph(int col, int height, int width, RowIndex *rows, FILE *f, int row
             int row_idx = start_row + full_idx;
             int real_row = get_real_row(row_idx);
             if (real_row >= 0 && real_row < row_count) {
-                char *date_raw = get_column_value(rows[real_row].line_cache,
-                                                  column_names[date_col] ? column_names[date_col] : "",
-                                                  use_headers);
-                if (date_raw) {
-                    char *formatted = format_date(date_raw, target_date_fmt);
+                char cur_date_field[64] = "";
+                const char *cur_lp = rows[real_row].line_cache;
+                char cur_line_buf[MAX_LINE_LEN];
+                if (!cur_lp) {
+                    if (g_mmap_base)
+                        cur_lp = csv_mmap_get_line(rows[real_row].offset, cur_line_buf, sizeof(cur_line_buf));
+                    else if (f) {
+                        fseek(f, rows[real_row].offset, SEEK_SET);
+                        if (fgets(cur_line_buf, sizeof(cur_line_buf), f)) {
+                            cur_line_buf[strcspn(cur_line_buf, "\r\n")] = '\0';
+                            cur_lp = cur_line_buf;
+                        }
+                    }
+                }
+                if (cur_lp) {
+                    get_field_graph(cur_lp, date_col, cur_date_field, sizeof(cur_date_field));
+                }
+                if (cur_date_field[0]) {
+                    char *formatted = format_date(cur_date_field, target_date_fmt);
                     strncpy(x_str, formatted, sizeof(x_str) - 1);
                     free(formatted);
-                    free(date_raw);
                 }
             }
         }

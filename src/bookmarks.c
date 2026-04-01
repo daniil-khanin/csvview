@@ -67,15 +67,42 @@ static void bm_fmt_rownum(long n, char *buf, int sz)
         snprintf(buf, sz, "%ld", n);
 }
 
-int show_marks_window(const char *csv_filename)
+/* Entry in the unified bookmark list */
+typedef struct {
+    int letter;   /* 0–25 = a–z */
+    int is_col;   /* 0 = row bookmark, 1 = column bookmark */
+    int value;    /* real_row or col index */
+} BmEntry;
+
+static void bm_rebuild(BmEntry *entries, int *count)
 {
-    /* Collect set bookmarks in letter order. */
-    int bm_letters[26];
-    int bm_count = 0;
+    *count = 0;
     for (int i = 0; i < 26; i++) {
-        if (bookmarks[i] >= 0)
-            bm_letters[bm_count++] = i;
+        if (bookmarks[i] >= 0) {
+            entries[*count].letter = i;
+            entries[*count].is_col = 0;
+            entries[*count].value  = bookmarks[i];
+            (*count)++;
+        }
     }
+    for (int i = 0; i < 26; i++) {
+        if (col_bookmarks[i] >= 0) {
+            entries[*count].letter = i;
+            entries[*count].is_col = 1;
+            entries[*count].value  = col_bookmarks[i];
+            (*count)++;
+        }
+    }
+}
+
+int show_marks_window(const char *csv_filename, int *out_col)
+{
+    if (out_col) *out_col = -1;
+
+    /* Collect all bookmarks: row first, then column, in letter order. */
+    BmEntry entries[52];
+    int bm_count = 0;
+    bm_rebuild(entries, &bm_count);
 
     if (bm_count == 0) {
         attron(COLOR_PAIR(11));
@@ -94,7 +121,7 @@ int show_marks_window(const char *csv_filename)
     if (win_w < 60) win_w = 60;
     if (win_w > scr_w - 4) win_w = scr_w - 4;
 
-    /* Layout: border×2 + info row + separator + data rows + footer/border */
+    /* Layout: border*2 + info row + separator + data rows + footer/border */
     int max_visible = scr_h - 8;
     if (max_visible < 1) max_visible = 1;
     int visible = bm_count < max_visible ? bm_count : max_visible;
@@ -108,15 +135,15 @@ int show_marks_window(const char *csv_filename)
     wbkgd(win, COLOR_PAIR(1));
     keypad(win, TRUE);
 
-    /* How many preview columns fit: prefix "  a  →  row XXXXXXXXX  " = 22 chars */
-    int prefix_w = 22;
+    /* How many preview columns fit: prefix "  a  ROW  row XXXXXXXXX  " = 26 chars */
+    int prefix_w = 26;
     int avail    = win_w - 2 - prefix_w;
     int nprev    = avail / (BM_PREVIEW_W + 2);
     if (nprev > col_count) nprev = col_count;
     if (nprev > 5) nprev = 5;
 
     int sel    = 0;
-    int top    = 0;
+    int top_s  = 0;
     int result = -1;
 
     char linebuf[MAX_LINE_LEN];
@@ -149,17 +176,11 @@ int show_marks_window(const char *csv_filename)
         wattroff(win, COLOR_PAIR(6));
 
         /* Data rows */
-        for (int i = 0; i < visible && (top + i) < bm_count; i++) {
-            int idx      = top + i;
-            int bi       = bm_letters[idx];
-            int real_row = bookmarks[bi];
-            int is_sel   = (idx == sel);
-            int row_y    = 3 + i;
-
-            long disp_num = (long)real_row - (use_headers ? 1 : 0) + 1;
-            bm_fmt_rownum(disp_num, rownum, sizeof(rownum));
-
-            bm_get_line(real_row, linebuf, sizeof(linebuf));
+        for (int i = 0; i < visible && (top_s + i) < bm_count; i++) {
+            int idx    = top_s + i;
+            BmEntry *e = &entries[idx];
+            int is_sel = (idx == sel);
+            int row_y  = 3 + i;
 
             /* Full-row highlight for selected */
             if (is_sel) {
@@ -167,35 +188,47 @@ int show_marks_window(const char *csv_filename)
                 mvwhline(win, row_y, 1, ' ', win_w - 2);
             }
 
-            /* Letter — accent color (works over A_REVERSE too) */
+            /* Letter — accent color */
             if (!is_sel) wattron(win, COLOR_PAIR(3) | A_BOLD);
-            mvwprintw(win, row_y, 2, "%c", 'a' + bi);
+            mvwprintw(win, row_y, 2, "%c", 'a' + e->letter);
             if (!is_sel) wattroff(win, COLOR_PAIR(3) | A_BOLD);
 
-            /* Arrow + row number */
-            mvwprintw(win, row_y, 4, "->  row %-10s", rownum);
+            if (e->is_col) {
+                /* Column bookmark: show type tag + column name */
+                char clet[4];
+                col_letter(e->value, clet);
+                const char *cname = (e->value < col_count && column_names[e->value])
+                                    ? column_names[e->value] : clet;
+                mvwprintw(win, row_y, 4, "COL  %s (%s)", cname, clet);
+            } else {
+                /* Row bookmark: show type tag + row number + preview */
+                long disp_num = (long)e->value - (use_headers ? 1 : 0) + 1;
+                bm_fmt_rownum(disp_num, rownum, sizeof(rownum));
+                mvwprintw(win, row_y, 4, "ROW  row %-10s", rownum);
 
-            /* Preview fields — use format driver for correct field extraction */
-            int px = prefix_w + 2;
-            int fcount = 0;
-            char **fields = g_fmt ? g_fmt->parse_row(linebuf, &fcount)
-                                  : NULL;
-            for (int c = 0; c < nprev; c++) {
-                if (fields && c < fcount && fields[c]) {
-                    strncpy(field, fields[c], sizeof(field) - 1);
-                    field[sizeof(field) - 1] = '\0';
-                } else {
-                    bm_get_field(linebuf, c, field, sizeof(field));
+                bm_get_line(e->value, linebuf, sizeof(linebuf));
+
+                /* Preview fields */
+                int px = prefix_w + 2;
+                int fcount = 0;
+                char **fields = g_fmt ? g_fmt->parse_row(linebuf, &fcount)
+                                      : NULL;
+                for (int c = 0; c < nprev; c++) {
+                    if (fields && c < fcount && fields[c]) {
+                        strncpy(field, fields[c], sizeof(field) - 1);
+                        field[sizeof(field) - 1] = '\0';
+                    } else {
+                        bm_get_field(linebuf, c, field, sizeof(field));
+                    }
+                    if ((int)strlen(field) > BM_PREVIEW_W) {
+                        field[BM_PREVIEW_W - 1] = '>';
+                        field[BM_PREVIEW_W]     = '\0';
+                    }
+                    mvwprintw(win, row_y, px, "%-*s", BM_PREVIEW_W + 1, field);
+                    px += BM_PREVIEW_W + 2;
                 }
-                /* Truncate to BM_PREVIEW_W */
-                if ((int)strlen(field) > BM_PREVIEW_W) {
-                    field[BM_PREVIEW_W - 1] = '>';
-                    field[BM_PREVIEW_W]     = '\0';
-                }
-                mvwprintw(win, row_y, px, "%-*s", BM_PREVIEW_W + 1, field);
-                px += BM_PREVIEW_W + 2;
+                if (fields) free_csv_fields(fields, fcount);
             }
-            if (fields) free_csv_fields(fields, fcount);
 
             if (is_sel) wattroff(win, A_REVERSE);
         }
@@ -203,7 +236,7 @@ int show_marks_window(const char *csv_filename)
         /* Footer on bottom border */
         wattron(win, COLOR_PAIR(6));
         mvwprintw(win, win_h - 1, 2,
-                  "[ j/k/↑↓: select  Enter: jump  d: delete  q/Esc: close ]");
+                  "[ j/k: select  Enter: jump  d: delete  q/Esc: close ]");
         wattroff(win, COLOR_PAIR(6));
 
         /* Scroll indicator */
@@ -223,40 +256,45 @@ int show_marks_window(const char *csv_filename)
         } else if (ch == KEY_UP || ch == 'k') {
             if (sel > 0) {
                 sel--;
-                if (sel < top) top = sel;
+                if (sel < top_s) top_s = sel;
             }
         } else if (ch == KEY_DOWN || ch == 'j') {
             if (sel < bm_count - 1) {
                 sel++;
-                if (sel >= top + visible) top = sel - visible + 1;
+                if (sel >= top_s + visible) top_s = sel - visible + 1;
             }
         } else if (ch == KEY_HOME) {
-            sel = 0; top = 0;
+            sel = 0; top_s = 0;
         } else if (ch == KEY_END) {
             sel = bm_count - 1;
-            top = sel - visible + 1;
-            if (top < 0) top = 0;
+            top_s = sel - visible + 1;
+            if (top_s < 0) top_s = 0;
         } else if (ch == '\n' || ch == KEY_ENTER || ch == '\r') {
-            result = bookmarks[bm_letters[sel]];
+            BmEntry *e = &entries[sel];
+            if (e->is_col) {
+                if (out_col) *out_col = e->value;
+                result = -1;  /* no row jump */
+            } else {
+                result = e->value;
+            }
             break;
         } else if (ch == 'd') {
             /* Delete selected bookmark */
-            int bi = bm_letters[sel];
-            bookmarks[bi] = -1;
+            BmEntry *e = &entries[sel];
+            if (e->is_col)
+                col_bookmarks[e->letter] = -1;
+            else
+                bookmarks[e->letter] = -1;
             if (csv_filename) save_column_settings(csv_filename);
 
-            /* Rebuild active list */
-            bm_count = 0;
-            for (int i = 0; i < 26; i++) {
-                if (bookmarks[i] >= 0)
-                    bm_letters[bm_count++] = i;
-            }
-            if (bm_count == 0) break;   /* last bookmark deleted — close */
+            /* Rebuild list */
+            bm_rebuild(entries, &bm_count);
+            if (bm_count == 0) break;
 
             if (sel >= bm_count) sel = bm_count - 1;
             visible = bm_count < max_visible ? bm_count : max_visible;
-            if (top > bm_count - visible) top = bm_count - visible;
-            if (top < 0) top = 0;
+            if (top_s > bm_count - visible) top_s = bm_count - visible;
+            if (top_s < 0) top_s = 0;
         }
     }
 

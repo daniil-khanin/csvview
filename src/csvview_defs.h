@@ -264,6 +264,8 @@ extern int relative_line_numbers;
 
 // Bookmarks (vim-style): index 0–25 = letters a–z, value = real row index (-1 = not set)
 extern int bookmarks[26];
+// Column bookmarks: index 0–25 = letters a–z, value = column index (-1 = not set)
+extern int col_bookmarks[26];
 
 // Drill-down from pivot: after pressing Enter on a cell, the filter for the main table is stored here
 // Empty string = no drill-down, non-empty = filter needs to be applied

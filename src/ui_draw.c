@@ -196,18 +196,47 @@ static void draw_one_header(int top, int current_x, int col_idx, int cur_col, in
     }
     const char *arrow = arrow_buf;
 
-    const char *fmt = (col_types[col_idx] == COL_NUM) ? "%*s" : "%-*s";
+    /* Build column tag: [*], [a], [*a] — graph mark + col bookmark */
+    char tag[8] = "";
+    {
+        int marked = graph_marked[col_idx];
+        int bm_letter = -1;
+        for (int bi = 0; bi < 26; bi++) {
+            if (col_bookmarks[bi] == col_idx) { bm_letter = bi; break; }
+        }
+        if (marked && bm_letter >= 0)
+            snprintf(tag, sizeof(tag), "[*%c]", 'a' + bm_letter);
+        else if (marked)
+            snprintf(tag, sizeof(tag), "[*]");
+        else if (bm_letter >= 0)
+            snprintf(tag, sizeof(tag), "[%c]", 'a' + bm_letter);
+    }
+    int tag_len = (int)strlen(tag);
+
     int draw_w = col_widths[col_idx] - 2;
     if (draw_w > max_w) draw_w = max_w;
-    char *disp = truncate_for_display(name, draw_w);
 
-    int marked = graph_marked[col_idx];
+    /* Shrink name area to make room for tag (keep at least 3 chars for name) */
+    int name_w = draw_w;
+    if (tag_len > 0 && draw_w > tag_len + 3)
+        name_w = draw_w - tag_len;
+
+    const char *fmt = (col_types[col_idx] == COL_NUM) ? "%*s" : "%-*s";
+    char *disp = truncate_for_display(name, name_w);
+
     if (col_idx == cur_col)
-        attron(COLOR_PAIR(3) | A_BOLD | (marked ? A_UNDERLINE : 0));
+        attron(COLOR_PAIR(3) | A_BOLD);
     else
-        attron(COLOR_PAIR(6) | A_BOLD | (marked ? A_UNDERLINE : 0));
+        attron(COLOR_PAIR(6) | A_BOLD);
 
-    mvprintw(top + 1, current_x, fmt, draw_w, disp);
+    mvprintw(top + 1, current_x, fmt, name_w, disp);
+
+    /* Draw tag in accent color at the right edge of the column */
+    if (tag_len > 0 && draw_w > tag_len + 3) {
+        int tag_x = current_x + draw_w - tag_len;
+        attron(COLOR_PAIR(3) | A_BOLD);
+        mvprintw(top + 1, tag_x, "%s", tag);
+    }
 
     if (*arrow) {
         int arrow_x = current_x + draw_w + 2 - (int)strlen(arrow);
@@ -217,7 +246,7 @@ static void draw_one_header(int top, int current_x, int col_idx, int cur_col, in
     }
 
     free(disp);
-    attroff(COLOR_PAIR(3) | COLOR_PAIR(6) | A_BOLD | A_UNDERLINE);
+    attroff(COLOR_PAIR(3) | COLOR_PAIR(6) | A_BOLD);
 }
 
 void draw_table_headers(int top, int offset __attribute__((unused)), int visible_cols, int left_col, int cur_col)

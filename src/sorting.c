@@ -13,6 +13,9 @@
 #include <string.h>         // strcasecmp, strlen
 #include <stdio.h>          // fseek, fgets (if needed)
 #include <pthread.h>
+#include <time.h>           // strptime, mktime
+
+static int try_parse_date_epoch(const char *s, double *out);
 
 // ────────────────────────────────────────────────
 // Fast single-field CSV extractor without malloc
@@ -230,19 +233,32 @@ static int compare_rows_multilevel(const void *pa, const void *pb)
         get_field_fast_ts(line_a, sc, val_a, sizeof(val_a));
         get_field_fast_ts(line_b, sc, val_b, sizeof(val_b));
 
-        char *end_a, *end_b;
-        double num_a = parse_double(val_a, &end_a);
-        double num_b = parse_double(val_b, &end_b);
-        int is_num_a = (end_a != val_a && *end_a == '\0');
-        int is_num_b = (end_b != val_b && *end_b == '\0');
-
         int result;
-        if (is_num_a && is_num_b) {
-            if (num_a < num_b) result = -1;
-            else if (num_a > num_b) result = 1;
-            else result = 0;
+        if (col_types[sc] == COL_DATE) {
+            double ea = 1e18, eb = 1e18;
+            int ok_a = try_parse_date_epoch(val_a, &ea);
+            int ok_b = try_parse_date_epoch(val_b, &eb);
+            if (!ok_a && !ok_b) {
+                result = strcasecmp(val_a, val_b);
+            } else {
+                if (ea < eb) result = -1;
+                else if (ea > eb) result = 1;
+                else result = 0;
+            }
         } else {
-            result = strcasecmp(val_a, val_b);
+            char *end_a, *end_b;
+            double num_a = parse_double(val_a, &end_a);
+            double num_b = parse_double(val_b, &end_b);
+            int is_num_a = (end_a != val_a && *end_a == '\0');
+            int is_num_b = (end_b != val_b && *end_b == '\0');
+
+            if (is_num_a && is_num_b) {
+                if (num_a < num_b) result = -1;
+                else if (num_a > num_b) result = 1;
+                else result = 0;
+            } else {
+                result = strcasecmp(val_a, val_b);
+            }
         }
         if (result != 0) return sort_levels[lv].order * result;
     }
@@ -318,26 +334,34 @@ int compare_rows_by_column(const void *pa, const void *pb)
     if (!val_a) val_a = strdup("");
     if (!val_b) val_b = strdup("");
 
-    // Attempt to interpret as numbers
-    char *end_a, *end_b;
-    double num_a = parse_double(val_a, &end_a);
-    double num_b = parse_double(val_b, &end_b);
-
-    int is_num_a = (end_a != val_a && *end_a == '\0');
-    int is_num_b = (end_b != val_b && *end_b == '\0');
-
     int result;
-    if (is_num_a && is_num_b)
-    {
-        // Numeric comparison
-        if (num_a < num_b)      result = -1;
-        else if (num_a > num_b) result = 1;
-        else                    result = 0;
-    }
-    else
-    {
-        // Case-insensitive string comparison
-        result = strcasecmp(val_a, val_b);
+    if (sort_col >= 0 && sort_col < col_count && col_types[sort_col] == COL_DATE) {
+        double ea = 1e18, eb = 1e18;
+        int ok_a = try_parse_date_epoch(val_a, &ea);
+        int ok_b = try_parse_date_epoch(val_b, &eb);
+        if (!ok_a && !ok_b) {
+            result = strcasecmp(val_a, val_b);
+        } else {
+            if (ea < eb)      result = -1;
+            else if (ea > eb) result = 1;
+            else              result = 0;
+        }
+    } else {
+        // Attempt to interpret as numbers
+        char *end_a, *end_b;
+        double num_a = parse_double(val_a, &end_a);
+        double num_b = parse_double(val_b, &end_b);
+
+        int is_num_a = (end_a != val_a && *end_a == '\0');
+        int is_num_b = (end_b != val_b && *end_b == '\0');
+
+        if (is_num_a && is_num_b) {
+            if (num_a < num_b)      result = -1;
+            else if (num_a > num_b) result = 1;
+            else                    result = 0;
+        } else {
+            result = strcasecmp(val_a, val_b);
+        }
     }
 
     // Free temporarily allocated memory
@@ -356,11 +380,54 @@ typedef struct {
     SortKey *keys;
 } SortKeyWorker;
 
+/* Try to parse a date string into epoch seconds. Returns 1 on success, 0 on failure. */
+static int try_parse_date_epoch(const char *s, double *out)
+{
+    if (!s || !*s) return 0;
+
+    /* Normalise: copy, strip sub-seconds and timezone from ISO datetime */
+    char norm[64];
+    strncpy(norm, s, sizeof(norm) - 1);
+    norm[sizeof(norm) - 1] = '\0';
+    if (strchr(norm, 'T')) {
+        char *dot = strchr(norm, '.');
+        if (dot) *dot = '\0';
+        int nlen = (int)strlen(norm);
+        if (nlen > 0 && (norm[nlen-1] == 'Z' || norm[nlen-1] == 'z'))
+            norm[nlen-1] = '\0';
+    }
+
+    static const char *fmts[] = {
+        "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d",
+        "%d.%m.%Y %H:%M",   "%d.%m.%Y",
+        "%m/%d/%Y",          "%Y/%m/%d",           "%Y%m%d",
+        "%Y-%m",             "%m-%Y",
+        NULL
+    };
+    struct tm tm;
+    for (int i = 0; fmts[i]; i++) {
+        memset(&tm, 0, sizeof(tm));
+        char *end = strptime(norm, fmts[i], &tm);
+        if (!end) {
+            memset(&tm, 0, sizeof(tm));
+            end = strptime(s, fmts[i], &tm);
+        }
+        if (end && (*end == '\0' || *end == ' ' || *end == 'T' || *end == '.')) {
+            tm.tm_isdst = -1;
+            *out = (double)mktime(&tm);
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static void *sort_key_worker(void *arg)
 {
     SortKeyWorker *w = arg;
     char line_buf[MAX_LINE_LEN];
     char field_buf[MAX_LINE_LEN];
+    int is_date_col = (w->scol >= 0 && w->scol < col_count &&
+                       col_types[w->scol] == COL_DATE);
 
     for (int i = 0; i < w->count; i++) {
         int r  = w->start_r  + i;
@@ -378,6 +445,20 @@ static void *sort_key_worker(void *arg)
         }
 
         get_field_fast_ts(line, w->scol, field_buf, sizeof(field_buf));
+
+        /* Date columns: parse into epoch for correct temporal ordering */
+        if (is_date_col) {
+            double epoch;
+            if (try_parse_date_epoch(field_buf, &epoch)) {
+                w->keys[ki].is_num = 1;
+                w->keys[ki].num    = epoch;
+            } else {
+                /* Empty/unparseable dates sort to the end */
+                w->keys[ki].is_num = 1;
+                w->keys[ki].num    = 1e18;
+            }
+            continue;
+        }
 
         char *end;
         double num = parse_double(field_buf, &end);
@@ -527,15 +608,28 @@ void build_sorted_index(void)
 
                 int ki = r - start;
                 const char *raw = get_field_fast(seq_buf, scol);
+                int is_date_col = (scol >= 0 && scol < col_count &&
+                                   col_types[scol] == COL_DATE);
 
-                char *end;
-                double num = parse_double(raw, &end);
-                if (end != raw && (*end == '\0' || *end == ' ')) {
-                    keys_ml[lv][ki].is_num = 1;
-                    keys_ml[lv][ki].num    = num;
+                if (is_date_col) {
+                    double epoch;
+                    if (try_parse_date_epoch(raw, &epoch)) {
+                        keys_ml[lv][ki].is_num = 1;
+                        keys_ml[lv][ki].num    = epoch;
+                    } else {
+                        keys_ml[lv][ki].is_num = 1;
+                        keys_ml[lv][ki].num    = 1e18;
+                    }
                 } else {
-                    keys_ml[lv][ki].is_num = 0;
-                    keys_ml[lv][ki].str    = strdup(raw);
+                    char *end;
+                    double num = parse_double(raw, &end);
+                    if (end != raw && (*end == '\0' || *end == ' ')) {
+                        keys_ml[lv][ki].is_num = 1;
+                        keys_ml[lv][ki].num    = num;
+                    } else {
+                        keys_ml[lv][ki].is_num = 0;
+                        keys_ml[lv][ki].str    = strdup(raw);
+                    }
                 }
             }
         }
