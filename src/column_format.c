@@ -414,6 +414,12 @@ void save_column_settings(const char *csv_filename)
             fprintf(fp, "mark: %c %d\n", 'a' + i, bookmarks[i]);
     }
 
+    // Column bookmarks
+    for (int i = 0; i < 26; i++) {
+        if (col_bookmarks[i] >= 0)
+            fprintf(fp, "colmark: %c %d\n", 'a' + i, col_bookmarks[i]);
+    }
+
     fclose(fp);
 }
 
@@ -471,6 +477,14 @@ int load_column_settings(const char *csv_filename)
             char lc; int rr;
             if (sscanf(line + 6, "%c %d", &lc, &rr) == 2 && lc >= 'a' && lc <= 'z')
                 bookmarks[lc - 'a'] = rr;
+            continue;
+        }
+
+        // Column bookmarks
+        if (strncmp(line, "colmark: ", 9) == 0) {
+            char lc; int ci;
+            if (sscanf(line + 9, "%c %d", &lc, &ci) == 2 && lc >= 'a' && lc <= 'z' && ci >= 0 && ci < col_count)
+                col_bookmarks[lc - 'a'] = ci;
             continue;
         }
 
