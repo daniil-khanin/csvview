@@ -38,5 +38,6 @@ void         theme_load_config(void);
 void         theme_save_config(const char *name);
 void         config_save_rn(int val);
 const char  *theme_list_names(void);   /* comma-separated list of names */
+void         theme_picker(void);      /* interactive picker with live preview */
 
 #endif /* THEMES_H */

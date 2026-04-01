@@ -115,7 +115,8 @@ static void *graph_worker_thread(void *arg)
             out[i] = 0.0; continue;
         }
         get_field_graph(lp, w->col, field_buf, sizeof(field_buf));
-        out[i] = parse_double(field_buf, NULL);
+        double v = parse_double(field_buf, NULL);
+        out[i] = isnan(v) ? 0.0 : v;
     }
     return NULL;
 }
@@ -786,6 +787,7 @@ void draw_scatter(int x_col, int y_col, int height, int width,
         double xv = strtod(xbuf, &ex);
         double yv = strtod(ybuf, &ey);
         if (ex == xbuf || ey == ybuf) continue;  // not a number
+        if (isnan(xv) || isnan(yv)) continue;
         xs[n] = xv;
         ys[n] = yv;
         n++;
@@ -1257,7 +1259,7 @@ static double *collect_sorted_col(int col, long *out_n)
         } else continue;
         get_field_graph(lp, col, field_buf, sizeof(field_buf));
         char *_end; double v = parse_double(field_buf, &_end);
-        if (_end != field_buf) vals[cnt++] = v;
+        if (_end != field_buf && !isnan(v)) vals[cnt++] = v;
     }
     if (cnt == 0) { free(vals); return NULL; }
 
@@ -1438,7 +1440,7 @@ void draw_heatmap(int height, int width)
         for (int ci = 0; ci < nc; ci++) {
             get_field_graph(lp, num_cols[ci], field_buf, sizeof(field_buf));
             char *_ep1; double v = parse_double(field_buf, &_ep1);
-            if (_ep1 != field_buf) { means[ci] += v; cnts[ci]++; }
+            if (_ep1 != field_buf && !isnan(v)) { means[ci] += v; cnts[ci]++; }
         }
     }
     for (int ci = 0; ci < nc; ci++)
@@ -1469,7 +1471,7 @@ void draw_heatmap(int height, int width)
         for (int ci = 0; ci < nc; ci++) {
             get_field_graph(lp, num_cols[ci], field_buf, sizeof(field_buf));
             char *_ep2; double v = parse_double(field_buf, &_ep2);
-            if (_ep2 != field_buf) { vals[ci] = v - means[ci]; valid[ci] = 1; }
+            if (_ep2 != field_buf && !isnan(v)) { vals[ci] = v - means[ci]; valid[ci] = 1; }
         }
         for (int a = 0; a < nc; a++) {
             if (!valid[a]) continue;

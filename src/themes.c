@@ -1,5 +1,6 @@
 #include "themes.h"
 #include "csvview_defs.h"   /* GRAPH_COLOR_BASE, relative_line_numbers */
+#include "utils.h"          /* draw_rounded_box */
 
 #include <ncurses.h>
 #include <stdio.h>
@@ -52,7 +53,7 @@ static const Theme themes[] = {
         "light", "Light",
         /* pair1  headers      */ 0,  15,  /* black on bright white      */
         /* pair2  cursor       */ 15, 25,  /* white on blue — keep       */
-        /* pair3  accent/col   */ 0,   3,  /* black on yellow            */
+        /* pair3  accent/col   */ 25, 15,  /* blue on white              */
         /* pair5  accent2      */ 25, 15,  /* dark blue on white         */
         /* pair6  dimmed/nums  */ 238,15,  /* dark gray on white         */
         /* pair7  search       */ 0,   3,  /* black on yellow            */
@@ -369,4 +370,96 @@ const char *theme_list_names(void)
         strncat(buf, themes[i].name, sizeof(buf) - strlen(buf) - 1);
     }
     return buf;
+}
+
+/* ── interactive theme picker with live preview ────────────────────────── */
+
+void theme_picker(void)
+{
+    /* find index of current theme */
+    int selected = 0;
+    for (int i = 0; i < THEME_COUNT; i++)
+        if (&themes[i] == current_theme) { selected = i; break; }
+
+    const Theme *original = current_theme;
+    int win_h = THEME_COUNT + 4;
+    if (win_h > LINES - 4) win_h = LINES - 4;
+    int win_w = 40;
+    int start_y = (LINES - win_h) / 2;
+    int start_x = (COLS - win_w) / 2;
+    int visible = win_h - 3;
+    int top = 0;
+
+    /* ensure selected is visible */
+    if (selected >= top + visible) top = selected - visible + 1;
+
+    while (1) {
+        /* apply theme under cursor for live preview */
+        theme_apply(&themes[selected]);
+        bkgd(COLOR_PAIR(1));
+        clearok(stdscr, TRUE);
+        refresh();
+
+        WINDOW *win = newwin(win_h, win_w, start_y, start_x);
+        keypad(win, TRUE);
+        wbkgd(win, COLOR_PAIR(1));
+        wattron(win, COLOR_PAIR(6));
+        draw_rounded_box(win);
+        wattroff(win, COLOR_PAIR(6));
+
+        /* title */
+        wattron(win, COLOR_PAIR(3) | A_BOLD);
+        mvwprintw(win, 0, (win_w - 9) / 2, " Themes ");
+        wattroff(win, COLOR_PAIR(3) | A_BOLD);
+
+        for (int i = 0; i < visible; i++) {
+            int idx = top + i;
+            if (idx >= THEME_COUNT) break;
+
+            if (idx == selected) wattron(win, COLOR_PAIR(2));
+
+            char label[64];
+            snprintf(label, sizeof(label), " %s%s",
+                     themes[idx].label,
+                     (&themes[idx] == original) ? "  *" : "");
+            mvwprintw(win, i + 1, 1, "%-*s", win_w - 2, label);
+
+            if (idx == selected) wattroff(win, COLOR_PAIR(2));
+        }
+
+        /* hints */
+        wattron(win, COLOR_PAIR(6));
+        mvwprintw(win, win_h - 2, 2, "↑↓ select  Enter apply  q/Esc close");
+        wattroff(win, COLOR_PAIR(6));
+
+        wrefresh(win);
+        int ch = wgetch(win);
+        delwin(win);
+
+        if (ch == 'q' || ch == 27 || ch == 'Q') {
+            /* keep currently previewed theme, save it */
+            theme_save_config(themes[selected].name);
+            break;
+        } else if (ch == '\n' || ch == '\r' || ch == KEY_ENTER) {
+            theme_save_config(themes[selected].name);
+            break;
+        } else if (ch == KEY_UP || ch == 'k') {
+            if (selected > 0) selected--;
+            if (selected < top) top = selected;
+        } else if (ch == KEY_DOWN || ch == 'j') {
+            if (selected < THEME_COUNT - 1) selected++;
+            if (selected >= top + visible) top = selected - visible + 1;
+        } else if (ch == KEY_HOME || ch == 'g') {
+            selected = 0; top = 0;
+        } else if (ch == KEY_END || ch == 'G') {
+            selected = THEME_COUNT - 1;
+            if (selected >= top + visible) top = selected - visible + 1;
+        }
+    }
+
+    /* final apply + full redraw */
+    theme_apply(&themes[selected]);
+    bkgd(COLOR_PAIR(1));
+    clearok(stdscr, TRUE);
+    refresh();
 }

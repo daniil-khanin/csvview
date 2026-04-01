@@ -4120,13 +4120,7 @@ int main(int argc, char *argv[]) {
                         refresh();
                     }
                 } else {
-                    draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
-                    attron(COLOR_PAIR(3));
-                    printw(" | Themes: %s  (current: %s) [any key]",
-                           theme_list_names(), current_theme->name);
-                    attroff(COLOR_PAIR(3));
-                    refresh();
-                    getch();
+                    theme_picker();
                 }
             } else if (strcmp(cmd, "fs") == 0 && filter_active) {
                 // Save current filter_query
