@@ -25,18 +25,45 @@
 // Menu rendering
 // ────────────────────────────────────────────────
 
+/* Print a menu item: key in bold accent color, label in normal */
+static void menu_item(int y, int *col, const char *key, const char *label)
+{
+    attron(COLOR_PAIR(3) | A_BOLD);
+    mvprintw(y, *col, "%s", key);
+    attroff(COLOR_PAIR(3) | A_BOLD);
+    *col += (int)strlen(key);
+
+    attron(COLOR_PAIR(1));
+    mvprintw(y, *col, " %s  ", label);
+    attroff(COLOR_PAIR(1));
+    *col += 1 + (int)strlen(label) + 2;
+}
+
 void draw_menu(int y, int x, int w, int menu_type)
 {
-    attron(COLOR_PAIR(1));
+    int col = x + 1;
 
     if (menu_type == 1) {
-        mvprintw(y, x, " q: Quit | s: Save | t: Columns | d: Stats | p: Pivot | g: Graph");
+        menu_item(y, &col, "q", "Quit");
+        menu_item(y, &col, "s", "Save");
+        menu_item(y, &col, "f", "Filter");
+        menu_item(y, &col, "/", "Search");
+        menu_item(y, &col, "d", "Stats");
+        menu_item(y, &col, "p", "Pivot");
+        menu_item(y, &col, "t", "Cols");
+        menu_item(y, &col, "^G", "Graph");
     } else {
-        mvprintw(y, x, " :q Back | :e Export | :o Settings | Enter: drill-down");
+        menu_item(y, &col, ":q", "Back");
+        menu_item(y, &col, ":e", "Export");
+        menu_item(y, &col, ":o", "Settings");
+        menu_item(y, &col, "Enter", "drill-down");
     }
 
-    mvprintw(y, w - 15, "?: Help |");
-
+    attron(COLOR_PAIR(3) | A_BOLD);
+    mvprintw(y, w - 15, "?");
+    attroff(COLOR_PAIR(3) | A_BOLD);
+    attron(COLOR_PAIR(1));
+    printw(" Help |");
     attroff(COLOR_PAIR(1));
 
     attron(COLOR_PAIR(3));

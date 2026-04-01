@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <wchar.h>
+#include <math.h>
 
 // Parse a double, accepting both dot and comma as decimal separator.
 double parse_double(const char *s, char **endptr)
@@ -853,6 +854,20 @@ int evaluate_condition(const char *cell, const Condition *cond)
         // (characters remain after the number, or the string did not start with a number)
         if (*endptr != '\0' || endptr == cell) {
             return 0;
+        }
+
+        // NaN handling: NaN == NaN is false in IEEE 754, so use isnan()
+        if (isnan(cond->value_num)) {
+            int cell_is_nan = isnan(cell_num);
+            switch (cond->op) {
+                case OP_EQ: return cell_is_nan;
+                case OP_NE: return !cell_is_nan;
+                default:    return 0; // >, >=, <, <= are meaningless for NaN
+            }
+        }
+        if (isnan(cell_num)) {
+            // cell is NaN but filter value is a real number
+            return (cond->op == OP_NE) ? 1 : 0;
         }
 
         switch (cond->op)
