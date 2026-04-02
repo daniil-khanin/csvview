@@ -975,6 +975,150 @@ char *get_agg_display(const Agg *agg, const char *aggregation, ColType value_typ
     return buf;
 }
 
+/* "Show Values As" display transform */
+static char *get_agg_display_transformed(
+    const Agg *agg, const char *aggregation, ColType value_type,
+    PivotDisplayMode mode,
+    const Agg *row_total, const Agg *col_total, const Agg *grand_total,
+    int col_index, int unique_cols,
+    Agg **matrix, int row_idx, int *col_order, int agg_count __attribute__((unused)),
+    const char *agg_name)
+{
+    static char tbuf[64];
+
+    if (mode == PIVOT_DISPLAY_NORMAL)
+        return get_agg_display(agg, aggregation, value_type);
+
+    double val = agg_sort_value(agg, agg_name);
+
+    if (mode == PIVOT_DISPLAY_PCT_ROW) {
+        double total = agg_sort_value(row_total, agg_name);
+        if (total != 0.0) snprintf(tbuf, sizeof(tbuf), "%.1f%%", val / total * 100.0);
+        else strcpy(tbuf, "—");
+    }
+    else if (mode == PIVOT_DISPLAY_PCT_COL) {
+        double total = agg_sort_value(col_total, agg_name);
+        if (total != 0.0) snprintf(tbuf, sizeof(tbuf), "%.1f%%", val / total * 100.0);
+        else strcpy(tbuf, "—");
+    }
+    else if (mode == PIVOT_DISPLAY_PCT_GRAND) {
+        double total = agg_sort_value(grand_total, agg_name);
+        if (total != 0.0) snprintf(tbuf, sizeof(tbuf), "%.1f%%", val / total * 100.0);
+        else strcpy(tbuf, "—");
+    }
+    else if (mode == PIVOT_DISPLAY_RANK) {
+        /* Rank within the row (across columns) */
+        int rank = 1;
+        if (row_idx >= 0 && matrix) {
+            for (int j = 0; j < unique_cols; j++) {
+                double other = agg_sort_value(&matrix[row_idx][col_order[j]], agg_name);
+                if (other > val) rank++;
+            }
+        }
+        snprintf(tbuf, sizeof(tbuf), "#%d", rank);
+    }
+    else if (mode == PIVOT_DISPLAY_RUNNING_TOTAL) {
+        /* Cumulative sum across columns for this row */
+        double cumsum = 0.0;
+        if (row_idx >= 0 && matrix) {
+            for (int j = 0; j <= col_index && j < unique_cols; j++)
+                cumsum += agg_sort_value(&matrix[row_idx][col_order[j]], agg_name);
+        } else {
+            cumsum = val;
+        }
+        snprintf(tbuf, sizeof(tbuf), "%.2f", cumsum);
+    }
+    else {
+        return get_agg_display(agg, aggregation, value_type);
+    }
+
+    return tbuf;
+}
+
+#define SPARK_WIDTH 10  /* braille chars = 20 px wide, 4 px tall */
+
+static void render_row_sparkline(int y, int x, Agg **matrix, int row_idx,
+                                 int *col_order, int unique_cols,
+                                 const char *agg_name, ColType value_type __attribute__((unused)))
+{
+    if (unique_cols < 2 || !matrix || row_idx < 0) return;
+
+    /* Extract values */
+    double vals[512];
+    int n = unique_cols < 512 ? unique_cols : 512;
+    double vmin = INFINITY, vmax = -INFINITY;
+    for (int j = 0; j < n; j++) {
+        vals[j] = agg_sort_value(&matrix[row_idx][col_order[j]], agg_name);
+        if (vals[j] < vmin) vmin = vals[j];
+        if (vals[j] > vmax) vmax = vals[j];
+    }
+    double range = vmax - vmin;
+    if (range == 0) range = 1;
+
+    /* Pixel grid: 4 rows × (SPARK_WIDTH*2) columns */
+    int pw = SPARK_WIDTH * 2;
+    bool dots[4 * 512]; /* max 4 × SPARK_WIDTH*2 */
+    memset(dots, 0, sizeof(dots));
+
+    /* Map values to pixel positions and draw line segments */
+    for (int px = 0; px < pw && px < n; px++) {
+        /* Bucket: map px → value index */
+        int vi = (int)((double)px / pw * n);
+        if (vi >= n) vi = n - 1;
+        double norm = (vals[vi] - vmin) / range;
+        int py = 3 - (int)(norm * 3.0 + 0.5);
+        if (py < 0) py = 0; if (py > 3) py = 3;
+        dots[py * pw + px] = true;
+
+        /* Connect to next point with vertical fill */
+        if (px > 0) {
+            int vi_prev = (int)((double)(px - 1) / pw * n);
+            if (vi_prev >= n) vi_prev = n - 1;
+            double norm_prev = (vals[vi_prev] - vmin) / range;
+            int py_prev = 3 - (int)(norm_prev * 3.0 + 0.5);
+            if (py_prev < 0) py_prev = 0; if (py_prev > 3) py_prev = 3;
+            int lo = py_prev < py ? py_prev : py;
+            int hi = py_prev > py ? py_prev : py;
+            for (int fill = lo; fill <= hi; fill++)
+                dots[fill * pw + px] = true;
+        }
+    }
+
+    /* If n < pw, bucket all pixels properly */
+    if (n < pw) {
+        memset(dots, 0, 4 * pw * sizeof(bool));
+        for (int px = 0; px < pw; px++) {
+            int vi = (int)((double)px * n / pw);
+            if (vi >= n) vi = n - 1;
+            double norm = (vals[vi] - vmin) / range;
+            int py = 3 - (int)(norm * 3.0 + 0.5);
+            if (py < 0) py = 0; if (py > 3) py = 3;
+            dots[py * pw + px] = true;
+        }
+    }
+
+    /* Render braille */
+    attron(COLOR_PAIR(3));
+    for (int cx = 0; cx < SPARK_WIDTH; cx++) {
+        int code = 0;
+        for (int by = 0; by < 4; by++) {
+            for (int bx = 0; bx < 2; bx++) {
+                int ppx = cx * 2 + bx;
+                int ppy = by;
+                if (ppx < pw && dots[ppy * pw + ppx]) {
+                    int bit = (bx == 0) ? by : by + 3;
+                    if (by == 3) bit = (bx == 0) ? 6 : 7;
+                    code |= (1 << bit);
+                }
+            }
+        }
+        char braille[5] = {0};
+        wcrtomb(braille, 0x2800 + code, NULL);
+        mvaddstr(y, x + cx, braille);
+    }
+    attroff(COLOR_PAIR(3));
+}
+
 void draw_table_frame(int y, int x, int height, int width) {
     attron(COLOR_PAIR(6));
 
@@ -1723,15 +1867,24 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
 
     // Sort display strings for the header
     const char *rsort_disp = strcmp(rsort,"KEY_ASC")==0  ? "Key\xe2\x86\x91" :
-                             strcmp(rsort,"KEY_DESC")==0  ? "Key\xe2\x86\x93" :
-                             strcmp(rsort,"VAL_ASC")==0   ? "Val\xe2\x86\x91" : "Val\xe2\x86\x93";
+                             strcmp(rsort,"KEY_DESC")==0 ? "Key\xe2\x86\x93" :
+                             strcmp(rsort,"VAL_ASC")==0  ? "Val\xe2\x86\x91" : "Val\xe2\x86\x93";
     const char *csort_disp = strcmp(csort,"KEY_ASC")==0  ? "Key\xe2\x86\x91" :
-                             strcmp(csort,"KEY_DESC")==0  ? "Key\xe2\x86\x93" :
-                             strcmp(csort,"VAL_ASC")==0   ? "Val\xe2\x86\x91" : "Val\xe2\x86\x93";
+                             strcmp(csort,"KEY_DESC")==0 ? "Key\xe2\x86\x93" :
+                             strcmp(csort,"VAL_ASC")==0  ? "Val\xe2\x86\x91" : "Val\xe2\x86\x93";
 
     // Now display loop
     int top_row = 0, cur_row_p = 0, left_col_p = 0, cur_col_p = 0;
     int vis_rows = height - 7 - (agg_count > 1 ? 1 : 0);
+
+    // Sparklines
+    int show_sparklines = 0;
+
+    // Display mode (Show Values As)
+    PivotDisplayMode display_mode = PIVOT_DISPLAY_NORMAL;
+    static const char *display_mode_names[] = {
+        "Normal", "% Row", "% Col", "% Grand", "Rank", "Running Total"
+    };
 
     // Graph state
     int graph_split  = 0;
@@ -1741,19 +1894,30 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
     bool series_pinned[512];
     memset(series_pinned, 0, sizeof(series_pinned));
 
+    // Pivot filter state
+    bool *row_visible = malloc(unique_rows * sizeof(bool));
+    int  *visible_row_map = malloc(unique_rows * sizeof(int));
+    int   visible_row_count = unique_rows;
+    char  pivot_filter_desc[128] = "";
+    for (int i = 0; i < unique_rows; i++) row_visible[i] = true;
+    for (int i = 0; i < unique_rows; i++) visible_row_map[i] = row_order[i];
+
     while (1) {
+        int display_total_rows = visible_row_count + (settings->show_col_totals ? 1 : 0);
+        int eff_row_width = pivot_row_index_width + (show_sparklines ? SPARK_WIDTH + 1 : 0);
+
         // ── Geometry (recalculated every frame) ───────────────────────────────
         int table_w, graph_x, graph_w, vis_cols;
         if (graph_split) {
             table_w = (int)(width * 0.35);
-            if (table_w < pivot_row_index_width + CELL_WIDTH + 4) table_w = pivot_row_index_width + CELL_WIDTH + 4;
+            if (table_w < eff_row_width + CELL_WIDTH + 4) table_w = eff_row_width + CELL_WIDTH + 4;
             graph_x = table_w + 1;
             graph_w = width - graph_x;
-            vis_cols = (table_w - pivot_row_index_width - 2) / CELL_WIDTH;
+            vis_cols = (table_w - eff_row_width - 2) / CELL_WIDTH;
         } else {
             table_w = width;
             graph_x = 0; graph_w = 0;
-            vis_cols = (width - pivot_row_index_width - 2) / CELL_WIDTH;
+            vis_cols = (width - eff_row_width - 2) / CELL_WIDTH;
         }
         if (vis_cols < 1) vis_cols = 1;
         clear();
@@ -1865,13 +2029,37 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
         attron(COLOR_PAIR(6));
         printw("]");
 
+        if (display_mode != PIVOT_DISPLAY_NORMAL) {
+            addch(ACS_HLINE);
+            addch(ACS_HLINE);
+            printw("[v:");
+            attroff(COLOR_PAIR(6));
+            attron(COLOR_PAIR(3));
+            printw("%s", display_mode_names[display_mode]);
+            attroff(COLOR_PAIR(3));
+            attron(COLOR_PAIR(6));
+            printw("]");
+        }
+
+        if (pivot_filter_desc[0]) {
+            addch(ACS_HLINE);
+            addch(ACS_HLINE);
+            printw("[F:");
+            attroff(COLOR_PAIR(6));
+            attron(COLOR_PAIR(5));
+            printw("%s", pivot_filter_desc);
+            attroff(COLOR_PAIR(5));
+            attron(COLOR_PAIR(6));
+            printw("]");
+        }
+
         attroff(COLOR_PAIR(6));
 
         refresh();
 
         // Column header
         attron(COLOR_PAIR(6) | A_BOLD);
-        mvprintw(4, 2, "%-*s", pivot_row_index_width - 2, "Row \\ Col");
+        mvprintw(4, 2, "%-*s", eff_row_width - 2, "Row \\ Col");
         attroff(COLOR_PAIR(6) | A_BOLD);
 
         // Row 1: col group keys (only at first sub-col of each key)
@@ -1891,7 +2079,7 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
                 snprintf(col_key_buf, CELL_WIDTH - 1, "%s%s",
                          in_graph_col ? "*" : "", key);
                 attron(COLOR_PAIR(is_current_col ? 3 : 6) | A_BOLD);
-                mvprintw(4, pivot_row_index_width + c * CELL_WIDTH, "%*s",
+                mvprintw(4, eff_row_width + c * CELL_WIDTH, "%*s",
                          CELL_WIDTH - 2, col_key_buf);
                 attroff(COLOR_PAIR(3) | COLOR_PAIR(6) | A_BOLD);
             }
@@ -1905,7 +2093,7 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
                 int agg_sub = cid % agg_count;
                 int is_cur  = (cid == cur_col_p);
                 attron(COLOR_PAIR(is_cur ? 3 : 6));
-                mvprintw(5, pivot_row_index_width + c * CELL_WIDTH, "%*s",
+                mvprintw(5, eff_row_width + c * CELL_WIDTH, "%*s",
                          CELL_WIDTH - 2, agg_list[agg_sub]);
                 attroff(COLOR_PAIR(3) | COLOR_PAIR(6));
             }
@@ -1914,15 +2102,21 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
         // Table body
         int data_row_y = 5 + (agg_count > 1 ? 1 : 0);
         for (int i = 0; i < vis_rows; i++) {
-            int rid = top_row + i;
-            if (rid >= total_rows) break;
-            int is_current_row = (rid == cur_row_p);
+            int drid = top_row + i;  /* display row index */
+            if (drid >= display_total_rows) break;
+            /* Map display row to actual row index */
+            int rid;  /* actual row in matrix */
+            if (drid < visible_row_count)
+                rid = visible_row_map[drid];
+            else
+                rid = unique_rows;  /* Total row */
+            int is_current_row = (drid == cur_row_p);
             // Row label (left side)
             char *rkey = (rid < unique_rows) ? row_keys[row_order[rid]] : "Total";
             /* Show * at column 1 when this row's series is on the graph */
             int in_graph_row = graph_split && graph_axis == 1 &&
                                (is_current_row ||
-                                (rid < 512 && series_pinned[rid]));
+                                (drid < 512 && series_pinned[drid]));
             if (in_graph_row) {
                 attron(COLOR_PAIR(3) | A_BOLD);
                 mvprintw(data_row_y + i, 1, "*");
@@ -1941,6 +2135,14 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
             if (is_current_row) attroff(COLOR_PAIR(3));
             else attroff(COLOR_PAIR(6));
 
+            // Sparkline (braille) after row key
+            if (show_sparklines && rid < unique_rows) {
+                int arid2 = row_order[rid];
+                render_row_sparkline(data_row_y + i, pivot_row_index_width,
+                                     matrix, arid2, col_order, unique_cols,
+                                     agg_list[0], value_type);
+            }
+
             // Row cells
             for (int c = 0; c < vis_cols; c++) {
                 int cid = left_col_p + c;
@@ -1954,9 +2156,16 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
                 else if (rid < unique_rows && logical_col == unique_cols) agg = &row_totals[arid];
                 else if (rid == unique_rows && logical_col < unique_cols) agg = &col_totals[acid];
                 else agg = &grand;
-                char *disp = get_agg_display(agg, agg_list[agg_sub], value_type);
-                int is_current_cell = (rid == cur_row_p && cid == cur_col_p);
-                int is_current_row_cell = (rid == cur_row_p);
+                const Agg *rt = (rid < unique_rows) ? &row_totals[arid] : &grand;
+                const Agg *ct = (logical_col < unique_cols) ? &col_totals[acid] : &grand;
+                char *disp = get_agg_display_transformed(
+                    agg, agg_list[agg_sub], value_type, display_mode,
+                    rt, ct, &grand,
+                    logical_col, unique_cols,
+                    matrix, (rid < unique_rows) ? arid : -1,
+                    col_order, agg_count, agg_list[agg_sub]);
+                int is_current_cell = (drid == cur_row_p && cid == cur_col_p);
+                int is_current_row_cell = (drid == cur_row_p);
                 int is_current_col_cell = (logical_col == cur_col_p / agg_count);
                 if (is_current_cell) {
                     attron(COLOR_PAIR(2)); // bright current cell
@@ -1965,7 +2174,7 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
                 } else {
                     attron(COLOR_PAIR(8)); // normal color
                 }
-                mvprintw(data_row_y + i, pivot_row_index_width + c * CELL_WIDTH,
+                mvprintw(data_row_y + i, eff_row_width + c * CELL_WIDTH,
                          "%*s", CELL_WIDTH - 2, disp);
                 attroff(COLOR_PAIR(2) | COLOR_PAIR(1) | COLOR_PAIR(8));
             }
@@ -2075,7 +2284,13 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
                             else if (r < unique_rows && lc == unique_cols) agg = &row_totals[ar];
                             else if (r == unique_rows && lc < unique_cols) agg = &col_totals[ac];
                             else agg = &grand;
-                            char *disp = get_agg_display(agg, agg_list[as], value_type);
+                            const Agg *ert = (r < unique_rows) ? &row_totals[ar] : &grand;
+                            const Agg *ect = (lc < unique_cols) ? &col_totals[ac] : &grand;
+                            char *disp = get_agg_display_transformed(
+                                agg, agg_list[as], value_type, display_mode,
+                                ert, ect, &grand, lc, unique_cols,
+                                matrix, (r < unique_rows) ? ar : -1,
+                                col_order, agg_count, agg_list[as]);
                             fprintf(out, ",%s", disp);
                         }
                         fprintf(out, "\n");
@@ -2085,6 +2300,124 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
                     refresh();
                     getch();
                 }
+            } else if (strcmp(cmd, "em") == 0) {
+                /* Export pivot to Markdown */
+                char filename[256] = "pivot.md";
+                if (arg && *arg) strncpy(filename, arg, sizeof(filename) - 1);
+                if (strstr(filename, ".md") == NULL) strcat(filename, ".md");
+
+                FILE *out = fopen(filename, "w");
+                if (out) {
+                    /* Header row */
+                    fprintf(out, "| Row |");
+                    for (int c = 0; c < total_cols; c++) {
+                        int lc = c / agg_count;
+                        int as = c % agg_count;
+                        char *key = (lc < unique_cols) ? col_keys[col_order[lc]] : "Total";
+                        if (agg_count > 1)
+                            fprintf(out, " %s_%s |", key, agg_list[as]);
+                        else
+                            fprintf(out, " %s |", key);
+                    }
+                    fprintf(out, "\n");
+
+                    /* Separator */
+                    fprintf(out, "| --- |");
+                    for (int c = 0; c < total_cols; c++)
+                        fprintf(out, " ---: |");
+                    fprintf(out, "\n");
+
+                    /* Data rows */
+                    for (int r = 0; r < total_rows; r++) {
+                        int ar = (r < unique_rows) ? row_order[r] : unique_rows;
+                        char *rkey = (r < unique_rows) ? row_keys[ar] : "**Total**";
+                        fprintf(out, "| %s |", rkey);
+                        for (int c = 0; c < total_cols; c++) {
+                            int lc = c / agg_count;
+                            int as = c % agg_count;
+                            int ac = (lc < unique_cols) ? col_order[lc] : unique_cols;
+                            const Agg *agg;
+                            if (r < unique_rows && lc < unique_cols) agg = &matrix[ar][ac];
+                            else if (r < unique_rows && lc == unique_cols) agg = &row_totals[ar];
+                            else if (r == unique_rows && lc < unique_cols) agg = &col_totals[ac];
+                            else agg = &grand;
+                            const Agg *mrt = (r < unique_rows) ? &row_totals[ar] : &grand;
+                            const Agg *mct = (lc < unique_cols) ? &col_totals[ac] : &grand;
+                            char *disp = get_agg_display_transformed(
+                                agg, agg_list[as], value_type, display_mode,
+                                mrt, mct, &grand, lc, unique_cols,
+                                matrix, (r < unique_rows) ? ar : -1,
+                                col_order, agg_count, agg_list[as]);
+                            fprintf(out, " %s |", disp);
+                        }
+                        fprintf(out, "\n");
+                    }
+                    fclose(out);
+                    mvprintw(height - 1, 0, "Exported to %s", filename);
+                    refresh();
+                    getch();
+                }
+            } else if (strcmp(cmd, "ptop") == 0 || strcmp(cmd, "pbot") == 0) {
+                /* :ptop N / :pbot N — show top/bottom N rows by value */
+                int n = arg ? atoi(arg) : 10;
+                if (n <= 0) n = 10;
+                if (n > unique_rows) n = unique_rows;
+                /* Sort a temp copy of row_order by value descending */
+                int *tmp_order = malloc(unique_rows * sizeof(int));
+                memcpy(tmp_order, row_order, unique_rows * sizeof(int));
+                g_sort_agg_arr = row_totals; g_sort_agg_str = agg_list[0];
+                g_sort_vtype = value_type; g_sort_dir = -1; /* desc */
+                qsort(tmp_order, unique_rows, sizeof(int), compare_order_by_agg);
+                memset(row_visible, 0, unique_rows * sizeof(bool));
+                int start = (strcmp(cmd, "ptop") == 0) ? 0 : unique_rows - n;
+                for (int i = start; i < start + n && i < unique_rows; i++)
+                    row_visible[tmp_order[i]] = true;
+                free(tmp_order);
+                /* Rebuild visible map */
+                visible_row_count = 0;
+                for (int i = 0; i < unique_rows; i++)
+                    if (row_visible[row_order[i]])
+                        visible_row_map[visible_row_count++] = row_order[i];
+                snprintf(pivot_filter_desc, sizeof(pivot_filter_desc), "%s %d",
+                         strcmp(cmd, "ptop") == 0 ? "Top" : "Bot", n);
+                cur_row_p = top_row = 0;
+            } else if (strcmp(cmd, "pfilter") == 0 && arg) {
+                /* :pfilter >=1000 / >500 / <100 / <=50 / =42 / !=0 */
+                char op[3] = {0}; double threshold = 0;
+                const char *p = arg;
+                int oi = 0;
+                while (*p && (*p == '>' || *p == '<' || *p == '=' || *p == '!') && oi < 2)
+                    op[oi++] = *p++;
+                threshold = atof(p);
+                memset(row_visible, 0, unique_rows * sizeof(bool));
+                for (int i = 0; i < unique_rows; i++) {
+                    double v = agg_sort_value(&row_totals[i], agg_list[0]);
+                    int pass = 0;
+                    if (strcmp(op, ">") == 0)       pass = v > threshold;
+                    else if (strcmp(op, ">=") == 0)  pass = v >= threshold;
+                    else if (strcmp(op, "<") == 0)   pass = v < threshold;
+                    else if (strcmp(op, "<=") == 0)  pass = v <= threshold;
+                    else if (strcmp(op, "=") == 0)   pass = v == threshold;
+                    else if (strcmp(op, "!=") == 0)  pass = v != threshold;
+                    else pass = v > threshold; /* default: > */
+                    if (pass) row_visible[i] = true;
+                }
+                visible_row_count = 0;
+                for (int i = 0; i < unique_rows; i++)
+                    if (row_visible[row_order[i]])
+                        visible_row_map[visible_row_count++] = row_order[i];
+                snprintf(pivot_filter_desc, sizeof(pivot_filter_desc), "%s%g", op, threshold);
+                cur_row_p = top_row = 0;
+            } else if (strcmp(cmd, "pclear") == 0) {
+                /* :pclear — remove pivot filter */
+                for (int i = 0; i < unique_rows; i++) { row_visible[i] = true; visible_row_map[i] = i; }
+                visible_row_count = unique_rows;
+                pivot_filter_desc[0] = '\0';
+                /* Rebuild visible_row_map respecting sort order */
+                visible_row_count = 0;
+                for (int i = 0; i < unique_rows; i++)
+                    visible_row_map[visible_row_count++] = row_order[i];
+                cur_row_p = top_row = 0;
             } else if (strcmp(cmd, "q") == 0) {
                 break;
             } else if (strcmp(cmd, "o") == 0) {
@@ -2124,7 +2457,7 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
             clrtoeol();
             refresh();
         } else if (ch == KEY_DOWN || ch == 'j') {
-            if (cur_row_p < total_rows - 1) cur_row_p++;
+            if (cur_row_p < display_total_rows - 1) cur_row_p++;
             if (cur_row_p >= top_row + vis_rows) top_row++;
         } else if (ch == KEY_UP || ch == 'k') {
             if (cur_row_p > 0) cur_row_p--;
@@ -2156,7 +2489,7 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
         }
         // End → last row of the table
         else if (ch == KEY_END || ch == 'J') {
-            cur_row_p = total_rows - 1;
+            cur_row_p = display_total_rows - 1;
             // adjust top_row so the last row is visible
             top_row = cur_row_p - vis_rows + 1;
             if (top_row < 0) top_row = 0;
@@ -2175,9 +2508,9 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
             int step = vis_rows - 1;
             if (step < 1) step = 1;
             cur_row_p += step;
-            if (cur_row_p >= total_rows) cur_row_p = total_rows - 1;
+            if (cur_row_p >= display_total_rows) cur_row_p = display_total_rows - 1;
             top_row += step;
-            if (top_row > total_rows - vis_rows) top_row = total_rows - vis_rows;
+            if (top_row > display_total_rows - vis_rows) top_row = display_total_rows - vis_rows;
             if (top_row < 0) top_row = 0;
         }
         // G — toggle graph split
@@ -2209,13 +2542,116 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
             if (graph_split)
                 pivot_gscale = (pivot_gscale == SCALE_LINEAR) ? SCALE_LOG : SCALE_LINEAR;
         }
+        // S — toggle sparklines
+        else if (ch == 'S') {
+            show_sparklines = !show_sparklines;
+        }
+        // v — cycle display mode (Show Values As)
+        else if (ch == 'v') {
+            display_mode = (display_mode + 1) % 6;
+        }
+        // T — transpose: swap rows and columns
+        else if (ch == 'T') {
+            /* Transpose the matrix */
+            Agg **new_matrix = malloc(unique_cols * sizeof(Agg*));
+            for (int j = 0; j < unique_cols; j++) {
+                new_matrix[j] = malloc(unique_rows * sizeof(Agg));
+                for (int i = 0; i < unique_rows; i++)
+                    new_matrix[j][i] = matrix[i][j];
+            }
+            for (int i = 0; i < unique_rows; i++) free(matrix[i]);
+            free(matrix);
+            matrix = new_matrix;
+
+            /* Swap keys */
+            char **tmp_keys = row_keys; row_keys = col_keys; col_keys = tmp_keys;
+
+            /* Swap order arrays — reallocate to correct sizes */
+            free(row_order); free(col_order);
+            int tmp_n = unique_rows; unique_rows = unique_cols; unique_cols = tmp_n;
+            row_order = malloc(unique_rows * sizeof(int));
+            col_order = malloc(unique_cols * sizeof(int));
+            for (int i = 0; i < unique_rows; i++) row_order[i] = i;
+            for (int i = 0; i < unique_cols; i++) col_order[i] = i;
+
+            /* Swap totals */
+            Agg *tmp_totals = row_totals; row_totals = col_totals; col_totals = tmp_totals;
+
+            /* Swap date flags */
+            int tmp_date = row_is_date; row_is_date = col_is_date; col_is_date = tmp_date;
+
+            /* Swap settings */
+            char *tmp_str = settings->row_group_col;
+            settings->row_group_col = settings->col_group_col;
+            settings->col_group_col = tmp_str;
+            tmp_str = settings->row_sort;
+            settings->row_sort = settings->col_sort;
+            settings->col_sort = tmp_str;
+
+            /* Recalculate totals and dimensions */
+            total_rows = unique_rows + (settings->show_col_totals ? 1 : 0);
+            total_cols = (unique_cols + (settings->show_row_totals ? 1 : 0)) * agg_count;
+            max_logical_cols = unique_cols + (settings->show_row_totals ? 1 : 0);
+
+            /* Recalculate row index width */
+            int mrk = (int)strlen("Row \\ Col");
+            for (int i = 0; i < unique_rows; i++) {
+                int kl = (int)strlen(row_keys[i]);
+                if (kl > mrk) mrk = kl;
+            }
+            pivot_row_index_width = mrk + 4;
+            if (pivot_row_index_width < MIN_PIVOT_ROW_WIDTH) pivot_row_index_width = MIN_PIVOT_ROW_WIDTH;
+            if (pivot_row_index_width > MAX_PIVOT_ROW_WIDTH) pivot_row_index_width = MAX_PIVOT_ROW_WIDTH;
+
+            /* Re-apply sort */
+            const char *rsort = settings->row_sort ? settings->row_sort : "KEY_ASC";
+            const char *csort = settings->col_sort ? settings->col_sort : "KEY_ASC";
+            if (strcmp(rsort, "KEY_DESC") == 0) {
+                for (int i = 0; i < unique_rows / 2; i++) {
+                    int tmp2 = row_order[i]; row_order[i] = row_order[unique_rows-1-i]; row_order[unique_rows-1-i] = tmp2;
+                }
+            } else if (strcmp(rsort, "VAL_ASC") == 0 || strcmp(rsort, "VAL_DESC") == 0) {
+                g_sort_agg_arr = row_totals; g_sort_agg_str = agg_list[0]; g_sort_vtype = value_type;
+                g_sort_dir = strcmp(rsort, "VAL_ASC") == 0 ? 1 : -1;
+                qsort(row_order, unique_rows, sizeof(int), compare_order_by_agg);
+            }
+            if (strcmp(csort, "KEY_DESC") == 0) {
+                for (int i = 0; i < unique_cols / 2; i++) {
+                    int tmp2 = col_order[i]; col_order[i] = col_order[unique_cols-1-i]; col_order[unique_cols-1-i] = tmp2;
+                }
+            } else if (strcmp(csort, "VAL_ASC") == 0 || strcmp(csort, "VAL_DESC") == 0) {
+                g_sort_agg_arr = col_totals; g_sort_agg_str = agg_list[0]; g_sort_vtype = value_type;
+                g_sort_dir = strcmp(csort, "VAL_ASC") == 0 ? 1 : -1;
+                qsort(col_order, unique_cols, sizeof(int), compare_order_by_agg);
+            }
+
+            /* Update sort display strings */
+            rsort_disp = strcmp(rsort,"KEY_ASC")==0  ? "Key\xe2\x86\x91" :
+                         strcmp(rsort,"KEY_DESC")==0  ? "Key\xe2\x86\x93" :
+                         strcmp(rsort,"VAL_ASC")==0   ? "Val\xe2\x86\x91" : "Val\xe2\x86\x93";
+            csort_disp = strcmp(csort,"KEY_ASC")==0  ? "Key\xe2\x86\x91" :
+                         strcmp(csort,"KEY_DESC")==0  ? "Key\xe2\x86\x93" :
+                         strcmp(csort,"VAL_ASC")==0   ? "Val\xe2\x86\x91" : "Val\xe2\x86\x93";
+
+            /* Reset cursor, graph, and filter */
+            cur_row_p = cur_col_p = top_row = left_col_p = 0;
+            memset(series_pinned, 0, sizeof(series_pinned));
+            /* Reset pivot filter after transpose */
+            free(row_visible); free(visible_row_map);
+            row_visible = malloc(unique_rows * sizeof(bool));
+            visible_row_map = malloc(unique_rows * sizeof(int));
+            visible_row_count = unique_rows;
+            pivot_filter_desc[0] = '\0';
+            for (int i = 0; i < unique_rows; i++) { row_visible[i] = true; visible_row_map[i] = i; }
+        }
         // Enter — drill-down: return to main table with filter on current cell
         else if (ch == '\n' || ch == KEY_ENTER) {
             char flt[512] = "";
 
-            // Filter by row (row group)
-            if (settings->row_group_col && *settings->row_group_col && cur_row_p < unique_rows) {
-                char *rkey = row_keys[row_order[cur_row_p]];
+            // Filter by row (row group) — map display row to actual row
+            int drill_rid = (cur_row_p < visible_row_count) ? visible_row_map[cur_row_p] : -1;
+            if (settings->row_group_col && *settings->row_group_col && drill_rid >= 0 && drill_rid < unique_rows) {
+                char *rkey = row_keys[row_order[drill_rid]];
                 snprintf(flt, sizeof(flt), "%s = \"%s\"", settings->row_group_col, rkey);
             }
 
@@ -2282,4 +2718,6 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
 
     free(row_order);
     free(col_order);
+    free(row_visible);
+    free(visible_row_map);
 }

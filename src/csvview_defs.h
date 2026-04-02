@@ -151,6 +151,15 @@ typedef struct {
     char *col_sort;     // "KEY_ASC", "KEY_DESC", "VAL_ASC", "VAL_DESC"
 } PivotSettings;
 
+typedef enum {
+    PIVOT_DISPLAY_NORMAL,
+    PIVOT_DISPLAY_PCT_ROW,
+    PIVOT_DISPLAY_PCT_COL,
+    PIVOT_DISPLAY_PCT_GRAND,
+    PIVOT_DISPLAY_RANK,
+    PIVOT_DISPLAY_RUNNING_TOTAL
+} PivotDisplayMode;
+
 // ────────────────────────────────────────────────
 // Global variables (declarations only — extern)
 // ────────────────────────────────────────────────
