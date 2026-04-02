@@ -459,15 +459,21 @@ typedef struct {
 
 /* Read the delimiter from an ECSV file's comment header block.
    Looks for:  # delimiter: ','  or  # delimiter: ' '  (Astropy ECSV spec).
-   Returns the delimiter character, or ' ' if not found (ECSV default). */
+   If not found, auto-detects from the first non-comment data line.
+   Returns the delimiter character, or ' ' as last resort. */
 static char ecsv_read_delimiter(const char *fpath)
 {
     FILE *fp = fopen(fpath, "r");
     if (!fp) return ' ';
     char line[256];
-    char result = ' '; /* ECSV default is space */
+    char result = 0;
+    char first_data_line[8192] = {0};
     while (fgets(line, sizeof(line), fp)) {
-        if (line[0] != '#') break; /* end of comment block */
+        if (line[0] != '#') {
+            /* first non-comment line — save for fallback detection */
+            strncpy(first_data_line, line, sizeof(first_data_line) - 1);
+            break;
+        }
         const char *p = line + 1;
         while (*p == ' ' || *p == '\t') p++;
         if (strncmp(p, "delimiter:", 10) != 0) continue;
@@ -484,7 +490,22 @@ static char ecsv_read_delimiter(const char *fpath)
         break;
     }
     fclose(fp);
-    return result;
+    if (result) return result;
+    /* No # delimiter: directive — auto-detect from first data line */
+    if (first_data_line[0]) {
+        int t = 0, pip = 0, com = 0, sem = 0;
+        for (const char *q = first_data_line; *q; q++) {
+            if      (*q == '\t') t++;
+            else if (*q == '|')  pip++;
+            else if (*q == ',')  com++;
+            else if (*q == ';')  sem++;
+        }
+        if (t   > 0 && t   >= pip && t   >= com && t   >= sem) return '\t';
+        if (pip > 0 && pip >= com && pip >= sem)                return '|';
+        if (com > 0 && com >= sem)                              return ',';
+        if (sem > 0)                                            return ';';
+    }
+    return ' '; /* true ECSV default */
 }
 
 /* Try to read the delimiter that was saved by csvview in the .csvf sidecar.
