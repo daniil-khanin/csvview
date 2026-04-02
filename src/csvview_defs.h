@@ -149,6 +149,7 @@ typedef struct {
     int show_grand_total;
     char *row_sort;     // "KEY_ASC", "KEY_DESC", "VAL_ASC", "VAL_DESC"
     char *col_sort;     // "KEY_ASC", "KEY_DESC", "VAL_ASC", "VAL_DESC"
+    char *filter_col;   // Report Filter column (NULL = no filter)
 } PivotSettings;
 
 typedef enum {

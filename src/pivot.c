@@ -68,6 +68,11 @@ typedef struct {
     int row_is_date, col_is_date;
     const char *date_grouping;
     ColType row_type, col_type, value_type;
+    /* report filter */
+    int filter_idx;
+    char **filter_values;
+    bool  *filter_selected;
+    int    filter_count;
     /* outputs — allocated inside thread */
     Agg *matrix;       /* unique_rows × unique_cols flat */
     Agg *row_totals;   /* unique_rows */
@@ -97,6 +102,22 @@ static void *pivot_pass2_thread(void *arg)
         if (real_row < w->start_row) continue;
         const char *line = rows[real_row].line_cache ? rows[real_row].line_cache : "";
         if (!*line) continue;
+
+        /* Report filter: skip rows not matching selected values */
+        if (w->filter_idx >= 0 && w->filter_values && w->filter_selected) {
+            char fbuf[512];
+            get_field_csv(line, w->filter_idx, fbuf, sizeof(fbuf));
+            int fmatch = 0;
+            for (int fi = 0; fi < w->filter_count; fi++) {
+                if (w->filter_selected[fi] && strcmp(fbuf, w->filter_values[fi]) == 0) {
+                    fmatch = 1; break;
+                }
+            }
+            if (!fmatch) {
+                w->rows_done = (d - w->start_d) + 1;
+                continue;
+            }
+        }
 
         if (w->row_group_idx >= 0) get_field_csv(line, w->row_group_idx, rval_buf, sizeof(rval_buf));
         else strcpy(rval_buf, "Total");
@@ -791,6 +812,8 @@ int load_pivot_settings(const char *csv_filename, PivotSettings *settings) {
             settings->row_sort = strdup(val);
         } else if (strcmp(key, "col_sort") == 0) {
             settings->col_sort = strdup(val);
+        } else if (strcmp(key, "filter_col") == 0) {
+            settings->filter_col = strcmp(val, "None") == 0 ? NULL : strdup(val);
         }
     }
     fclose(fp);
@@ -834,6 +857,7 @@ void save_pivot_settings(const char *csv_filename, const PivotSettings *settings
     fprintf(fp, "show_grand_total: %s\n", settings->show_grand_total ? "Yes" : "No");
     fprintf(fp, "row_sort: %s\n", settings->row_sort ? settings->row_sort : "KEY_ASC");
     fprintf(fp, "col_sort: %s\n", settings->col_sort ? settings->col_sort : "KEY_ASC");
+    fprintf(fp, "filter_col: %s\n", settings->filter_col ? settings->filter_col : "None");
 
     fclose(fp);
 }
@@ -1143,7 +1167,7 @@ void draw_table_frame(int y, int x, int height, int width) {
 }
 
 void show_pivot_settings_window(PivotSettings *settings, const char *csv_filename, int height, int width) {
-    int win_h = 16, win_w = 90;
+    int win_h = 17, win_w = 90;
     WINDOW *win = newwin(win_h, win_w, (height - win_h) / 2, (width - win_w) / 2);
     wbkgd(win, COLOR_PAIR(1));
     wattron(win, COLOR_PAIR(6));
@@ -1169,9 +1193,10 @@ void show_pivot_settings_window(PivotSettings *settings, const char *csv_filenam
         "Show column totals",
         "Grand total",
         "Row sort",
-        "Column sort"
+        "Column sort",
+        "Filter by"
     };
-    int num_fields = 10;
+    int num_fields = 11;
 
     char **col_options = malloc((col_count + 1) * sizeof(char*));
     col_options[0] = strdup("None");
@@ -1221,6 +1246,7 @@ void show_pivot_settings_window(PivotSettings *settings, const char *csv_filenam
     int col_tot_idx = settings->show_col_totals ? 0 : 1;
     int grand_idx = settings->show_grand_total ? 0 : 1;
     int row_sort_idx = 0, col_sort_idx = 0;
+    int filter_col_idx = 0; /* 0 = None */
 
     // Initialize from settings (if loaded from file)
     if (settings->row_group_col) {
@@ -1274,6 +1300,13 @@ void show_pivot_settings_window(PivotSettings *settings, const char *csv_filenam
     for (int i = 0; i < num_sort_opts; i++) {
         if (strcmp(sort_values[i], settings->col_sort) == 0) { col_sort_idx = i; break; }
     }
+    if (settings->filter_col) {
+        for (int i = 1; i < num_col_options; i++) {
+            if (strcmp(col_options[i], settings->filter_col) == 0) {
+                filter_col_idx = i; break;
+            }
+        }
+    }
 
     while (1) {
         werase(win);
@@ -1306,6 +1339,7 @@ void show_pivot_settings_window(PivotSettings *settings, const char *csv_filenam
             else if (f == 7) val = (char*)yn_options[grand_idx];
             else if (f == 8) val = (char*)sort_display[row_sort_idx];
             else if (f == 9) val = (char*)sort_display[col_sort_idx];
+            else if (f == 10) val = col_options[filter_col_idx];
 
             int y_pos = f + 3;
             if (f == current_field) wattron(win, A_REVERSE);
@@ -1364,6 +1398,7 @@ void show_pivot_settings_window(PivotSettings *settings, const char *csv_filenam
             else if (real_f == 7) grand_idx = (grand_idx + 1) % num_yn;
             else if (real_f == 8) row_sort_idx = (row_sort_idx + 1) % num_sort_opts;
             else if (real_f == 9) col_sort_idx = (col_sort_idx + 1) % num_sort_opts;
+            else if (real_f == 10) filter_col_idx = (filter_col_idx + 1) % num_col_options;
         }
         else if (ch == KEY_LEFT || ch == 'h' || ch == 'H') {
             int real_f = current_field;
@@ -1392,6 +1427,7 @@ void show_pivot_settings_window(PivotSettings *settings, const char *csv_filenam
             else if (real_f == 7) grand_idx = (grand_idx - 1 + num_yn) % num_yn;
             else if (real_f == 8) row_sort_idx = (row_sort_idx - 1 + num_sort_opts) % num_sort_opts;
             else if (real_f == 9) col_sort_idx = (col_sort_idx - 1 + num_sort_opts) % num_sort_opts;
+            else if (real_f == 10) filter_col_idx = (filter_col_idx - 1 + num_col_options) % num_col_options;
         }
         else if (ch == 10 || ch == KEY_ENTER) {
             free(settings->row_group_col);
@@ -1423,6 +1459,8 @@ void show_pivot_settings_window(PivotSettings *settings, const char *csv_filenam
             settings->show_grand_total = (grand_idx == 0);
             settings->row_sort = strdup(sort_values[row_sort_idx]);
             settings->col_sort = strdup(sort_values[col_sort_idx]);
+            free(settings->filter_col);
+            settings->filter_col = filter_col_idx > 0 ? strdup(col_options[filter_col_idx]) : NULL;
 
             if (settings->value_col) {
                 save_pivot_settings(csv_filename, settings);
@@ -1482,9 +1520,19 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
     int row_is_date = (row_group_idx >= 0) && (col_types[row_group_idx] == COL_DATE);
     int col_is_date = (col_group_idx >= 0) && (col_types[col_group_idx] == COL_DATE);
 
-    // Pass 1: collect unique row and col keys
+    // Report Filter
+    int filter_idx = settings->filter_col
+        ? (use_headers ? col_name_to_num(settings->filter_col)
+                       : col_to_num(settings->filter_col)) : -1;
+    int filter_unique_count = 0;
+    char **filter_values = NULL;    /* sorted unique values */
+    bool  *filter_selected = NULL;  /* which values are selected (all by default) */
+    int    filter_single = -1;      /* -1 = show all selected, >=0 = single cycle index */
+
+    // Pass 1: collect unique row, col, and filter keys
     HashMap *row_map = hash_map_create(1024);
     HashMap *col_map = hash_map_create(1024);
+    HashMap *flt_map = filter_idx >= 0 ? hash_map_create(256) : NULL;
 
     draw_status_bar(height - 1, 1, csv_filename, row_count, file_size_str);
     attron(COLOR_PAIR(3));
@@ -1566,6 +1614,14 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
             hash_map_put(col_map, "Total", (void*)1);
         }
 
+        /* Collect filter column values */
+        if (flt_map && filter_idx >= 0) {
+            char fval[512];
+            get_field_csv(line, filter_idx, fval, sizeof(fval));
+            if (fval[0] && !hash_map_get(flt_map, fval))
+                hash_map_put(flt_map, fval, (void*)1);
+        }
+
         if (d % 50000 == 0) {
             draw_status_bar(height - 1, 1, csv_filename, row_count, file_size_str);
             attron(COLOR_PAIR(3));
@@ -1580,6 +1636,15 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
 
     int unique_cols;
     char **col_keys = hash_map_keys(col_map, &unique_cols);
+
+    /* Extract and sort filter values */
+    if (flt_map) {
+        filter_values = hash_map_keys(flt_map, &filter_unique_count);
+        qsort(filter_values, filter_unique_count, sizeof(char*), compare_str);
+        filter_selected = malloc(filter_unique_count * sizeof(bool));
+        for (int i = 0; i < filter_unique_count; i++) filter_selected[i] = true;
+        hash_map_destroy(flt_map);
+    }
 
     // Sort keys
     if (row_is_date) {
@@ -1685,6 +1750,10 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
             p2w[t].row_type     = row_type;
             p2w[t].col_type     = col_type;
             p2w[t].value_type   = value_type;
+            p2w[t].filter_idx   = filter_idx;
+            p2w[t].filter_values = filter_values;
+            p2w[t].filter_selected = filter_selected;
+            p2w[t].filter_count  = filter_unique_count;
             pthread_create(&p2t[t], NULL, pivot_pass2_thread, &p2w[t]);
         }
         /* Wait for threads, updating progress bar every 100ms */
@@ -1756,6 +1825,17 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
             if (real_row < start_row) continue;
             const char *line = rows[real_row].line_cache ? rows[real_row].line_cache : "";
             if (!*line) continue;
+
+            /* Report filter: skip rows not matching selected values */
+            if (filter_idx >= 0 && filter_values && filter_selected) {
+                char fbuf[512];
+                get_field_csv(line, filter_idx, fbuf, sizeof(fbuf));
+                int fmatch = 0;
+                for (int fi = 0; fi < filter_unique_count; fi++) {
+                    if (filter_selected[fi] && strcmp(fbuf, filter_values[fi]) == 0) { fmatch = 1; break; }
+                }
+                if (!fmatch) continue;
+            }
 
             if (row_group_idx >= 0) get_field_csv(line, row_group_idx, rval_buf, sizeof(rval_buf));
             else strcpy(rval_buf, "Total");
@@ -2049,6 +2129,27 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
             attron(COLOR_PAIR(5));
             printw("%s", pivot_filter_desc);
             attroff(COLOR_PAIR(5));
+            attron(COLOR_PAIR(6));
+            printw("]");
+        }
+
+        if (filter_values && filter_unique_count > 0) {
+            addch(ACS_HLINE);
+            addch(ACS_HLINE);
+            printw("[");
+            attroff(COLOR_PAIR(6));
+            attron(COLOR_PAIR(3));
+            if (filter_single >= 0 && filter_single < filter_unique_count)
+                printw("%s=%s", settings->filter_col, filter_values[filter_single]);
+            else {
+                int nsel = 0;
+                for (int i = 0; i < filter_unique_count; i++) if (filter_selected[i]) nsel++;
+                if (nsel == filter_unique_count)
+                    printw("%s=All", settings->filter_col);
+                else
+                    printw("%s=%d/%d", settings->filter_col, nsel, filter_unique_count);
+            }
+            attroff(COLOR_PAIR(3));
             attron(COLOR_PAIR(6));
             printw("]");
         }
@@ -2677,11 +2778,263 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
             }
             // Enter on a Total row/column — ignore
         }
+        // F — report filter popup (multi-select)
+        else if (ch == 'F' && filter_values && filter_unique_count > 0) {
+            int fw = 78, fh = filter_unique_count + 4;
+            if (fw > width - 4) fw = width - 4;
+            if (fh > height - 4) fh = height - 4;
+            int fvis = fh - 4;
+            if (fvis < 1) fvis = 1;
+            WINDOW *fw_win = newwin(fh, fw, (height - fh) / 2, (width - fw) / 2);
+            wbkgd(fw_win, COLOR_PAIR(1));
+            keypad(fw_win, TRUE);
+            int fcur = 0, ftop = 0;
+            for (;;) {
+                werase(fw_win);
+                wattron(fw_win, COLOR_PAIR(6)); draw_rounded_box(fw_win); wattroff(fw_win, COLOR_PAIR(6));
+                wattron(fw_win, COLOR_PAIR(3) | A_BOLD);
+                char ftitle[48];
+                snprintf(ftitle, sizeof(ftitle), " Filter: %s ", settings->filter_col);
+                mvwprintw(fw_win, 0, (fw - (int)strlen(ftitle)) / 2, "%s", ftitle);
+                wattroff(fw_win, COLOR_PAIR(3) | A_BOLD);
+                for (int i = 0; i < fvis; i++) {
+                    int idx = ftop + i;
+                    if (idx >= filter_unique_count) break;
+                    if (idx == fcur) wattron(fw_win, COLOR_PAIR(2));
+                    mvwprintw(fw_win, i + 1, 2, "%s %-*.*s",
+                              filter_selected[idx] ? "*" : " ",
+                              fw - 6, fw - 6, filter_values[idx]);
+                    if (idx == fcur) wattroff(fw_win, COLOR_PAIR(2));
+                }
+                wattron(fw_win, COLOR_PAIR(6));
+                mvwprintw(fw_win, fh - 1, 2,
+                    "[ j/k: move  Space: toggle  a: all  n: none  Enter: apply  q: cancel ]");
+                wattroff(fw_win, COLOR_PAIR(6));
+                wrefresh(fw_win);
+                int fc = wgetch(fw_win);
+                if (fc == 'j' || fc == KEY_DOWN) { if (fcur < filter_unique_count - 1) fcur++; }
+                else if (fc == 'k' || fc == KEY_UP) { if (fcur > 0) fcur--; }
+                else if (fc == ' ') { filter_selected[fcur] = !filter_selected[fcur]; }
+                else if (fc == 'a') { for (int i = 0; i < filter_unique_count; i++) filter_selected[i] = true; }
+                else if (fc == 'n') { for (int i = 0; i < filter_unique_count; i++) filter_selected[i] = false; }
+                else if (fc == '\n' || fc == KEY_ENTER) {
+                    delwin(fw_win);
+                    filter_single = -1;
+                    /* Rebuild pivot with new filter */
+                    goto rebuild_pivot;
+                }
+                else if (fc == 'q' || fc == 27) { delwin(fw_win); break; }
+                if (fcur < ftop) ftop = fcur;
+                if (fcur >= ftop + fvis) ftop = fcur - fvis + 1;
+            }
+        }
+        // < / > — cycle through single filter values
+        else if ((ch == '<' || ch == '>') && filter_values && filter_unique_count > 0) {
+            if (ch == '>') {
+                filter_single++;
+                if (filter_single >= filter_unique_count) filter_single = -1; /* -1 = all */
+            } else {
+                filter_single--;
+                if (filter_single < -1) filter_single = filter_unique_count - 1;
+            }
+            if (filter_single == -1) {
+                for (int i = 0; i < filter_unique_count; i++) filter_selected[i] = true;
+            } else {
+                for (int i = 0; i < filter_unique_count; i++) filter_selected[i] = (i == filter_single);
+            }
+            goto rebuild_pivot;
+        }
         else if (ch == '?') {
             show_help(1);
         }
         else if (ch == 'q' || ch == 27) {
             break;
+        }
+        continue;
+
+    rebuild_pivot:
+        /* Free current matrix and rebuild with new filter */
+        for (int i = 0; i < unique_rows; i++) {
+            for (int j = 0; j < unique_cols; j++) {
+                free(matrix[i][j].min_str);
+                free(matrix[i][j].max_str);
+            }
+            free(matrix[i]);
+        }
+        free(matrix);
+        for (int i = 0; i < unique_rows; i++) { free(row_totals[i].min_str); free(row_totals[i].max_str); }
+        for (int i = 0; i < unique_cols; i++) { free(col_totals[i].min_str); free(col_totals[i].max_str); }
+        free(row_totals); free(col_totals);
+        free(row_order); free(col_order);
+        free(row_visible); free(visible_row_map);
+
+        /* Re-run Pass 2 with current filter_selected */
+        {
+            matrix = malloc(unique_rows * sizeof(Agg*));
+            for (int i = 0; i < unique_rows; i++) {
+                matrix[i] = calloc(unique_cols, sizeof(Agg));
+                for (int j = 0; j < unique_cols; j++) { matrix[i][j].min = INFINITY; matrix[i][j].max = -INFINITY; }
+            }
+            row_totals = calloc(unique_rows, sizeof(Agg));
+            col_totals = calloc(unique_cols, sizeof(Agg));
+            grand = (Agg){0, 0, INFINITY, -INFINITY, 0, NULL, NULL};
+            for (int i = 0; i < unique_rows; i++) { row_totals[i].min = INFINITY; row_totals[i].max = -INFINITY; }
+            for (int i = 0; i < unique_cols; i++) { col_totals[i].min = INFINITY; col_totals[i].max = -INFINITY; }
+
+            int nthreads = csv_num_threads();
+            PivotPass2Worker p2w2[8];
+            pthread_t p2t2[8];
+            int chunk = display_count / nthreads;
+            for (int t = 0; t < nthreads; t++) {
+                p2w2[t].start_d = t * chunk;
+                p2w2[t].count = (t == nthreads - 1) ? display_count - t * chunk : chunk;
+                p2w2[t].start_row = start_row;
+                p2w2[t].row_group_idx = row_group_idx;
+                p2w2[t].col_group_idx = col_group_idx;
+                p2w2[t].value_idx = value_idx;
+                p2w2[t].unique_rows = unique_rows;
+                p2w2[t].unique_cols = unique_cols;
+                p2w2[t].row_keys = row_keys;
+                p2w2[t].col_keys = col_keys;
+                p2w2[t].row_is_date = row_is_date;
+                p2w2[t].col_is_date = col_is_date;
+                p2w2[t].date_grouping = settings->date_grouping;
+                p2w2[t].row_type = row_type;
+                p2w2[t].col_type = col_type;
+                p2w2[t].value_type = value_type;
+                p2w2[t].filter_idx = filter_idx;
+                p2w2[t].filter_values = filter_values;
+                p2w2[t].filter_selected = filter_selected;
+                p2w2[t].filter_count = filter_unique_count;
+                p2w2[t].rows_done = 0;
+                p2w2[t].done = 0;
+                pthread_create(&p2t2[t], NULL, pivot_pass2_thread, &p2w2[t]);
+            }
+            /* Progress bar during rebuild */
+            while (1) {
+                struct timespec ts = {0, 100000000L};
+                nanosleep(&ts, NULL);
+                long total_done = 0; int all_done = 1;
+                for (int t = 0; t < nthreads; t++) { total_done += p2w2[t].rows_done; if (!p2w2[t].done) all_done = 0; }
+                int pct = display_count > 0 ? (int)(100LL * total_done / display_count) : 100;
+                draw_status_bar(height - 1, 1, csv_filename, row_count, file_size_str);
+                attron(COLOR_PAIR(3));
+                printw(" | Filtering... %3d%%                       ", pct);
+                attroff(COLOR_PAIR(3));
+                refresh();
+                if (all_done) break;
+            }
+            for (int t = 0; t < nthreads; t++) pthread_join(p2t2[t], NULL);
+
+            /* Merge */
+            for (int t = 0; t < nthreads; t++) {
+                for (int i = 0; i < unique_rows; i++)
+                    for (int j = 0; j < unique_cols; j++) {
+                        Agg *s = &p2w2[t].matrix[i * unique_cols + j], *d = &matrix[i][j];
+                        d->sum += s->sum; d->count += s->count;
+                        if (s->min < d->min) d->min = s->min;
+                        if (s->max > d->max) d->max = s->max;
+                    }
+                for (int i = 0; i < unique_rows; i++) {
+                    row_totals[i].sum += p2w2[t].row_totals[i].sum;
+                    row_totals[i].count += p2w2[t].row_totals[i].count;
+                    if (p2w2[t].row_totals[i].min < row_totals[i].min) row_totals[i].min = p2w2[t].row_totals[i].min;
+                    if (p2w2[t].row_totals[i].max > row_totals[i].max) row_totals[i].max = p2w2[t].row_totals[i].max;
+                }
+                for (int j = 0; j < unique_cols; j++) {
+                    col_totals[j].sum += p2w2[t].col_totals[j].sum;
+                    col_totals[j].count += p2w2[t].col_totals[j].count;
+                    if (p2w2[t].col_totals[j].min < col_totals[j].min) col_totals[j].min = p2w2[t].col_totals[j].min;
+                    if (p2w2[t].col_totals[j].max > col_totals[j].max) col_totals[j].max = p2w2[t].col_totals[j].max;
+                }
+                grand.sum += p2w2[t].grand.sum; grand.count += p2w2[t].grand.count;
+                if (p2w2[t].grand.min < grand.min) grand.min = p2w2[t].grand.min;
+                if (p2w2[t].grand.max > grand.max) grand.max = p2w2[t].grand.max;
+                free(p2w2[t].matrix); free(p2w2[t].row_totals); free(p2w2[t].col_totals);
+            }
+
+            /* Re-run unique count pass if needed */
+            if (need_unique) {
+                HashMap **cell_u2 = calloc(unique_rows * unique_cols, sizeof(HashMap*));
+                HashMap **row_u2  = calloc(unique_rows, sizeof(HashMap*));
+                HashMap **col_u2  = calloc(unique_cols, sizeof(HashMap*));
+                HashMap *grand_u2 = hash_map_create(256);
+                char ru[512], cu[512], vu[512];
+                for (int d = 0; d < display_count; d++) {
+                    int real_row = get_real_row(d);
+                    if (real_row < start_row) continue;
+                    const char *line = rows[real_row].line_cache ? rows[real_row].line_cache : "";
+                    if (!*line) continue;
+                    /* Report filter */
+                    if (filter_idx >= 0 && filter_values && filter_selected) {
+                        char fb[512]; get_field_csv(line, filter_idx, fb, sizeof(fb));
+                        int fm = 0;
+                        for (int fi = 0; fi < filter_unique_count; fi++)
+                            if (filter_selected[fi] && strcmp(fb, filter_values[fi]) == 0) { fm = 1; break; }
+                        if (!fm) continue;
+                    }
+                    if (row_group_idx >= 0) get_field_csv(line, row_group_idx, ru, sizeof(ru));
+                    else strcpy(ru, "Total");
+                    if (col_group_idx >= 0) get_field_csv(line, col_group_idx, cu, sizeof(cu));
+                    else strcpy(cu, "Total");
+                    get_field_csv(line, value_idx, vu, sizeof(vu));
+                    char *rk = get_group_key(ru, row_type, settings->date_grouping, row_group_idx);
+                    char *ck = get_group_key(cu, col_type, settings->date_grouping, col_group_idx);
+                    int ri2 = -1;
+                    if (rk && *rk) { char *p = rk; char **r = row_is_date ? (char**)bsearch(&p,row_keys,unique_rows,sizeof(char*),compare_date_keys) : (char**)bsearch(&p,row_keys,unique_rows,sizeof(char*),compare_str); ri2 = r ? (int)(r-row_keys) : -1; }
+                    int ci2 = -1;
+                    if (ck && *ck) { char *p = ck; char **c = col_is_date ? (char**)bsearch(&p,col_keys,unique_cols,sizeof(char*),compare_date_keys) : (char**)bsearch(&p,col_keys,unique_cols,sizeof(char*),compare_str); ci2 = c ? (int)(c-col_keys) : -1; }
+                    free(rk); free(ck);
+                    if (ri2 >= 0 && ci2 >= 0) {
+                        int ci = ri2 * unique_cols + ci2;
+                        if (!cell_u2[ci]) cell_u2[ci] = hash_map_create(256);
+                        if (!hash_map_get(cell_u2[ci], vu)) { hash_map_put(cell_u2[ci], vu, (void*)1); matrix[ri2][ci2].unique_count++; }
+                        if (!row_u2[ri2]) row_u2[ri2] = hash_map_create(256);
+                        if (!hash_map_get(row_u2[ri2], vu)) { hash_map_put(row_u2[ri2], vu, (void*)1); row_totals[ri2].unique_count++; }
+                        if (!col_u2[ci2]) col_u2[ci2] = hash_map_create(256);
+                        if (!hash_map_get(col_u2[ci2], vu)) { hash_map_put(col_u2[ci2], vu, (void*)1); col_totals[ci2].unique_count++; }
+                        if (!hash_map_get(grand_u2, vu)) { hash_map_put(grand_u2, vu, (void*)1); grand.unique_count++; }
+                    }
+                    if (d % 50000 == 0) {
+                        draw_status_bar(height - 1, 1, csv_filename, row_count, file_size_str);
+                        attron(COLOR_PAIR(3));
+                        printw(" | Unique count... %3d%%                     ", (int)(100.0 * d / display_count));
+                        attroff(COLOR_PAIR(3));
+                        refresh();
+                    }
+                }
+                for (int i = 0; i < unique_rows * unique_cols; i++) if (cell_u2[i]) hash_map_destroy(cell_u2[i]);
+                free(cell_u2);
+                for (int i = 0; i < unique_rows; i++) if (row_u2[i]) hash_map_destroy(row_u2[i]);
+                free(row_u2);
+                for (int i = 0; i < unique_cols; i++) if (col_u2[i]) hash_map_destroy(col_u2[i]);
+                free(col_u2);
+                hash_map_destroy(grand_u2);
+            }
+
+            /* Re-sort */
+            row_order = malloc(unique_rows * sizeof(int));
+            col_order = malloc(unique_cols * sizeof(int));
+            for (int i = 0; i < unique_rows; i++) row_order[i] = i;
+            for (int i = 0; i < unique_cols; i++) col_order[i] = i;
+            const char *rs2 = settings->row_sort ? settings->row_sort : "KEY_ASC";
+            const char *cs2 = settings->col_sort ? settings->col_sort : "KEY_ASC";
+            if (strcmp(rs2, "KEY_DESC") == 0) { for (int i = 0; i < unique_rows/2; i++) { int t=row_order[i]; row_order[i]=row_order[unique_rows-1-i]; row_order[unique_rows-1-i]=t; } }
+            else if (strcmp(rs2,"VAL_ASC")==0||strcmp(rs2,"VAL_DESC")==0) { g_sort_agg_arr=row_totals; g_sort_agg_str=agg_list[0]; g_sort_vtype=value_type; g_sort_dir=strcmp(rs2,"VAL_ASC")==0?1:-1; qsort(row_order,unique_rows,sizeof(int),compare_order_by_agg); }
+            if (strcmp(cs2, "KEY_DESC") == 0) { for (int i = 0; i < unique_cols/2; i++) { int t=col_order[i]; col_order[i]=col_order[unique_cols-1-i]; col_order[unique_cols-1-i]=t; } }
+            else if (strcmp(cs2,"VAL_ASC")==0||strcmp(cs2,"VAL_DESC")==0) { g_sort_agg_arr=col_totals; g_sort_agg_str=agg_list[0]; g_sort_vtype=value_type; g_sort_dir=strcmp(cs2,"VAL_ASC")==0?1:-1; qsort(col_order,unique_cols,sizeof(int),compare_order_by_agg); }
+
+            /* Reset filter state */
+            row_visible = malloc(unique_rows * sizeof(bool));
+            visible_row_map = malloc(unique_rows * sizeof(int));
+            visible_row_count = unique_rows;
+            pivot_filter_desc[0] = '\0';
+            for (int i = 0; i < unique_rows; i++) row_visible[i] = true;
+            for (int i = 0; i < unique_rows; i++) visible_row_map[i] = row_order[i];
+
+            total_rows = unique_rows + (settings->show_col_totals ? 1 : 0);
+            total_cols = (unique_cols + (settings->show_row_totals ? 1 : 0)) * agg_count;
+            cur_row_p = cur_col_p = top_row = left_col_p = 0;
         }
     }
 
@@ -2720,4 +3073,9 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
     free(col_order);
     free(row_visible);
     free(visible_row_map);
+    if (filter_values) {
+        for (int i = 0; i < filter_unique_count; i++) free(filter_values[i]);
+        free(filter_values);
+    }
+    free(filter_selected);
 }
