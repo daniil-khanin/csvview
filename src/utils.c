@@ -7,6 +7,7 @@
 #include <math.h>
 
 // Parse a double, accepting both dot and comma as decimal separator.
+// Trailing '%' is consumed and the value is divided by 100 (e.g. "50%" → 0.5).
 double parse_double(const char *s, char **endptr)
 {
     if (!s) { if (endptr) *endptr = (char *)s; return 0.0; }
@@ -21,6 +22,13 @@ double parse_double(const char *s, char **endptr)
 
     char *ep;
     double result = strtod(buf, &ep);
+
+    // Handle trailing '%': divide by 100 and consume the '%'
+    if (ep != buf && *ep == '%') {
+        result /= 100.0;
+        ep++;
+    }
+
     // Map endptr back into the original string
     if (endptr) *endptr = (char *)s + (ep - buf);
     return result;
