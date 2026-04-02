@@ -400,7 +400,8 @@ static int try_parse_date_epoch(const char *s, double *out)
     static const char *fmts[] = {
         "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d",
         "%d.%m.%Y %H:%M",   "%d.%m.%Y",
-        "%m/%d/%Y",          "%Y/%m/%d",           "%Y%m%d",
+        "%d/%m/%Y",          "%m/%d/%Y",
+        "%Y/%m/%d",          "%Y%m%d",
         "%Y-%m",             "%m-%Y",
         NULL
     };
@@ -412,7 +413,9 @@ static int try_parse_date_epoch(const char *s, double *out)
             memset(&tm, 0, sizeof(tm));
             end = strptime(s, fmts[i], &tm);
         }
-        if (end && (*end == '\0' || *end == ' ' || *end == 'T' || *end == '.')) {
+        if (end && (*end == '\0' || *end == ' ' || *end == 'T' || *end == '.') &&
+            tm.tm_mon >= 0 && tm.tm_mon <= 11 &&
+            tm.tm_mday >= 1 && tm.tm_mday <= 31) {
             tm.tm_isdst = -1;
             *out = (double)mktime(&tm);
             return 1;

@@ -126,6 +126,7 @@ char *format_date(const char *date_str, const char *target_format)
         "%Y-%m-%dT%H:%M:%S",
         "%d.%m.%Y",
         "%d.%m.%Y %H:%M",
+        "%d/%m/%Y",
         "%m/%d/%Y",
         "%Y/%m/%d",
         "%Y%m%d",
@@ -148,27 +149,33 @@ char *format_date(const char *date_str, const char *target_format)
             norm[nlen-1] = '\0';
     }
 
+    /* Helper macro: try a single format, validate month/day ranges */
+    #define TRY_FMT(fmt_str, src) do { \
+        memset(&tm, 0, sizeof(tm)); \
+        parsed_end = strptime((src), (fmt_str), &tm); \
+        if (parsed_end && (*parsed_end == '\0' || isspace(*parsed_end) || \
+                           *parsed_end == 'T'  || *parsed_end == '.') && \
+            tm.tm_mon >= 0 && tm.tm_mon <= 11 && \
+            tm.tm_mday >= 1 && tm.tm_mday <= 31) { \
+            char buf[64]; \
+            strftime(buf, sizeof(buf), target_format, &tm); \
+            return strdup(buf); \
+        } \
+    } while (0)
+
+    /* Try the column's detected format first (target_format doubles as the
+       detected input format from auto_detect_column_types) */
     char *parsed_end = NULL;
+    TRY_FMT(target_format, norm);
+    TRY_FMT(target_format, date_str);
+
+    /* Fall back to the generic list */
     for (int i = 0; input_fmts[i]; i++)
     {
-        memset(&tm, 0, sizeof(tm));
-        /* Try the normalised string first, fall back to the original */
-        parsed_end = strptime(norm, input_fmts[i], &tm);
-        if (!parsed_end || !(*parsed_end == '\0' || isspace(*parsed_end)))
-        {
-            memset(&tm, 0, sizeof(tm));
-            parsed_end = strptime(date_str, input_fmts[i], &tm);
-        }
-        /* Accept end-of-string, whitespace, 'T' (date part of ISO datetime),
-           or '.' (sub-seconds after time) as valid termination. */
-        if (parsed_end && (*parsed_end == '\0' || isspace(*parsed_end) ||
-                           *parsed_end == 'T'  || *parsed_end == '.'))
-        {
-            char buf[64];
-            strftime(buf, sizeof(buf), target_format, &tm);
-            return strdup(buf);
-        }
+        TRY_FMT(input_fmts[i], norm);
+        TRY_FMT(input_fmts[i], date_str);
     }
+    #undef TRY_FMT
 
     // Could not parse — return as-is
     return strdup(date_str);
@@ -250,15 +257,16 @@ void auto_detect_column_types(void)
         "%Y-%m-%d",
         "%d.%m.%Y",
         "%d/%m/%Y",
+        "%m/%d/%Y",
         "%Y/%m/%d",
         "%Y-%m",
         NULL
     };
-    int n_date_fmts = 5;
+    int n_date_fmts = 6;
 
     for (int c = 0; c < col_count; c++) {
         int num_ok   = 0;
-        int date_ok[5] = {0};
+        int date_ok[6] = {0};
         int total    = 0;
 
         for (int r = data_start; r < sample_end; r++) {
@@ -304,8 +312,12 @@ void auto_detect_column_types(void)
                 for (int d = 0; d < n_date_fmts; d++) {
                     struct tm tm = {0};
                     char *end = strptime(val, date_fmts[d], &tm);
-                    if (end && (*end == '\0' || *end == ' ' || *end == 'T'))
-                        date_ok[d]++;
+                    if (end && (*end == '\0' || *end == ' ' || *end == 'T')) {
+                        // Validate ranges (strptime is permissive)
+                        if (tm.tm_mon >= 0 && tm.tm_mon <= 11 &&
+                            tm.tm_mday >= 1 && tm.tm_mday <= 31)
+                            date_ok[d]++;
+                    }
                 }
             }
 
