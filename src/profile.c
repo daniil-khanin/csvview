@@ -755,7 +755,7 @@ void show_profile_window(void)
         /* footer on bottom border */
         wattron(win, COLOR_PAIR(6));
         mvwprintw(win, win_h - 1, 2,
-                  "j/k arrow — scroll  |  PgUp/PgDn — page  |  q/Esc — close");
+                  "[ j/k arrow — scroll  |  PgUp/PgDn — page  |  q/Esc — close ]");
         wattroff(win, COLOR_PAIR(6));
 
         /* scroll indicator */

@@ -429,7 +429,7 @@ void theme_picker(void)
 
         /* hints */
         wattron(win, COLOR_PAIR(6));
-        mvwprintw(win, win_h - 2, 2, "↑↓ select  Enter apply  q/Esc close");
+        mvwprintw(win, win_h - 1, 2, "[ ↑↓ select  Enter apply  q/Esc close ]");
         wattroff(win, COLOR_PAIR(6));
 
         wrefresh(win);
