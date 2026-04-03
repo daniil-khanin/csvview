@@ -16,6 +16,7 @@
 #include <stdio.h>          // snprintf, sscanf
 #include <math.h>           // INFINITY, strtod
 #include <limits.h>         // for INT_MAX/INT_MIN if needed
+#include <time.h>           // strptime, struct tm
 
 // ────────────────────────────────────────────────
 // Helper structures (internal to this module only)
@@ -77,6 +78,94 @@ static int freq_lookup_insert(Freq *freqs, long *freq_count, long *ht, const cha
         (*freq_count)++;
     }
     return 1;
+}
+
+/* Render a horizontal bar using Unicode block elements (8 sub-cell steps).
+ * fraction: 0.0..1.0, max_cells: max character width.
+ * Writes UTF-8 bar into win at (y, x), returns number of cells used. */
+static int draw_block_bar(WINDOW *win, int y, int x, double fraction, int max_cells)
+{
+    /* U+2588 full .. U+258F 1/8 block (left-aligned, widest first) */
+    static const char *blocks[] = {
+        " ",                /* 0/8 */
+        "\xe2\x96\x8f",    /* ▏ 1/8 */
+        "\xe2\x96\x8e",    /* ▎ 2/8 */
+        "\xe2\x96\x8d",    /* ▍ 3/8 */
+        "\xe2\x96\x8c",    /* ▌ 4/8 */
+        "\xe2\x96\x8b",    /* ▋ 5/8 */
+        "\xe2\x96\x8a",    /* ▊ 6/8 */
+        "\xe2\x96\x89",    /* ▉ 7/8 */
+        "\xe2\x96\x88",    /* █ 8/8 */
+    };
+    if (fraction < 0.0) fraction = 0.0;
+    if (fraction > 1.0) fraction = 1.0;
+    double total = fraction * max_cells * 8.0;
+    int full = (int)(total / 8.0);
+    int rem  = (int)(total) % 8;
+    int cx = x;
+    for (int i = 0; i < full && i < max_cells; i++) {
+        mvwaddstr(win, y, cx++, blocks[8]);
+    }
+    if (full < max_cells && rem > 0) {
+        mvwaddstr(win, y, cx++, blocks[rem]);
+        full++;
+    }
+    /* pad rest with spaces */
+    for (int i = full; i < max_cells; i++)
+        mvwaddch(win, y, cx++, ' ');
+    return max_cells;
+}
+
+/* Parse a date string in any supported format into year+month.
+ * Returns 1 on success, 0 on failure.
+ * Supports: YYYY-MM-DD, DD.MM.YYYY, DD/MM/YYYY, MM/DD/YYYY,
+ *           YYYY/MM/DD, YYYYMMDD, YYYY-MM, MM-YYYY,
+ *           ISO datetime with T and optional timezone/fractional seconds. */
+static int parse_date_ym(const char *s, int *out_year, int *out_month)
+{
+    if (!s || !*s) return 0;
+
+    /* Normalise: strip sub-seconds and timezone from ISO datetime */
+    char norm[64];
+    strncpy(norm, s, sizeof(norm) - 1);
+    norm[sizeof(norm) - 1] = '\0';
+    if (strchr(norm, 'T')) {
+        char *dot = strchr(norm, '.');
+        if (dot) *dot = '\0';
+        int nlen = (int)strlen(norm);
+        if (nlen > 0 && (norm[nlen-1] == 'Z' || norm[nlen-1] == 'z'))
+            norm[nlen-1] = '\0';
+    }
+
+    static const char *fmts[] = {
+        "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d",
+        "%d.%m.%Y %H:%M",   "%d.%m.%Y",
+        "%d/%m/%Y",          "%m/%d/%Y",
+        "%Y/%m/%d",          "%Y%m%d",
+        "%Y-%m",             "%m-%Y",
+        NULL
+    };
+    struct tm tm;
+    for (int i = 0; fmts[i]; i++) {
+        memset(&tm, 0, sizeof(tm));
+        char *end = strptime(norm, fmts[i], &tm);
+        if (!end) {
+            memset(&tm, 0, sizeof(tm));
+            end = strptime(s, fmts[i], &tm);
+        }
+        if (end && (*end == '\0' || *end == ' ' || *end == 'T' || *end == '.') &&
+            tm.tm_mon >= 0 && tm.tm_mon <= 11 &&
+            tm.tm_mday >= 0 && tm.tm_mday <= 31) {
+            int y = tm.tm_year + 1900;
+            int m = tm.tm_mon + 1;
+            if (y >= 1 && y <= 9999 && m >= 1 && m <= 12) {
+                *out_year = y;
+                *out_month = m;
+                return 1;
+            }
+        }
+    }
+    return 0;
 }
 
 // ────────────────────────────────────────────────
@@ -370,7 +459,6 @@ static void show_freq_list(Freq *freqs, long freq_count, long valid_count,
 
     long cur  = 0;
     long top  = 0;
-    char bar_buf[64];
 
     for (;;) {
         /* Clamp cursor & scroll */
@@ -425,13 +513,6 @@ static void show_freq_list(Freq *freqs, long freq_count, long valid_count,
             /* Explicitly clear the row to avoid stale multi-byte chars */
             mvwhline(win, ry, 1, ' ', COLS - 2);
 
-            /* Bar */
-            int blen = (int)(bar_w * (double)freqs[idx].count / max_cnt + 0.5);
-            if (blen > bar_w) blen = bar_w;
-            memset(bar_buf, '#', blen);
-            memset(bar_buf + blen, ' ', bar_w - blen);
-            bar_buf[bar_w] = '\0';
-
             double pct = valid_count > 0
                 ? (double)freqs[idx].count / valid_count * 100.0 : 0.0;
 
@@ -474,9 +555,11 @@ static void show_freq_list(Freq *freqs, long freq_count, long valid_count,
             /* Count, pct%, bar — absolute positions, immune to cursor drift */
             mvwprintw(win, ry, x_count, "%*ld", cnt_w, freqs[idx].count);
             mvwprintw(win, ry, x_pct,   "%*.1f%%", pct_w - 1, pct);
-            mvwprintw(win, ry, x_bar,   "%s", bar_buf);
-
             if (idx == cur) wattroff(win, COLOR_PAIR(2));
+            wattron(win, COLOR_PAIR(3));
+            draw_block_bar(win, ry, x_bar,
+                           (double)freqs[idx].count / max_cnt, bar_w);
+            wattroff(win, COLOR_PAIR(3));
         }
 
         /* Bottom hint on border */
@@ -709,11 +792,10 @@ void show_column_stats(int col_idx)
                 numeric_values[numeric_count++] = val;
             }
         }
-        else if (col_types[col_idx] == COL_DATE && strlen(cell) >= 7)
+        else if (col_types[col_idx] == COL_DATE && strlen(cell) >= 4)
         {
             int year = 0, month = 0;
-            if (sscanf(cell, "%d-%d", &year, &month) == 2 &&
-                year >= 1900 && year <= 9999 && month >= 1 && month <= 12)
+            if (parse_date_ym(cell, &year, &month))
             {
                 // Update global date range
                 if (year < min_year || (year == min_year && month < min_month))
@@ -897,7 +979,6 @@ skip_num_alloc:
         if (max_bin == 0) max_bin = 1;
 
         int BAR_WIDTH = 35;
-        char bar[BAR_WIDTH + 1];
 
         for (int b = 0; b < MAX_BINS; b++)
         {
@@ -906,12 +987,12 @@ skip_num_alloc:
             double low  = min_val + b * bin_step;
             double high = low + bin_step;
 
-            int bar_len = (int)(BAR_WIDTH * (double)bins[b] / max_bin + 0.5);
-            memset(bar, '#', bar_len);
-            bar[bar_len] = '\0';
-
-            mvwprintw(win, hist_y++, hist_x, "%12.2f → %12.2f |%-*s %8ld",
-                      low, high, BAR_WIDTH, bar, bins[b]);
+            mvwprintw(win, hist_y, hist_x, "%12.2f → %12.2f |", low, high);
+            int bar_x = hist_x + 29;
+            draw_block_bar(win, hist_y, bar_x,
+                           (double)bins[b] / max_bin, BAR_WIDTH);
+            mvwprintw(win, hist_y, bar_x + BAR_WIDTH, " %8ld", bins[b]);
+            hist_y++;
         }
     }
     else if (col_types[col_idx] == COL_DATE && monthly_group_count > 0)
@@ -1001,16 +1082,15 @@ skip_num_alloc:
         if (max_bin == 0) max_bin = 1;
 
         int BAR_WIDTH = 35;
-        char bar[BAR_WIDTH + 1];
 
         for (int g = 0; g < agg_count; g++)
         {
-            int bar_len = (int)(BAR_WIDTH * (double)agg_groups[g].count / max_bin + 0.5);
-            memset(bar, '#', bar_len);
-            bar[bar_len] = '\0';
-
-            mvwprintw(win, hist_y++, hist_x, "%-12s |%-*s %8ld",
-                      agg_groups[g].label, BAR_WIDTH, bar, agg_groups[g].count);
+            mvwprintw(win, hist_y, hist_x, "%-12s |", agg_groups[g].label);
+            int bar_x = hist_x + 14;
+            draw_block_bar(win, hist_y, bar_x,
+                           (double)agg_groups[g].count / max_bin, BAR_WIDTH);
+            mvwprintw(win, hist_y, bar_x + BAR_WIDTH, " %8ld", agg_groups[g].count);
+            hist_y++;
         }
 
         const char *group_name = (group_type == 0) ? "by month" :
