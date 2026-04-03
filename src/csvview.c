@@ -801,6 +801,8 @@ static char *show_history_picker(void)
     char rows_strs[HISTORY_MAX][16];
     char cols_strs[HISTORY_MAX][10];
     char ext_strs[HISTORY_MAX][8];
+    char dir_strs[HISTORY_MAX][4096];
+    char name_strs[HISTORY_MAX][256];
 
     for (int i = 0; i < count; i++) {
         if (entries[i].last_open > 0) {
@@ -829,6 +831,20 @@ static char *show_history_picker(void)
         } else {
             strcpy(ext_strs[i], "?");
         }
+        /* Split path into directory and filename */
+        const char *slash = strrchr(entries[i].path, '/');
+        if (slash) {
+            int dlen = (int)(slash - entries[i].path);
+            if (dlen >= (int)sizeof(dir_strs[i])) dlen = (int)sizeof(dir_strs[i]) - 1;
+            memcpy(dir_strs[i], entries[i].path, dlen);
+            dir_strs[i][dlen] = '\0';
+            strncpy(name_strs[i], slash + 1, sizeof(name_strs[i]) - 1);
+            name_strs[i][sizeof(name_strs[i]) - 1] = '\0';
+        } else {
+            dir_strs[i][0] = '\0';
+            strncpy(name_strs[i], entries[i].path, sizeof(name_strs[i]) - 1);
+            name_strs[i][sizeof(name_strs[i]) - 1] = '\0';
+        }
     }
 
     /* Collect unique extensions for [t] filter cycling.
@@ -845,6 +861,20 @@ static char *show_history_picker(void)
     }
     int filter_ext_idx = 0;   /* 0 = show all */
 
+    /* Collect unique directories for [p] filter cycling.
+       Index 0 = "" (show all); 1..N = specific directories */
+    char uniq_dirs[HISTORY_MAX + 1][4096];
+    int  uniq_dir_count = 1;
+    strcpy(uniq_dirs[0], "");
+    for (int i = 0; i < count; i++) {
+        int found = 0;
+        for (int j = 1; j < uniq_dir_count; j++)
+            if (strcmp(uniq_dirs[j], dir_strs[i]) == 0) { found = 1; break; }
+        if (!found && uniq_dir_count <= HISTORY_MAX)
+            strncpy(uniq_dirs[uniq_dir_count++], dir_strs[i], sizeof(uniq_dirs[0]) - 1);
+    }
+    int filter_dir_idx = 0;   /* 0 = show all */
+
     /* Filtered view: view[v] = real entry index */
     int view[HISTORY_MAX];
     int vcnt = 0;
@@ -852,22 +882,34 @@ static char *show_history_picker(void)
 #define REBUILD_VIEW() do { \
     vcnt = 0; \
     for (int _i = 0; _i < count; _i++) { \
-        if (!uniq_exts[filter_ext_idx][0] || \
-            strcasecmp(ext_strs[_i], uniq_exts[filter_ext_idx]) == 0) \
-            view[vcnt++] = _i; \
+        if (uniq_exts[filter_ext_idx][0] && \
+            strcasecmp(ext_strs[_i], uniq_exts[filter_ext_idx]) != 0) \
+            continue; \
+        if (uniq_dirs[filter_dir_idx][0] && \
+            strcmp(dir_strs[_i], uniq_dirs[filter_dir_idx]) != 0) \
+            continue; \
+        view[vcnt++] = _i; \
     } \
 } while(0)
 
     REBUILD_VIEW();
 
-    /* Column layout: [date 16] [size 8] [rows 10] [cols 6] [type 5] [path...] */
+    /* Column layout: [date 16] [size 8] [rows 10] [cols 6] [type 5] [file max20] [dir...] */
     /* rows=10 to fit "50,000,000" (MAX_ROWS = 50M → 10 chars with comma separator) */
     const int date_x = 2;
     const int size_x = date_x + 16 + 2;   /* 20 */
     const int rows_x = size_x +  8 + 2;   /* 30 */
     const int cols_x = rows_x + 10 + 2;   /* 42 */
     const int type_x = cols_x +  6 + 2;   /* 50 */
-    const int name_x = type_x +  5 + 2;   /* 57 */
+    const int file_x = type_x +  5 + 2;   /* 57 */
+    /* Compute max basename width (capped at 25) for File column */
+    int file_w = 4; /* minimum: "File" header */
+    for (int i = 0; i < count; i++) {
+        int w = (int)strlen(name_strs[i]);
+        if (w > file_w) file_w = w;
+    }
+    if (file_w > 40) file_w = 40;
+    const int dir_x = file_x + file_w + 2;
 
     int sel = 0, top_idx = 0, prev_sel = -1;
     static PrevCache pc;
@@ -902,14 +944,23 @@ static char *show_history_picker(void)
 
         /* ── Title bar ── */
         attron(COLOR_PAIR(5) | A_BOLD);
-        mvprintw(0, 2, "Recent files  (\xe2\x86\x91\xe2\x86\x93/jk \xe2\x80\x94 select | Enter \xe2\x80\x94 open | d \xe2\x80\x94 delete | t \xe2\x80\x94 filter type | q/Esc \xe2\x80\x94 quit)");
-        char counter[32];
-        if (uniq_exts[filter_ext_idx][0])
-            snprintf(counter, sizeof(counter), "[.%s] %d/%d",
-                     uniq_exts[filter_ext_idx], vcnt > 0 ? sel + 1 : 0, vcnt);
-        else
-            snprintf(counter, sizeof(counter), "[%d/%d]",
-                     vcnt > 0 ? sel + 1 : 0, vcnt);
+        mvprintw(0, 2, "Recent files  (\xe2\x86\x91\xe2\x86\x93/jk select | Enter open | d delete | t type | p dir | q quit)");
+        char counter[64];
+        {
+            int cx = 0;
+            if (uniq_exts[filter_ext_idx][0])
+                cx += snprintf(counter + cx, sizeof(counter) - cx, ".%s", uniq_exts[filter_ext_idx]);
+            if (uniq_dirs[filter_dir_idx][0]) {
+                const char *dshort = strrchr(uniq_dirs[filter_dir_idx], '/');
+                dshort = dshort ? dshort + 1 : uniq_dirs[filter_dir_idx];
+                if (cx > 0) cx += snprintf(counter + cx, sizeof(counter) - cx, " ");
+                cx += snprintf(counter + cx, sizeof(counter) - cx, "%s/", dshort);
+            }
+            if (cx > 0)
+                snprintf(counter + cx, sizeof(counter) - cx, " %d/%d", vcnt > 0 ? sel + 1 : 0, vcnt);
+            else
+                snprintf(counter, sizeof(counter), "[%d/%d]", vcnt > 0 ? sel + 1 : 0, vcnt);
+        }
         mvprintw(0, COLS - (int)strlen(counter) - 2, "%s", counter);
         attroff(COLOR_PAIR(5) | A_BOLD);
 
@@ -920,7 +971,8 @@ static char *show_history_picker(void)
         mvprintw(1, rows_x, "%10s",  "Rows");
         mvprintw(1, cols_x, "%6s",   "Cols");
         mvprintw(1, type_x, "%-5s",  "Type");
-        if (name_x < COLS - 4) mvprintw(1, name_x, "File");
+        if (file_x < COLS - 4) mvprintw(1, file_x, "%-*s", file_w, "File");
+        if (dir_x  < COLS - 4) mvprintw(1, dir_x, "Dir");
         attroff(COLOR_PAIR(6));
 
         /* ── File list (scrollable) ── */
@@ -928,12 +980,19 @@ static char *show_history_picker(void)
             int vi  = top_idx + i;
             int idx = view[vi];
             int row = 2 + i;
-            int name_w = COLS - name_x - 1;
-            if (name_w < 4) name_w = 4;
-            const char *name = entries[idx].path;
-            int nlen = strlen(name);
-            int trunc = (nlen > name_w);
-            if (trunc) name = name + nlen - (name_w - 3);
+
+            /* File (basename) — truncate if needed */
+            const char *fname = name_strs[idx];
+            int fname_len = (int)strlen(fname);
+            int fname_trunc = (fname_len > file_w);
+
+            /* Dir — truncate from left with "..." */
+            int dir_w = COLS - dir_x - 1;
+            if (dir_w < 4) dir_w = 4;
+            const char *dname = dir_strs[idx];
+            int dlen = (int)strlen(dname);
+            int dir_trunc = (dlen > dir_w);
+            if (dir_trunc) dname = dname + dlen - (dir_w - 3);
 
             if (vi == sel) {
                 attron(COLOR_PAIR(2) | A_BOLD);
@@ -943,9 +1002,12 @@ static char *show_history_picker(void)
                 mvprintw(row, rows_x, "%10s",  rows_strs[idx]);
                 mvprintw(row, cols_x, "%6s",   cols_strs[idx]);
                 mvprintw(row, type_x, "%-5s",  ext_strs[idx]);
-                if (name_x < COLS - 1)
-                    mvprintw(row, name_x, trunc ? "...%.*s" : "%.*s",
-                             name_w - (trunc ? 3 : 0), name);
+                if (file_x < COLS - 1)
+                    mvprintw(row, file_x, fname_trunc ? "%.*s.." : "%-*s",
+                             fname_trunc ? file_w - 2 : file_w, fname);
+                if (dir_x < COLS - 1)
+                    mvprintw(row, dir_x, dir_trunc ? "..%.*s" : "%.*s",
+                             dir_w - (dir_trunc ? 2 : 0), dname);
                 attroff(COLOR_PAIR(2) | A_BOLD);
             } else {
                 attron(COLOR_PAIR(1));
@@ -958,10 +1020,15 @@ static char *show_history_picker(void)
                 mvprintw(row, type_x, "%-5s",  ext_strs[idx]);
                 attroff(COLOR_PAIR(6));
                 attron(COLOR_PAIR(1));
-                if (name_x < COLS - 1)
-                    mvprintw(row, name_x, trunc ? "...%.*s" : "%.*s",
-                             name_w - (trunc ? 3 : 0), name);
+                if (file_x < COLS - 1)
+                    mvprintw(row, file_x, fname_trunc ? "%.*s.." : "%-*s",
+                             fname_trunc ? file_w - 2 : file_w, fname);
                 attroff(COLOR_PAIR(1));
+                attron(COLOR_PAIR(6));
+                if (dir_x < COLS - 1)
+                    mvprintw(row, dir_x, dir_trunc ? "..%.*s" : "%.*s",
+                             dir_w - (dir_trunc ? 2 : 0), dname);
+                attroff(COLOR_PAIR(6));
             }
         }
 
@@ -1063,13 +1130,27 @@ static char *show_history_picker(void)
             attroff(COLOR_PAIR(11) | A_BOLD);
         } else {
             attron(COLOR_PAIR(6));
-            if (uniq_exts[filter_ext_idx][0])
-                mvprintw(LINES - 1, 2,
-                    "Filter: .%s (%d/%d total) \xe2\x80\x94 [t] next type  [t] again to clear",
-                    uniq_exts[filter_ext_idx], vcnt, count);
-            else
-                mvprintw(LINES - 1, 2,
-                    "No filter \xe2\x80\x94 [t] filter by type  |  csvview <file> to open directly");
+            {
+                int has_ext = uniq_exts[filter_ext_idx][0] != '\0';
+                int has_dir = uniq_dirs[filter_dir_idx][0] != '\0';
+                if (has_ext || has_dir) {
+                    char fbuf[256];
+                    int fx = 0;
+                    fx += snprintf(fbuf + fx, sizeof(fbuf) - fx, "Filter:");
+                    if (has_ext)
+                        fx += snprintf(fbuf + fx, sizeof(fbuf) - fx, " .%s", uniq_exts[filter_ext_idx]);
+                    if (has_dir) {
+                        const char *ds = strrchr(uniq_dirs[filter_dir_idx], '/');
+                        ds = ds ? ds + 1 : uniq_dirs[filter_dir_idx];
+                        fx += snprintf(fbuf + fx, sizeof(fbuf) - fx, " %s/", ds);
+                    }
+                    snprintf(fbuf + fx, sizeof(fbuf) - fx, " (%d/%d)", vcnt, count);
+                    mvprintw(LINES - 1, 2, "%s", fbuf);
+                } else {
+                    mvprintw(LINES - 1, 2,
+                        "[t] filter by type  [p] filter by dir  |  csvview <file> to open directly");
+                }
+            }
             attroff(COLOR_PAIR(6));
         }
 
@@ -1091,6 +1172,11 @@ static char *show_history_picker(void)
             sel = 0; top_idx = 0;
             REBUILD_VIEW();
             prev_sel = -1;
+        } else if (ch == 'p' || ch == 'P') {
+            filter_dir_idx = (filter_dir_idx + 1) % uniq_dir_count;
+            sel = 0; top_idx = 0;
+            REBUILD_VIEW();
+            prev_sel = -1;
         } else if (ch == '\n' || ch == KEY_ENTER || ch == '\r') {
             if (real_sel < 0) continue;
             if (access(entries[real_sel].path, F_OK) != 0) {
@@ -1103,6 +1189,8 @@ static char *show_history_picker(void)
                     memcpy(rows_strs[i], rows_strs[i+1], sizeof(rows_strs[i]));
                     memcpy(cols_strs[i], cols_strs[i+1], sizeof(cols_strs[i]));
                     memcpy(ext_strs[i],  ext_strs[i+1],  sizeof(ext_strs[i]));
+                    memcpy(dir_strs[i],  dir_strs[i+1],  sizeof(dir_strs[i]));
+                    memcpy(name_strs[i], name_strs[i+1], sizeof(name_strs[i]));
                 }
                 count--;
                 REBUILD_VIEW();
@@ -1127,6 +1215,8 @@ static char *show_history_picker(void)
                 memcpy(rows_strs[i], rows_strs[i+1], sizeof(rows_strs[i]));
                 memcpy(cols_strs[i], cols_strs[i+1], sizeof(cols_strs[i]));
                 memcpy(ext_strs[i],  ext_strs[i+1],  sizeof(ext_strs[i]));
+                memcpy(dir_strs[i],  dir_strs[i+1],  sizeof(dir_strs[i]));
+                memcpy(name_strs[i], name_strs[i+1], sizeof(name_strs[i]));
             }
             count--;
             REBUILD_VIEW();
