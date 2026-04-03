@@ -337,6 +337,24 @@ double *extract_plot_values(
 }
 
 // ────────────────────────────────────────────────
+/* Format a Y-axis label: use %.2f if ≤ 11 chars (in column format), else %.2e.
+ * col_idx: column index for decimal_places lookup, or -1 for default (2). */
+static void format_y_label(char *buf, int buf_size, double val, int col_idx)
+{
+    int dec = 2;
+    if (col_idx >= 0 && col_idx < col_count && col_formats[col_idx].decimal_places >= 0)
+        dec = col_formats[col_idx].decimal_places;
+
+    /* Format with column's decimals to check length */
+    char tmp[64];
+    snprintf(tmp, sizeof(tmp), "%.*f", dec, val);
+
+    if ((int)strlen(tmp) <= 11)
+        snprintf(buf, buf_size, "%.2f", val);
+    else
+        snprintf(buf, buf_size, "%.2e", val);
+}
+
 // Main chart rendering function
 // ────────────────────────────────────────────────
 void draw_graph(int col, int height, int width, RowIndex *rows, FILE *f, int row_count, int cursor_pos, int min_max_show)
@@ -482,10 +500,10 @@ void draw_graph(int col, int height, int width, RowIndex *rows, FILE *f, int row
                 snprintf(buf, sizeof(buf), "%.2e", val);
             } else {
                 val = max_y - frac * (max_y - min_y);
-                snprintf(buf, sizeof(buf), "%.3g", val);
+                format_y_label(buf, sizeof(buf), val, col);
             }
             attron(COLOR_PAIR(lcp));
-            mvprintw(lrow, 1, "%8s", buf);
+            mvprintw(lrow, 1, "%11s", buf);
             attroff(COLOR_PAIR(lcp));
         }
     }
@@ -493,7 +511,7 @@ void draw_graph(int col, int height, int width, RowIndex *rows, FILE *f, int row
     if (graph_use_right_axis && !graph_right_axis_drawn) {
         graph_right_axis_drawn = 1;
         int rcp = current_graph_color_pair;
-        int rx = width - 9;  // right margin start
+        int rx = width - 12;  // right margin start
         for (int yi = 0; yi < 4; yi++) {
             double frac = (double)yi / 3.0;
             int    lrow = plot_start_y + (int)round(frac * (plot_height - 1));
@@ -505,10 +523,10 @@ void draw_graph(int col, int height, int width, RowIndex *rows, FILE *f, int row
                 snprintf(buf, sizeof(buf), "%.2e", val);
             } else {
                 val = max_y - frac * (max_y - min_y);
-                snprintf(buf, sizeof(buf), "%.3g", val);
+                format_y_label(buf, sizeof(buf), val, col);
             }
             attron(COLOR_PAIR(rcp));
-            mvprintw(lrow, rx, "%-8s", buf);
+            mvprintw(lrow, rx, "%-11s", buf);
             attroff(COLOR_PAIR(rcp));
         }
     }
@@ -867,23 +885,23 @@ void draw_scatter(int x_col, int y_col, int height, int width,
             double frac = (double)yi / 3.0;
             int lrow = plot_start_y + (int)round(frac * (plot_height - 1));
             double val = ymax - frac * (ymax - ymin);
-            snprintf(buf, sizeof(buf), "%.3g", val);
+            format_y_label(buf, sizeof(buf), val, y_col);
             attron(COLOR_PAIR(lcp));
-            mvprintw(lrow, 1, "%8s", buf);
+            mvprintw(lrow, 1, "%11s", buf);
             attroff(COLOR_PAIR(lcp));
         }
     }
     // Right axis
     if (graph_use_right_axis && !graph_right_axis_drawn) {
         graph_right_axis_drawn = 1;
-        int rx = width - 9;
+        int rx = width - 12;
         for (int yi = 0; yi < 4; yi++) {
             double frac = (double)yi / 3.0;
             int lrow = plot_start_y + (int)round(frac * (plot_height - 1));
             double val = ymax - frac * (ymax - ymin);
-            snprintf(buf, sizeof(buf), "%.3g", val);
+            format_y_label(buf, sizeof(buf), val, y_col);
             attron(COLOR_PAIR(current_graph_color_pair));
-            mvprintw(lrow, rx, "%-8s", buf);
+            mvprintw(lrow, rx, "%-11s", buf);
             attroff(COLOR_PAIR(current_graph_color_pair));
         }
     }
@@ -1323,11 +1341,22 @@ void draw_graph_by_row(int *row_list, int row_list_count,
         all_counts[s] = extract_row_values(row_list[s], all_vals[s], all_maps[s], max_pts);
     }
 
-    /* Find global min/max across visible series */
+    /* Apply zoom: determine visible column range */
+    int max_pc = 0;
+    for (int s = 0; s < row_list_count; s++)
+        if (all_counts[s] > max_pc) max_pc = all_counts[s];
+    graph_total_points = max_pc;
+
+    int zs = (graph_zoom_start > 0) ? graph_zoom_start : 0;
+    int ze = (graph_zoom_end > 0 && graph_zoom_end <= max_pc) ? graph_zoom_end : max_pc;
+    if (zs >= ze) { zs = 0; ze = max_pc; }
+
+    /* Find global min/max across visible series (zoomed range only) */
     double gmin = INFINITY, gmax = -INFINITY;
     for (int s = 0; s < row_list_count; s++) {
         if (graph_series_hidden[s]) continue;
-        for (int i = 0; i < all_counts[s]; i++) {
+        int end = (ze < all_counts[s]) ? ze : all_counts[s];
+        for (int i = zs; i < end; i++) {
             if (all_vals[s][i] < gmin) gmin = all_vals[s][i];
             if (all_vals[s][i] > gmax) gmax = all_vals[s][i];
         }
@@ -1356,20 +1385,23 @@ void draw_graph_by_row(int *row_list, int row_list_count,
             snprintf(buf, sizeof(buf), "%.2e", val);
         } else {
             val = gmax - frac * (gmax - gmin);
-            snprintf(buf, sizeof(buf), "%.3g", val);
+            format_y_label(buf, sizeof(buf), val, -1);
         }
         attron(COLOR_PAIR(1));
-        mvprintw(lrow, 1, "%8s", buf);
+        mvprintw(lrow, 1, "%11s", buf);
         attroff(COLOR_PAIR(1));
     }
 
-    /* X labels (column names from first series) */
-    int pc0 = all_counts[0];
+    /* X labels (column names from first series, zoomed range) */
+    int pc0_full = all_counts[0];
+    int pc0_zs = (zs < pc0_full) ? zs : 0;
+    int pc0_ze = (ze < pc0_full) ? ze : pc0_full;
+    int pc0 = pc0_ze - pc0_zs;
     if (pc0 > 1) {
         int label_step = pc0 / 6;
         if (label_step < 1) label_step = 1;
         for (int i = 0; i < pc0; i += label_step) {
-            int ci = all_maps[0][i];
+            int ci = all_maps[0][pc0_zs + i];
             char label[64] = "";
             if (column_names[ci]) {
                 char *trunc = truncate_for_display(column_names[ci], 10);
@@ -1405,13 +1437,16 @@ void draw_graph_by_row(int *row_list, int row_list_count,
         attroff(A_DIM);
     }
 
-    /* Render each series (skip hidden) */
+    /* Render each series (skip hidden), applying zoom */
     int first_series = 1;
     for (int s = 0; s < row_list_count; s++) {
         if (graph_series_hidden[s]) continue;
-        int pc = all_counts[s];
+        int pc_full = all_counts[s];
+        int s_zs = (zs < pc_full) ? zs : 0;
+        int s_ze = (ze < pc_full) ? ze : pc_full;
+        int pc = s_ze - s_zs;
         if (pc < 2) continue;
-        double *vals = all_vals[s];
+        double *vals = all_vals[s] + s_zs;  /* offset into zoomed range */
 
         int pixel_h = plot_height * 4;
         int pixel_w = plot_width * 2;
@@ -1425,7 +1460,7 @@ void draw_graph_by_row(int *row_list, int row_list_count,
             first_series = 0;
         }
 
-        int cp = GRAPH_COLOR_BASE + (s % 8);
+        int cp = (row_list_count == 1) ? current_graph_color_pair : GRAPH_COLOR_BASE + (s % 8);
         attron(COLOR_PAIR(cp));
 
         if (graph_type == GRAPH_LINE) {
@@ -1491,21 +1526,24 @@ void draw_graph_by_row(int *row_list, int row_list_count,
         free(dots);
     }
 
-    /* Cursor — use first visible series */
+    /* Cursor — use first visible series (zoomed range) */
     {
         int cs = -1;
         for (int s = 0; s < row_list_count; s++)
             if (!graph_series_hidden[s] && all_counts[s] > 0) { cs = s; break; }
 
         if (show_graph_cursor && cs >= 0) {
-            int pc = all_counts[cs];
+            int cs_zs = (zs < all_counts[cs]) ? zs : 0;
+            int cs_ze = (ze < all_counts[cs]) ? ze : all_counts[cs];
+            int pc = cs_ze - cs_zs;
+            double *zvals = all_vals[cs] + cs_zs;
             int ci = cursor_pos;
-            if (min_max_show == 1) ci = find_min_index(all_vals[cs], pc);
-            else if (min_max_show == 2) ci = find_max_index(all_vals[cs], pc);
+            if (min_max_show == 1) ci = find_min_index(zvals, pc);
+            else if (min_max_show == 2) ci = find_max_index(zvals, pc);
             if (ci < 0) ci = 0;
             if (ci >= pc) ci = pc - 1;
 
-            double norm = norm_y(all_vals[cs][ci], gmin, gmax, graph_scale);
+            double norm = norm_y(zvals[ci], gmin, gmax, graph_scale);
             int cell_y = (int)round((1.0 - norm) * (plot_height - 1));
             int cell_x = plot_start_x + (ci * plot_width) / (pc > 1 ? pc - 1 : 1);
 
@@ -1515,7 +1553,7 @@ void draw_graph_by_row(int *row_list, int row_list_count,
                 attroff(COLOR_PAIR(11) | A_BOLD);
 
                 char x_label[64] = "";
-                int col_idx = all_maps[cs][ci];
+                int col_idx = all_maps[cs][cs_zs + ci];
                 if (column_names[col_idx])
                     snprintf(x_label, sizeof(x_label), "%s", column_names[col_idx]);
                 else {
@@ -1523,7 +1561,7 @@ void draw_graph_by_row(int *row_list, int row_list_count,
                     snprintf(x_label, sizeof(x_label), "%s", cl);
                 }
                 char val_str[64];
-                snprintf(val_str, sizeof(val_str), "%.4f", all_vals[cs][ci]);
+                snprintf(val_str, sizeof(val_str), "%.4f", zvals[ci]);
                 char info[128];
                 snprintf(info, sizeof(info), "X:%s Y:%s", x_label, val_str);
                 int text_y = plot_start_y + cell_y - 1;
@@ -1532,7 +1570,7 @@ void draw_graph_by_row(int *row_list, int row_list_count,
                 mvprintw(text_y, cell_x - (int)strlen(info) / 2, "%s", info);
                 attroff(COLOR_PAIR(1) | A_BOLD);
 
-                graph_last_cursor_y = all_vals[cs][ci];
+                graph_last_cursor_y = zvals[ci];
                 snprintf(graph_last_cursor_x, sizeof(graph_last_cursor_x), "%s", x_label);
             }
             graph_visible_points = pc;

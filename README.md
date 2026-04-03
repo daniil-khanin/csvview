@@ -9,15 +9,39 @@ No Python. No Electron. No dependencies — just C and ncurses.
 
 ![csvview demo — big file, sort, stats, multi-series graph](assets/demo.gif)
 
-![Multi-series graph with dual Y axis](assets/screenshot-graph.png)
+![Main table view with data columns and row numbers](assets/csvview-table.png)
 
-![SVG export — print-ready white-background chart](assets/screenshot-exportsvg.png)
+![Search with highlighted matching cells](assets/csvview-search.png)
 
-![Pivot table](assets/screenshot-pivot-1.png)
+![Advanced filter applied to table](assets/csvview-filter.png)
 
-![Pivot table settings](assets/screenshot-pivot-2.png)
+![Column statistics with histogram and top values](assets/csvview-stats.png)
 
-![Pivot table with graph](assets/screenshot-pivot-3.png)
+![Line chart with date X-axis and anomaly spikes](assets/csvview-graph.png)
+
+![Braille scatter plot with Pearson r correlation](assets/csvview-scatter.png)
+
+![Pearson correlation matrix for numeric columns](assets/csvview-corr.png)
+
+![Pivot table with aggregated data grouped by date](assets/csvview-pivot.png)
+
+![Pivot table settings dialog](assets/csvview-pivot-settings.png)
+
+![Split-screen pivot table with live chart](assets/csvview-pivot-graph.png)
+
+![Pivot table with report filter dropdown](assets/csvview-pivot-filter.png)
+
+![Pivot table in percentage display mode](assets/csvview-pivot-pct.png)
+
+![Pivot table with inline sparklines](assets/csvview-pivot-spark.png)
+
+![Donut chart rendered with braille characters](assets/csvview-svg-1.png)
+
+![SVG donut chart export in browser](assets/csvview-svg-2.png)
+
+![File history picker with recent files](assets/csvview-history.png)
+
+![Theme selector with TurboVision theme](assets/csvview-themes.png)
 
 ---
 

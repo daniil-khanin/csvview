@@ -72,6 +72,26 @@ static int svg_py_val(double val, double ymin, double ymax, int log_scale,
     return L->mt + L->ph - (int)round(norm * L->ph);
 }
 
+/* UTF-8 safe truncation: copy at most max_bytes but never split a multi-byte char */
+static void utf8_trunc(char *dst, const char *src, int dst_size, int max_bytes)
+{
+    if (!src || dst_size <= 0) { if (dst_size > 0) dst[0] = '\0'; return; }
+    int limit = max_bytes < dst_size - 1 ? max_bytes : dst_size - 1;
+    int i = 0;
+    while (i < limit && src[i]) {
+        unsigned char c = (unsigned char)src[i];
+        int clen = 1;
+        if (c >= 0xC0 && c < 0xE0) clen = 2;
+        else if (c >= 0xE0 && c < 0xF0) clen = 3;
+        else if (c >= 0xF0) clen = 4;
+        if (i + clen > limit) break;
+        for (int j = 0; j < clen && src[i]; j++)
+            dst[i + j] = src[i + j];
+        i += clen;
+    }
+    dst[i] = '\0';
+}
+
 /* ── Inline field extractor (mirrors get_field_graph in graph.c) ──────── */
 static void svg_get_field(const char *line, int idx, char *buf, int bsz)
 {
@@ -169,9 +189,26 @@ static void write_grid_and_border(FILE *out, const SvgLayout *L)
         L->ml, L->mt + L->ph, L->ml + L->pw, L->mt + L->ph);
 }
 
+/* Format Y-axis label: %.2f if ≤ 11 chars (in column format), else %.2e.
+ * col_idx: column index for decimal_places lookup, or -1 for default (2). */
+static void svg_format_y_label(char *buf, int buf_size, double val, int col_idx)
+{
+    int dec = 2;
+    if (col_idx >= 0 && col_idx < col_count && col_formats[col_idx].decimal_places >= 0)
+        dec = col_formats[col_idx].decimal_places;
+
+    char tmp[64];
+    snprintf(tmp, sizeof(tmp), "%.*f", dec, val);
+
+    if ((int)strlen(tmp) <= 11)
+        snprintf(buf, buf_size, "%.2f", val);
+    else
+        snprintf(buf, buf_size, "%.2e", val);
+}
+
 static void write_y_labels(FILE *out, const SvgLayout *L,
                             double ymin, double ymax, int log_scale,
-                            const char *color, int right_side)
+                            const char *color, int right_side, int col_idx)
 {
     char buf[32];
     for (int yi = 0; yi < 4; yi++) {
@@ -184,7 +221,7 @@ static void write_y_labels(FILE *out, const SvgLayout *L,
             snprintf(buf, sizeof(buf), "%.2e", val);
         } else {
             val = ymax - frac * (ymax - ymin);
-            snprintf(buf, sizeof(buf), "%.3g", val);
+            svg_format_y_label(buf, sizeof(buf), val, col_idx);
         }
         if (!right_side) {
             fprintf(out,
@@ -338,8 +375,19 @@ static void export_regular_svg(FILE *out, const SvgLayout *L,
 
     write_grid_and_border(out, L);
 
+    /* Determine first visible column for Y label formatting */
+    int first_vis_col = -1, second_vis_col = -1;
+    { int vc = 0;
+      for (int s = 0; s < graph_col_count; s++) {
+          if (graph_series_hidden[s]) continue;
+          if (vc == 0) first_vis_col = graph_col_list[s];
+          if (vc == 1) second_vis_col = graph_col_list[s];
+          vc++;
+      }
+    }
+
     /* Y-axis labels */
-    write_y_labels(out, L, gmin, gmax, graph_scale == SCALE_LOG, "#333", 0);
+    write_y_labels(out, L, gmin, gmax, graph_scale == SCALE_LOG, "#333", 0, first_vis_col);
     if (graph_dual_yaxis && !isinf(rmin)) {
         /* right axis in color of first right-axis series */
         int rs = -1;
@@ -354,7 +402,7 @@ static void export_regular_svg(FILE *out, const SvgLayout *L,
             }
         }
         const char *rc = (rs >= 0) ? SVG_COLORS[rs % 7] : "#888";
-        write_y_labels(out, L, rmin, rmax, graph_scale == SCALE_LOG, rc, 1);
+        write_y_labels(out, L, rmin, rmax, graph_scale == SCALE_LOG, rc, 1, second_vis_col);
     }
 
     /* Find n_points for X labels (first visible series) */
@@ -534,7 +582,11 @@ static void export_scatter_svg(FILE *out, const SvgLayout *L,
     write_grid_and_border(out, L);
 
     /* Y labels */
-    write_y_labels(out, L, ymin, ymax, 0, "#333", 0);
+    { int yc = -1;
+      for (int s = 0; s < n_series; s++)
+          if (!graph_series_hidden[s]) { yc = graph_col_list[s]; break; }
+      write_y_labels(out, L, ymin, ymax, 0, "#333", 0, yc);
+    }
 
     /* X labels */
     write_x_labels_scatter(out, L, xmin, xmax);
@@ -787,6 +839,201 @@ static void export_pie_svg(FILE *out, const SvgLayout *L,
     free(slices);
 }
 
+/* ── Row-graph SVG export ─────────────────────────────────────────────── */
+/* Extract numeric column values from a single row (mirrors extract_row_values
+   in graph.c). Returns count of extracted values. */
+static int svg_extract_row_values(RowIndex *rows_arr, int real_row, int total_rows,
+                                  double *vals, int *col_map, int max_pts)
+{
+    if (real_row < 0 || real_row >= total_rows) return 0;
+    char line_buf[MAX_LINE_LEN];
+    const char *lp = rows_arr[real_row].line_cache;
+    if (!lp && g_mmap_base)
+        lp = csv_mmap_get_line(rows_arr[real_row].offset, line_buf, sizeof(line_buf));
+    if (!lp) return 0;
+
+    int field_count = 0;
+    char **fields = g_fmt ? g_fmt->parse_row(lp, &field_count)
+                          : parse_csv_line(lp, &field_count);
+    if (!fields) return 0;
+
+    int n = 0;
+    for (int c = 0; c < field_count && c < col_count && n < max_pts; c++) {
+        if (col_types[c] != COL_NUM) continue;
+        if (col_hidden[c]) continue;
+        if (!fields[c] || !fields[c][0]) continue;
+        double v = atof(fields[c]);
+        if (!isnan(v)) {
+            col_map[n] = c;
+            vals[n] = v;
+            n++;
+        }
+    }
+    free_csv_fields(fields, field_count);
+    return n;
+}
+
+static void export_row_svg(FILE *out, const SvgLayout *L,
+                           RowIndex *rows_arr, FILE *fp, int total_rows)
+{
+    (void)fp;
+    int max_pts = col_count;
+    double *all_vals[10];
+    int     all_maps[10][MAX_COLS];
+    int     all_counts[10];
+    memset(all_counts, 0, sizeof(all_counts));
+
+    for (int s = 0; s < graph_row_count && s < 10; s++) {
+        all_vals[s] = malloc(max_pts * sizeof(double));
+        if (!all_vals[s]) {
+            for (int k = 0; k < s; k++) free(all_vals[k]);
+            return;
+        }
+        all_counts[s] = svg_extract_row_values(rows_arr, graph_row_list[s],
+                                               total_rows, all_vals[s],
+                                               all_maps[s], max_pts);
+    }
+
+    /* Apply zoom */
+    int max_pc = 0;
+    for (int s = 0; s < graph_row_count; s++)
+        if (all_counts[s] > max_pc) max_pc = all_counts[s];
+    int zs = (graph_zoom_start > 0) ? graph_zoom_start : 0;
+    int ze = (graph_zoom_end > 0 && graph_zoom_end <= max_pc) ? graph_zoom_end : max_pc;
+    if (zs >= ze) { zs = 0; ze = max_pc; }
+
+    /* Global min/max (zoomed range, skip hidden) */
+    double gmin = INFINITY, gmax = -INFINITY;
+    for (int s = 0; s < graph_row_count; s++) {
+        if (graph_series_hidden[s]) continue;
+        int end = (ze < all_counts[s]) ? ze : all_counts[s];
+        for (int i = zs; i < end; i++) {
+            if (all_vals[s][i] < gmin) gmin = all_vals[s][i];
+            if (all_vals[s][i] > gmax) gmax = all_vals[s][i];
+        }
+    }
+    if (isinf(gmin)) { gmin = 0; gmax = 1; }
+    if (gmin == gmax) { gmax += 1; gmin -= 1; }
+
+    write_grid_and_border(out, L);
+    write_y_labels(out, L, gmin, gmax, graph_scale == SCALE_LOG, "#333", 0, -1);
+
+    /* X labels: column names from first series */
+    {
+        int s0 = -1;
+        for (int s = 0; s < graph_row_count; s++)
+            if (!graph_series_hidden[s] && all_counts[s] > 0) { s0 = s; break; }
+        if (s0 >= 0) {
+            int s0_zs = (zs < all_counts[s0]) ? zs : 0;
+            int s0_ze = (ze < all_counts[s0]) ? ze : all_counts[s0];
+            int pc0 = s0_ze - s0_zs;
+            int n_labels = 6;
+            if (pc0 < n_labels) n_labels = pc0;
+            for (int xi = 0; xi <= n_labels && pc0 > 0; xi++) {
+                double frac = (double)xi / n_labels;
+                int gx = L->ml + (int)round(frac * L->pw);
+                int idx = (int)round(frac * (pc0 - 1));
+                int ci = all_maps[s0][s0_zs + idx];
+                char label[32] = "";
+                if (column_names[ci])
+                    utf8_trunc(label, column_names[ci], sizeof(label), 12);
+                else
+                    col_letter(ci, label);
+                fprintf(out,
+                    "<text x=\"%d\" y=\"%d\" fill=\"#666\" "
+                    "text-anchor=\"middle\" font-family=\"monospace\" font-size=\"11\">%s</text>\n",
+                    gx, L->mt + L->ph + 18, label);
+            }
+        }
+    }
+
+    /* Draw each series */
+    for (int s = 0; s < graph_row_count; s++) {
+        if (graph_series_hidden[s]) continue;
+        int s_zs = (zs < all_counts[s]) ? zs : 0;
+        int s_ze = (ze < all_counts[s]) ? ze : all_counts[s];
+        int pc = s_ze - s_zs;
+        if (pc < 2) continue;
+        double *vals = all_vals[s] + s_zs;
+
+        const char *color = SVG_COLORS[s % 7];
+        int step = pc / L->pw;
+        if (step < 1) step = 1;
+        int np = (pc + step - 1) / step;
+
+        if (graph_type == GRAPH_LINE) {
+            fprintf(out, "<polyline fill=\"none\" stroke=\"%s\" stroke-width=\"1.5\" "
+                    "stroke-linejoin=\"round\" points=\"", color);
+            for (int i = 0; i < np; i++) {
+                int di = i * step;
+                if (di >= pc) di = pc - 1;
+                int gx = L->ml + (int)round((double)i / (np - 1) * L->pw);
+                int gy = svg_py_val(vals[di], gmin, gmax,
+                                    graph_scale == SCALE_LOG, L);
+                fprintf(out, "%d,%d ", gx, gy);
+            }
+            fprintf(out, "\"/>\n");
+        } else if (graph_type == GRAPH_DOT) {
+            fprintf(out, "<path fill=\"none\" stroke=\"%s\" stroke-width=\"2.5\" "
+                    "stroke-linecap=\"round\" d=\"", color);
+            for (int i = 0; i < np; i++) {
+                int di = i * step;
+                if (di >= pc) di = pc - 1;
+                int gx = L->ml + (int)round((double)i / (np - 1) * L->pw);
+                int gy = svg_py_val(vals[di], gmin, gmax,
+                                    graph_scale == SCALE_LOG, L);
+                fprintf(out, "M%d,%d h0 ", gx, gy);
+            }
+            fprintf(out, "\"/>\n");
+        } else { /* GRAPH_BAR */
+            int bar_w = L->pw / np;
+            if (bar_w < 1) bar_w = 1;
+            int half  = bar_w / 2;
+            int base  = L->mt + L->ph;
+            fprintf(out, "<g fill=\"%s\" opacity=\"0.8\">\n", color);
+            for (int i = 0; i < np; i++) {
+                int di = i * step;
+                if (di >= pc) di = pc - 1;
+                int gx = L->ml + (int)round((double)i / (np - 1) * L->pw);
+                int gy = svg_py_val(vals[di], gmin, gmax,
+                                    graph_scale == SCALE_LOG, L);
+                int bh = base - gy;
+                if (bh < 1) bh = 1;
+                fprintf(out, "<rect x=\"%d\" y=\"%d\" width=\"%d\" height=\"%d\"/>\n",
+                        gx - half, gy, bar_w > 1 ? bar_w - 1 : 1, bh);
+            }
+            fprintf(out, "</g>\n");
+        }
+    }
+
+    /* Legend */
+    if (graph_row_count > 1) {
+        int lx = L->ml + 8, ly = L->mt + L->ph + 38;
+        for (int s = 0; s < graph_row_count; s++) {
+            if (graph_series_hidden[s]) continue;
+            const char *color = SVG_COLORS[s % 7];
+            char label[24] = "";
+            int rr = graph_row_list[s];
+            if (rr >= 0 && rr < total_rows && rows_arr[rr].line_cache) {
+                char fb[20];
+                svg_get_field(rows_arr[rr].line_cache, 0, fb, sizeof(fb));
+                if (fb[0]) snprintf(label, sizeof(label), "%.14s", fb);
+            }
+            if (!label[0]) snprintf(label, sizeof(label), "Row %d", rr);
+            fprintf(out,
+                "<rect x=\"%d\" y=\"%d\" width=\"14\" height=\"3\" fill=\"%s\"/>\n"
+                "<text x=\"%d\" y=\"%d\" fill=\"#333\" "
+                "font-family=\"monospace\" font-size=\"11\">%s</text>\n",
+                lx, ly - 1, color,
+                lx + 18, ly + 3, label);
+            lx += (int)strlen(label) * 7 + 32;
+            if (lx > L->ml + L->pw - 60) { lx = L->ml + 8; ly += 18; }
+        }
+    }
+
+    for (int s = 0; s < graph_row_count; s++) free(all_vals[s]);
+}
+
 /* ── Public entry point ───────────────────────────────────────────────── */
 int export_graph_svg(const char *filename, int svg_w, int svg_h,
                      RowIndex *rows_arr, FILE *fp, int total_rows)
@@ -801,6 +1048,21 @@ int export_graph_svg(const char *filename, int svg_w, int svg_h,
 
     if (graph_pie_mode) {
         export_pie_svg(out, &L, rows_arr, fp, total_rows);
+    } else if (graph_row_mode) {
+        /* Title */
+        const char *mode_str = (graph_type == GRAPH_BAR) ? "bar"
+                             : (graph_type == GRAPH_DOT) ? "dot" : "line";
+        char title[128] = "Row graph: ";
+        for (int s = 0; s < graph_row_count && s < 5; s++) {
+            char tmp[16];
+            snprintf(tmp, sizeof(tmp), "%s%d", s > 0 ? ", " : "", graph_row_list[s]);
+            strncat(title, tmp, sizeof(title) - strlen(title) - 1);
+        }
+        fprintf(out,
+            "<text x=\"%d\" y=\"22\" fill=\"#333\" font-weight=\"bold\" "
+            "font-family=\"monospace\" font-size=\"13\">%s [%s]</text>\n",
+            L.ml, title, mode_str);
+        export_row_svg(out, &L, rows_arr, fp, total_rows);
     } else {
         /* Title: filename + graph type */
         const char *mode_str = graph_scatter_mode ? "scatter"

@@ -2537,7 +2537,10 @@ int main(int argc, char *argv[]) {
 
                     // Redraw the graph immediately (no getch, just update the screen)
                     clear();
-                    if (graph_scatter_mode && graph_scatter_x_col >= 0) {
+                    if (graph_row_mode) {
+                        draw_graph_by_row(graph_row_list, graph_row_count,
+                                          height, width, graph_cursor_pos, min_max_show);
+                    } else if (graph_scatter_mode && graph_scatter_x_col >= 0) {
                         draw_scatter(graph_scatter_x_col, graph_col_list[current_graph],
                                      height, width, rows, f, row_count, graph_cursor_pos);
                     } else {

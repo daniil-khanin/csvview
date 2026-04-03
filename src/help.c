@@ -422,6 +422,8 @@ void show_help(int use_ncurses)
                     strstr(text, "Concat mode (--cat):") ||
                     strstr(text, "Bookmarks (vim-style):") ||
                     strstr(text, "Theme:") ||
+                    strstr(text, "Analytics commands:") ||
+                    strstr(text, "Sparklines:") ||
                     strstr(text, "File history (csvview with no arguments):") ||
                     strstr(text, "On first launch (no .csvf file):"))
                 {

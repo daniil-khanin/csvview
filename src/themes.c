@@ -384,7 +384,7 @@ void theme_picker(void)
     const Theme *original = current_theme;
     int win_h = THEME_COUNT + 4;
     if (win_h > LINES - 4) win_h = LINES - 4;
-    int win_w = 40;
+    int win_w = 43;
     int start_y = (LINES - win_h) / 2;
     int start_x = (COLS - win_w) / 2;
     int visible = win_h - 3;
