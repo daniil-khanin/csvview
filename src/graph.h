@@ -109,6 +109,14 @@ void draw_box_plot(int *cols, int ncols, int height, int width);
  */
 void draw_heatmap(int height, int width);
 
+/**
+ * Row-based graph (:gr): plot one or more rows across columns.
+ * X-axis = column names (numeric columns only), Y = values.
+ * row_list: array of real_row indices; row_list_count: how many.
+ */
+void draw_graph_by_row(int *row_list, int row_list_count,
+                       int height, int width, int cursor_pos, int min_max_show);
+
 /* Multi-series overlay — set before calling draw_graph in a loop */
 extern double graph_global_min;
 extern double graph_global_max;

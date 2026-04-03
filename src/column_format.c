@@ -372,6 +372,9 @@ void save_column_settings(const char *csv_filename)
     fprintf(fp, "delimiter:%d\n", (int)(unsigned char)csv_delimiter);
     fprintf(fp, "skip_comments:%d\n", skip_comments);
 
+    if (show_row_sparklines)
+        fprintf(fp, "sparklines:%d\n", show_row_sparklines);
+
     // Per-column settings
     for (int i = 0; i < col_count; i++)
     {
@@ -541,6 +544,10 @@ int load_column_settings(const char *csv_filename)
         else if (strncmp(line, "skip_comments:", 14) == 0)
         {
             skip_comments = atoi(line + 14) ? 1 : 0;
+        }
+        else if (strncmp(line, "sparklines:", 11) == 0)
+        {
+            show_row_sparklines = atoi(line + 11) ? 1 : 0;
         }
         else if (strncmp(line, "hidden:", 7) == 0)
         {

@@ -1256,6 +1256,336 @@ void draw_pie_chart(int col, int height, int width)
 // ────────────────────────────────────────────────
 // Box Plot
 // ────────────────────────────────────────────────
+// Row-based graph (:gr) — plot rows across columns
+// ────────────────────────────────────────────────
+
+/**
+ * Extract numeric values from a single row across all columns.
+ * col_map[i] receives the column index for point i (for X labels).
+ * Returns count of extracted points.
+ */
+static int extract_row_values(int real_row, double *vals, int *col_map, int max_pts)
+{
+    if (real_row < 0 || real_row >= row_count) return 0;
+
+    char line_buf[MAX_LINE_LEN];
+    const char *lp = rows[real_row].line_cache;
+    if (!lp && g_mmap_base)
+        lp = csv_mmap_get_line(rows[real_row].offset, line_buf, sizeof(line_buf));
+    if (!lp) return 0;
+
+    int field_count = 0;
+    char **fields = g_fmt ? g_fmt->parse_row(lp, &field_count)
+                          : parse_csv_line(lp, &field_count);
+    if (!fields) return 0;
+
+    int n = 0;
+    for (int c = 0; c < field_count && c < col_count && n < max_pts; c++) {
+        if (col_types[c] != COL_NUM) continue;
+        if (col_hidden[c]) continue;
+        if (!fields[c] || !fields[c][0]) continue;
+        char *ep;
+        double v = parse_double(fields[c], &ep);
+        if (ep != fields[c] && !isnan(v)) {
+            col_map[n] = c;
+            vals[n] = v;
+            n++;
+        }
+    }
+    free_csv_fields(fields, field_count);
+    return n;
+}
+
+void draw_graph_by_row(int *row_list, int row_list_count,
+                       int height, int width, int cursor_pos, int min_max_show)
+{
+    if (row_list_count <= 0) return;
+
+    int plot_start_y = 4;
+    int plot_start_x = ROW_DATA_OFFSET + 2;
+    int plot_height = height - 8;
+    int plot_width = width - plot_start_x - 4;
+    if (plot_height < 5 || plot_width < 10) return;
+
+    /* Extract values for each row */
+    int max_pts = col_count;
+    double *all_vals[10];
+    int     all_maps[10][MAX_COLS];
+    int     all_counts[10];
+    memset(all_counts, 0, sizeof(all_counts));
+
+    for (int s = 0; s < row_list_count && s < 10; s++) {
+        all_vals[s] = malloc(max_pts * sizeof(double));
+        if (!all_vals[s]) {
+            for (int k = 0; k < s; k++) free(all_vals[k]);
+            return;
+        }
+        all_counts[s] = extract_row_values(row_list[s], all_vals[s], all_maps[s], max_pts);
+    }
+
+    /* Find global min/max across visible series */
+    double gmin = INFINITY, gmax = -INFINITY;
+    for (int s = 0; s < row_list_count; s++) {
+        if (graph_series_hidden[s]) continue;
+        for (int i = 0; i < all_counts[s]; i++) {
+            if (all_vals[s][i] < gmin) gmin = all_vals[s][i];
+            if (all_vals[s][i] > gmax) gmax = all_vals[s][i];
+        }
+    }
+    if (isinf(gmin) || isinf(gmax)) {
+        for (int s = 0; s < row_list_count; s++) free(all_vals[s]);
+        return;
+    }
+    if (gmin == gmax) { gmax += 1.0; gmin -= 1.0; }
+
+    /* Clear chart area */
+    for (int y = plot_start_y; y < plot_start_y + plot_height + 2; y++)
+        for (int x = 1; x < width - 1; x++)
+            mvaddch(y, x, ' ');
+
+    /* Y labels (4 positions) */
+    char buf[32];
+    for (int yi = 0; yi < 4; yi++) {
+        double frac = (double)yi / 3.0;
+        int lrow = plot_start_y + (int)round(frac * (plot_height - 1));
+        double val;
+        if (graph_scale == SCALE_LOG) {
+            double lmax = log10(gmax > 0 ? gmax : 1);
+            double lmin = log10(gmin > 0 ? gmin : 1);
+            val = pow(10.0, lmax - frac * (lmax - lmin));
+            snprintf(buf, sizeof(buf), "%.2e", val);
+        } else {
+            val = gmax - frac * (gmax - gmin);
+            snprintf(buf, sizeof(buf), "%.3g", val);
+        }
+        attron(COLOR_PAIR(1));
+        mvprintw(lrow, 1, "%8s", buf);
+        attroff(COLOR_PAIR(1));
+    }
+
+    /* X labels (column names from first series) */
+    int pc0 = all_counts[0];
+    if (pc0 > 1) {
+        int label_step = pc0 / 6;
+        if (label_step < 1) label_step = 1;
+        for (int i = 0; i < pc0; i += label_step) {
+            int ci = all_maps[0][i];
+            char label[64] = "";
+            if (column_names[ci]) {
+                char *trunc = truncate_for_display(column_names[ci], 10);
+                snprintf(label, sizeof(label), "%s", trunc);
+                free(trunc);
+            } else {
+                char cl[8]; col_letter(ci, cl);
+                snprintf(label, sizeof(label), "%s", cl);
+            }
+            int x_pos = plot_start_x + (i * plot_width / (pc0 - 1));
+            int len = (int)strlen(label);
+            if (x_pos + len > width - 2) x_pos = width - 2 - len;
+            mvprintw(plot_start_y + plot_height, x_pos, "%s", label);
+        }
+    }
+
+    /* Grid */
+    if (graph_grid) {
+        attron(A_DIM);
+        if (graph_grid & 1) {
+            for (int yi = 1; yi <= 2; yi++) {
+                int gy = plot_start_y + (int)round((double)yi / 3.0 * (plot_height - 1));
+                mvhline(gy, plot_start_x, ACS_HLINE, plot_width);
+            }
+        }
+        if (graph_grid & 2) {
+            int xlsv = pc0 / 6; if (xlsv < 1) xlsv = 1;
+            for (int i = xlsv; i < pc0 - 1; i += xlsv) {
+                int gx = plot_start_x + (i * plot_width / (pc0 > 1 ? pc0 - 1 : 1));
+                mvvline(plot_start_y, gx, ACS_VLINE, plot_height);
+            }
+        }
+        attroff(A_DIM);
+    }
+
+    /* Render each series (skip hidden) */
+    int first_series = 1;
+    for (int s = 0; s < row_list_count; s++) {
+        if (graph_series_hidden[s]) continue;
+        int pc = all_counts[s];
+        if (pc < 2) continue;
+        double *vals = all_vals[s];
+
+        int pixel_h = plot_height * 4;
+        int pixel_w = plot_width * 2;
+        bool *dots = calloc(pixel_h * pixel_w, sizeof(bool));
+        if (!dots) continue;
+
+        /* Axes on first visible series only */
+        if (first_series) {
+            draw_bresenham(dots, pixel_w, pixel_h, 0, pixel_h - 1, pixel_w - 1, pixel_h - 1);
+            draw_bresenham(dots, pixel_w, pixel_h, 0, pixel_h - 1, 0, 0);
+            first_series = 0;
+        }
+
+        int cp = GRAPH_COLOR_BASE + (s % 8);
+        attron(COLOR_PAIR(cp));
+
+        if (graph_type == GRAPH_LINE) {
+            for (int i = 0; i < pc - 1; i++) {
+                double y0 = norm_y(vals[i], gmin, gmax, graph_scale);
+                double y1 = norm_y(vals[i + 1], gmin, gmax, graph_scale);
+                int py0 = (int)round((1.0 - y0) * (pixel_h - 1));
+                int py1 = (int)round((1.0 - y1) * (pixel_h - 1));
+                int px0 = (i * (pixel_w - 1)) / (pc - 1);
+                int px1 = ((i + 1) * (pixel_w - 1)) / (pc - 1);
+                draw_bresenham(dots, pixel_w, pixel_h, px0, py0, px1, py1);
+            }
+        } else if (graph_type == GRAPH_BAR) {
+            int bar_width = (pixel_w / pc) / 2;
+            if (bar_width < 1) bar_width = 1;
+            for (int i = 0; i < pc; i++) {
+                double norm = norm_y(vals[i], gmin, gmax, graph_scale);
+                int height_px = (int)round(norm * (pixel_h - 1));
+                int px_center = (i * (pixel_w - 1)) / (pc - 1);
+                for (int h = 0; h <= height_px; h++)
+                    for (int bw = -bar_width; bw <= bar_width; bw++) {
+                        int px = px_center + bw;
+                        if (px >= 0 && px < pixel_w)
+                            dots[(pixel_h - 1 - h) * pixel_w + px] = true;
+                    }
+            }
+        } else { /* DOT */
+            for (int i = 0; i < pc; i++) {
+                double norm = norm_y(vals[i], gmin, gmax, graph_scale);
+                int py = (int)round((1.0 - norm) * (pixel_h - 1));
+                int px = (i * (pixel_w - 1)) / (pc - 1);
+                if (px >= 0 && px < pixel_w && py >= 0 && py < pixel_h) {
+                    dots[py * pixel_w + px] = true;
+                    if (px > 0) dots[py * pixel_w + (px-1)] = true;
+                    if (px < pixel_w-1) dots[py * pixel_w + (px+1)] = true;
+                    if (py > 0) dots[(py-1) * pixel_w + px] = true;
+                    if (py < pixel_h-1) dots[(py+1) * pixel_w + px] = true;
+                }
+            }
+        }
+
+        /* Braille render */
+        for (int cy = 0; cy < plot_height; cy++) {
+            for (int cx = 0; cx < plot_width; cx++) {
+                int code = 0;
+                for (int by = 0; by < 4; by++)
+                    for (int bx = 0; bx < 2; bx++) {
+                        int py = cy * 4 + by;
+                        int px = cx * 2 + bx;
+                        if (px < pixel_w && py < pixel_h && dots[py * pixel_w + px]) {
+                            int bit = (bx == 0) ? by : by + 3;
+                            if (by == 3) bit = (bx == 0) ? 6 : 7;
+                            code |= (1 << bit);
+                        }
+                    }
+                if (code == 0) continue;
+                char braille_utf8[5] = {0};
+                wcrtomb(braille_utf8, 0x2800 + code, NULL);
+                mvaddstr(plot_start_y + cy, plot_start_x + cx, braille_utf8);
+            }
+        }
+        attroff(COLOR_PAIR(cp));
+        free(dots);
+    }
+
+    /* Cursor — use first visible series */
+    {
+        int cs = -1;
+        for (int s = 0; s < row_list_count; s++)
+            if (!graph_series_hidden[s] && all_counts[s] > 0) { cs = s; break; }
+
+        if (show_graph_cursor && cs >= 0) {
+            int pc = all_counts[cs];
+            int ci = cursor_pos;
+            if (min_max_show == 1) ci = find_min_index(all_vals[cs], pc);
+            else if (min_max_show == 2) ci = find_max_index(all_vals[cs], pc);
+            if (ci < 0) ci = 0;
+            if (ci >= pc) ci = pc - 1;
+
+            double norm = norm_y(all_vals[cs][ci], gmin, gmax, graph_scale);
+            int cell_y = (int)round((1.0 - norm) * (plot_height - 1));
+            int cell_x = plot_start_x + (ci * plot_width) / (pc > 1 ? pc - 1 : 1);
+
+            if (cell_y >= 0 && cell_y < plot_height && cell_x >= 0 && cell_x < width) {
+                attron(COLOR_PAIR(11) | A_BOLD);
+                mvaddch(plot_start_y + cell_y, cell_x, '@');
+                attroff(COLOR_PAIR(11) | A_BOLD);
+
+                char x_label[64] = "";
+                int col_idx = all_maps[cs][ci];
+                if (column_names[col_idx])
+                    snprintf(x_label, sizeof(x_label), "%s", column_names[col_idx]);
+                else {
+                    char cl[8]; col_letter(col_idx, cl);
+                    snprintf(x_label, sizeof(x_label), "%s", cl);
+                }
+                char val_str[64];
+                snprintf(val_str, sizeof(val_str), "%.4f", all_vals[cs][ci]);
+                char info[128];
+                snprintf(info, sizeof(info), "X:%s Y:%s", x_label, val_str);
+                int text_y = plot_start_y + cell_y - 1;
+                if (text_y < plot_start_y) text_y = plot_start_y + cell_y + 1;
+                attron(COLOR_PAIR(1) | A_BOLD);
+                mvprintw(text_y, cell_x - (int)strlen(info) / 2, "%s", info);
+                attroff(COLOR_PAIR(1) | A_BOLD);
+
+                graph_last_cursor_y = all_vals[cs][ci];
+                snprintf(graph_last_cursor_x, sizeof(graph_last_cursor_x), "%s", x_label);
+            }
+            graph_visible_points = pc;
+        }
+    }
+
+    /* Legend: bottom bar, same style as column-based graphs */
+    if (row_list_count > 1) {
+        int lx = ROW_DATA_OFFSET + 2;
+        for (int s = 0; s < row_list_count; s++) {
+            int cp = GRAPH_COLOR_BASE + (s % 8);
+            /* Use first field of the row as label, fallback to "Row N" */
+            char label[20] = "";
+            int rr = row_list[s];
+            if (rr >= 0 && rr < row_count && rows[rr].line_cache) {
+                char field_buf[20];
+                get_field_graph(rows[rr].line_cache, 0, field_buf, sizeof(field_buf));
+                if (field_buf[0])
+                    snprintf(label, sizeof(label), "%.14s", field_buf);
+            }
+            if (!label[0]) snprintf(label, sizeof(label), "Row %d", rr);
+            if (graph_series_hidden[s]) {
+                attron(A_DIM);
+                mvprintw(height - 3, lx, "[%d]-%s", s + 1, label);
+                attroff(A_DIM);
+            } else {
+                attron(COLOR_PAIR(cp) | A_BOLD);
+                mvprintw(height - 3, lx, "[%d]-%s", s + 1, label);
+                attroff(COLOR_PAIR(cp) | A_BOLD);
+            }
+            lx += (int)strlen(label) + 6;
+        }
+    }
+
+    /* Title */
+    {
+        char title[128] = "Row graph: ";
+        for (int s = 0; s < row_list_count && s < 5; s++) {
+            char tmp[16];
+            /* Find display row number for real_row */
+            int disp = row_list[s];  /* fallback to real row */
+            snprintf(tmp, sizeof(tmp), "%s%d", s > 0 ? ", " : "", disp);
+            strncat(title, tmp, sizeof(title) - strlen(title) - 1);
+        }
+        attron(COLOR_PAIR(1) | A_BOLD);
+        mvprintw(2, plot_start_x, "%s", title);
+        attroff(COLOR_PAIR(1) | A_BOLD);
+    }
+
+    for (int s = 0; s < row_list_count; s++) free(all_vals[s]);
+}
+
+// ────────────────────────────────────────────────
 
 static int box_cmp_dbl(const void *a, const void *b) {
     double da = *(const double*)a, db = *(const double*)b;

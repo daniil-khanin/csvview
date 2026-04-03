@@ -101,6 +101,10 @@ int       graph_pie_col           = -1; /* column for pie chart */
 double    graph_pie_inner_ratio   = 0.42; /* donut hole size: 0.0=full pie … 0.9=thin ring */
 int       graph_box_mode          = 0;  /* 1 = box plot active */
 int       graph_heat_mode         = 0;  /* 1 = correlation heatmap active */
+int       graph_row_mode          = 0;  /* 1 = row-based graph (:gr) */
+int       graph_row_list[10]      = {0};
+int       graph_row_count         = 0;
+int       show_row_sparklines     = 0;  /* 1 = sparkline column visible */
 int       current_graph           = 0;
 int       graph_start             = 0;
 int       graph_scroll_step       = 1;
@@ -1180,7 +1184,8 @@ static const char *s_cmds[] = {
     "sort","fq","fqn","fqo","fqno","fqu","fs","fl",
     "dr","cr","cd","cal","car","cf","cs","freeze",
     "e","theme","corr","outliers","profile",
-    "gx","gc","gt","gy","ga","gp","gsvg","gsc","g2y","grid","gpie","gbox","gheat",
+    "gx","gc","gt","gy","ga","gp","gsvg","gsc","g2y","grid","gpie","gbox","gheat","gr",
+    "spark",
     "dedup","split","cat",
     NULL
 };
@@ -1813,7 +1818,8 @@ int main(int argc, char *argv[]) {
         if (freeze_cols > 0 && freeze_cols < col_count) frozen_px += 1; // separator
 
         // visible_cols = number of scrollable (non-frozen) columns
-        int scrollable_area = table_width - ROW_NUMBER_WIDTH - 2 - frozen_px;
+        int spark_px = show_row_sparklines ? SPARK_COL_WIDTH + 1 : 0;
+        int scrollable_area = table_width - ROW_NUMBER_WIDTH - 2 - frozen_px - spark_px;
         int visible_cols = (scrollable_area > 0) ? (scrollable_area / CELL_WIDTH) : 0;
         int max_sc = col_count - freeze_cols;
         if (max_sc < 0) max_sc = 0;
@@ -1827,7 +1833,7 @@ int main(int argc, char *argv[]) {
         draw_table_headers(table_top, ROW_DATA_OFFSET, visible_cols, left_col, cur_col);
 
         if (in_graph_mode) {
-            if (graph_pie_mode || graph_box_mode || graph_heat_mode) {
+            if (graph_pie_mode || graph_box_mode || graph_heat_mode || graph_row_mode) {
                 /* Clear inside the table frame: cols 1..width-2, rows 4..height-3.
                  * mvhline preserves col 0 (left │) and col width-1 (right │). */
                 for (int _y = 4; _y <= height - 3; _y++)
@@ -1846,6 +1852,9 @@ int main(int argc, char *argv[]) {
                 draw_box_plot(box_cols, box_n, height, width);
             } else if (graph_heat_mode) {
                 draw_heatmap(height, width);
+            } else if (graph_row_mode) {
+                draw_graph_by_row(graph_row_list, graph_row_count,
+                                  height, width, graph_cursor_pos, min_max_show);
             } else if (graph_col_count > 1) {
                 // Multi-series: compute Y scale(s)
                 // In dual-yaxis mode: first visible -> left axis, rest -> right axis
@@ -2069,6 +2078,7 @@ int main(int argc, char *argv[]) {
             const char *type_str = graph_pie_mode  ? "donut"
                                  : graph_box_mode  ? "boxplot"
                                  : graph_heat_mode ? "heatmap"
+                                 : graph_row_mode  ? "row"
                                  : graph_scatter_mode ? "scatter"
                                  : (graph_type == GRAPH_BAR) ? "bar"
                                  : (graph_type == GRAPH_DOT) ? "dot" : "line";
@@ -2138,6 +2148,7 @@ int main(int argc, char *argv[]) {
                 graph_pie_mode = 0; graph_pie_col = -1;
                 graph_box_mode = 0;
                 graph_heat_mode = 0;
+                graph_row_mode = 0; graph_row_count = 0;
                 if (using_date_x) {
                     sort_col = save_sort_col; sort_level_count = save_sort_level_count;
                     sort_order = save_sort_order;
@@ -2741,13 +2752,13 @@ int main(int argc, char *argv[]) {
                         if (tc >= 0) target_col = tc;
                     }
                     graph_pie_mode = 1; graph_box_mode = 0; graph_heat_mode = 0;
-                    graph_scatter_mode = 0; graph_pie_col = target_col;
+                    graph_scatter_mode = 0; graph_row_mode = 0; graph_pie_col = target_col;
                     in_graph_mode = 1;
                     continue;
                 } else if (strcmp(cmd, "gbox") == 0) {
                     /* :gbox [col1 col2 ...]  — box-and-whisker plot */
                     graph_box_mode = 1; graph_pie_mode = 0; graph_heat_mode = 0;
-                    graph_scatter_mode = 0;
+                    graph_scatter_mode = 0; graph_row_mode = 0;
                     if (arg && *arg) {
                         /* parse space-separated column names/letters */
                         char abuf[256];
@@ -2777,8 +2788,32 @@ int main(int argc, char *argv[]) {
                 } else if (strcmp(cmd, "gheat") == 0) {
                     /* :gheat  — correlation heatmap */
                     graph_heat_mode = 1; graph_pie_mode = 0; graph_box_mode = 0;
-                    graph_scatter_mode = 0;
+                    graph_scatter_mode = 0; graph_row_mode = 0;
                     in_graph_mode = 1;
+                    continue;
+                } else if (strcmp(cmd, "gr") == 0) {
+                    /* :gr [row1 row2 ...] — graph by row */
+                    graph_row_mode = 1;
+                    graph_pie_mode = 0; graph_box_mode = 0; graph_heat_mode = 0;
+                    graph_scatter_mode = 0;
+                    graph_row_count = 0;
+                    if (arg && *arg) {
+                        char abuf[256];
+                        strncpy(abuf, arg, sizeof(abuf) - 1); abuf[sizeof(abuf)-1] = '\0';
+                        char *tok = strtok(abuf, " \t,");
+                        while (tok && graph_row_count < 10) {
+                            int rn = atoi(tok);
+                            if (rn > 0) graph_row_list[graph_row_count++] = get_real_row(rn - 1);
+                            tok = strtok(NULL, " \t,");
+                        }
+                    }
+                    if (graph_row_count == 0) {
+                        /* no args = current row */
+                        graph_row_list[0] = get_real_row(cur_display_row);
+                        graph_row_count = 1;
+                    }
+                    in_graph_mode = 1;
+                    graph_cursor_pos = 0;
                     continue;
                 }
 
@@ -2789,7 +2824,8 @@ int main(int argc, char *argv[]) {
             } else if (ch >= '1' && ch <= '9') {
                 // Toggle series visibility
                 int idx = ch - '1';
-                if (idx < graph_col_count)
+                int max_series = graph_row_mode ? graph_row_count : graph_col_count;
+                if (idx < max_series)
                     graph_series_hidden[idx] ^= 1;
             } else if (ch == '+' || ch == '=') {
                 if (graph_scatter_mode && graph_scatter_x_col >= 0) {
@@ -2956,7 +2992,7 @@ int main(int argc, char *argv[]) {
             if (graph_col_count == 0) {
                 /* Non-numeric column → auto-switch to donut chart */
                 graph_pie_mode = 1; graph_box_mode = 0; graph_heat_mode = 0;
-                graph_scatter_mode = 0;
+                graph_scatter_mode = 0; graph_row_mode = 0;
                 graph_pie_col = cur_col;
                 in_graph_mode = 1;
                 continue;
@@ -4198,6 +4234,29 @@ int main(int argc, char *argv[]) {
                     in_graph_mode       = 1;
                     current_graph       = 0;
                 }
+            } else if (strcmp(cmd, "gr") == 0) {
+                /* :gr [row1 row2 ...] — graph by row (from main view) */
+                graph_row_mode = 1;
+                graph_pie_mode = 0; graph_box_mode = 0; graph_heat_mode = 0;
+                graph_scatter_mode = 0;
+                graph_row_count = 0;
+                if (arg && *arg) {
+                    char abuf[256];
+                    strncpy(abuf, arg, sizeof(abuf) - 1); abuf[sizeof(abuf)-1] = '\0';
+                    char *tok = strtok(abuf, " \t,");
+                    while (tok && graph_row_count < 10) {
+                        int rn = atoi(tok);
+                        if (rn > 0) graph_row_list[graph_row_count++] = get_real_row(rn - 1);
+                        tok = strtok(NULL, " \t,");
+                    }
+                }
+                if (graph_row_count == 0) {
+                    graph_row_list[0] = get_real_row(cur_display_row);
+                    graph_row_count = 1;
+                }
+                in_graph_mode = 1;
+                graph_cursor_pos = 0;
+                memset(graph_series_hidden, 0, sizeof(graph_series_hidden));
             } else if (strcmp(cmd, "outliers") == 0) {
                 /* Outlier report. Optional arg: sigma threshold */
                 double thr = 3.0;
@@ -4363,6 +4422,20 @@ int main(int argc, char *argv[]) {
                 attron(COLOR_PAIR(3));
                 printw(" | Comment lines (#): %s  [%d collected]",
                        skip_comments ? "skip" : "show as data", comment_count);
+                attroff(COLOR_PAIR(3));
+                refresh();
+            } else if (strcmp(cmd, "spark") == 0) {
+                // :spark [on|off|all on|all off] — toggle row sparklines
+                if (!arg || !*arg)
+                    show_row_sparklines = !show_row_sparklines;
+                else if (strcasestr_custom(arg, "on"))
+                    show_row_sparklines = 1;
+                else if (strcasestr_custom(arg, "off"))
+                    show_row_sparklines = 0;
+                save_column_settings(file_to_open);
+                draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
+                attron(COLOR_PAIR(3));
+                printw(" | Sparklines: %s", show_row_sparklines ? "on" : "off");
                 attroff(COLOR_PAIR(3));
                 refresh();
             } else if (strcmp(cmd, "freeze") == 0 || strcmp(cmd, "fz") == 0) {
@@ -4898,7 +4971,7 @@ int main(int argc, char *argv[]) {
 
                 // Write rows (filtered or all)
                 int count_exported = 0;
-                int display_count = filter_active ? filtered_count : row_count;
+                int display_count = filter_active ? filtered_count : (row_count - (use_headers ? 1 : 0));
                 int row_start = (g_fmt && g_fmt->has_header_row) ? 1 : 0;
 
                 if (converting) {

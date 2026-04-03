@@ -246,6 +246,15 @@ extern int graph_heat_mode;
 extern int graph_series_hidden[10];
 extern int graph_dual_yaxis;
 
+/* Row-based graph (:gr) */
+extern int graph_row_mode;
+extern int graph_row_list[10];
+extern int graph_row_count;
+
+/* Sparkline column (:spark) */
+#define SPARK_COL_WIDTH  12
+extern int show_row_sparklines;
+
 /* Scatter plot viewport (zoom/pan) */
 extern double scatter_vp_xmin, scatter_vp_xmax;
 extern double scatter_vp_ymin, scatter_vp_ymax;

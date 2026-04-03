@@ -620,7 +620,7 @@ void show_column_stats(int col_idx)
     if (freq_ht) memset(freq_ht, 0xFF, (size_t)FREQ_HASH_SIZE * sizeof(long));
 
     long count_processed = 0;
-    int display_count = filter_active ? filtered_count : row_count;
+    int display_count = filter_active ? filtered_count : (row_count - (use_headers ? 1 : 0));
 
     for (int i = 0; i < display_count; i++)
     {
@@ -1099,7 +1099,7 @@ int show_correlation_matrix(int *out_x_col, int *out_y_col)
 
     /* Collect column values: two-pass over rows to keep memory bounded.
        Pass 1: allocate arrays and fill. */
-    int display_count = filter_active ? filtered_count : row_count;
+    int display_count = filter_active ? filtered_count : (row_count - (use_headers ? 1 : 0));
     long nrows = display_count;
 
     /* Allocate nc arrays of doubles */
@@ -1387,7 +1387,7 @@ int show_outlier_report(double threshold)
         return -1;
     }
 
-    int display_count = filter_active ? filtered_count : row_count;
+    int display_count = filter_active ? filtered_count : (row_count - (use_headers ? 1 : 0));
     long nrows = display_count;
 
     /* Per-column: compute mean and variance in one pass */

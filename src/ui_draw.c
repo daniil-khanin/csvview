@@ -18,8 +18,96 @@
 #include "filtering.h"       // for apply_filter()
 
 #include <stdint.h>          // uint32_t
+#include <wchar.h>           // wcrtomb for braille
+#include <math.h>            // INFINITY
 
 /* str_has_rtl() lives in utils.c / utils.h */
+
+// ────────────────────────────────────────────────
+// Sparkline rendering (braille)
+// ────────────────────────────────────────────────
+
+/**
+ * Render a braille sparkline for a row.
+ * fields/field_count: already-parsed row fields from parse_row.
+ * y, x: screen position.
+ * Draws SPARK_COL_WIDTH braille characters.
+ * Skips if fewer than 3 numeric values found.
+ */
+static void render_table_sparkline(int y, int x, char **fields, int field_count)
+{
+    double vals[MAX_COLS];
+    int n = 0;
+    double vmin = INFINITY, vmax = -INFINITY;
+
+    for (int c = 0; c < field_count && c < col_count; c++) {
+        if (col_types[c] != COL_NUM) continue;
+        if (col_hidden[c]) continue;
+        if (!fields[c] || !fields[c][0]) continue;
+        char *ep;
+        double v = parse_double(fields[c], &ep);
+        if (ep == fields[c] || (*ep && *ep != ' ')) continue;
+        vals[n++] = v;
+        if (v < vmin) vmin = v;
+        if (v > vmax) vmax = v;
+    }
+    if (n < 3) {
+        /* not enough data — blank space */
+        mvhline(y, x, ' ', SPARK_COL_WIDTH);
+        return;
+    }
+
+    double range = vmax - vmin;
+    if (range == 0) range = 1;
+
+    /* Pixel grid: 4 rows × (SPARK_COL_WIDTH*2) columns */
+    int pw = SPARK_COL_WIDTH * 2;
+    bool dots[4 * SPARK_COL_WIDTH * 2];
+    memset(dots, 0, sizeof(dots));
+
+    for (int px = 0; px < pw; px++) {
+        int vi = (int)((double)px * n / pw);
+        if (vi >= n) vi = n - 1;
+        double norm = (vals[vi] - vmin) / range;
+        int py = 3 - (int)(norm * 3.0 + 0.5);
+        if (py < 0) py = 0; if (py > 3) py = 3;
+        dots[py * pw + px] = true;
+
+        /* Vertical fill to connect points */
+        if (px > 0) {
+            int vi_prev = (int)((double)(px - 1) * n / pw);
+            if (vi_prev >= n) vi_prev = n - 1;
+            double norm_prev = (vals[vi_prev] - vmin) / range;
+            int py_prev = 3 - (int)(norm_prev * 3.0 + 0.5);
+            if (py_prev < 0) py_prev = 0; if (py_prev > 3) py_prev = 3;
+            int lo = py_prev < py ? py_prev : py;
+            int hi = py_prev > py ? py_prev : py;
+            for (int fill = lo; fill <= hi; fill++)
+                dots[fill * pw + px] = true;
+        }
+    }
+
+    /* Encode braille */
+    attron(COLOR_PAIR(3));
+    for (int cx = 0; cx < SPARK_COL_WIDTH; cx++) {
+        int code = 0;
+        for (int by = 0; by < 4; by++) {
+            for (int bx = 0; bx < 2; bx++) {
+                int ppx = cx * 2 + bx;
+                int ppy = by;
+                if (ppx < pw && dots[ppy * pw + ppx]) {
+                    int bit = (bx == 0) ? by : by + 3;
+                    if (by == 3) bit = (bx == 0) ? 6 : 7;
+                    code |= (1 << bit);
+                }
+            }
+        }
+        char braille[5] = {0};
+        wcrtomb(braille, 0x2800 + code, NULL);
+        mvaddstr(y, x + cx, braille);
+    }
+    attroff(COLOR_PAIR(3));
+}
 
 // ────────────────────────────────────────────────
 // Menu rendering
@@ -255,7 +343,15 @@ void draw_table_headers(int top, int offset __attribute__((unused)), int visible
     mvprintw(top + 1, 1, "%*s", ROW_NUMBER_WIDTH, " ");
     attroff(COLOR_PAIR(6) | A_BOLD);
 
-    int current_x = ROW_NUMBER_WIDTH + 2;
+    int spark_offset = show_row_sparklines ? SPARK_COL_WIDTH + 1 : 0;
+    int current_x = ROW_NUMBER_WIDTH + 2 + spark_offset;
+
+    /* Sparkline column header */
+    if (show_row_sparklines) {
+        attron(COLOR_PAIR(6) | A_DIM);
+        mvprintw(top + 1, ROW_NUMBER_WIDTH + 2, "%*s", SPARK_COL_WIDTH, "~");
+        attroff(COLOR_PAIR(6) | A_DIM);
+    }
 
     // === Frozen columns (0..freeze_cols-1) ===
     for (int fc = 0; fc < freeze_cols && fc < col_count; fc++) {
@@ -417,8 +513,14 @@ void draw_table_body(int top, int offset __attribute__((unused)), int visible_ro
             continue;
         }
 
-        int current_x = ROW_NUMBER_WIDTH + 2;
+        int spark_offset = show_row_sparklines ? SPARK_COL_WIDTH + 1 : 0;
+        int current_x = ROW_NUMBER_WIDTH + 2 + spark_offset;
         int row_y = top + 2 + i;
+
+        /* Draw sparkline for this row */
+        if (show_row_sparklines) {
+            render_table_sparkline(row_y, ROW_NUMBER_WIDTH + 2, fields, field_count);
+        }
 
         // === Frozen columns (0..freeze_cols-1) ===
         for (int fc = 0; fc < freeze_cols && fc < col_count; fc++) {

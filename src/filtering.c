@@ -243,17 +243,22 @@ void apply_filter(RowIndex *rows_arg, FILE *f_arg, int row_count_arg)
 
     } else {
         /* ── Sequential fallback (no mmap or small file) ── */
-        rewind(f_arg);
         char seq_buf[MAX_LINE_LEN];
 
-        for (int r = 0; r < row_count_arg && filtered_count < MAX_ROWS; r++) {
-            if (!fgets(seq_buf, sizeof(seq_buf), f_arg)) break;
-            if (r < start_row) continue;
+        for (int r = start_row; r < row_count_arg && filtered_count < MAX_ROWS; r++) {
             if ((r - start_row) % 5000 == 0 && r > start_row) spinner_tick();
 
-            seq_buf[strcspn(seq_buf, "\r\n")] = '\0';
-
-            const char *line = rows[r].line_cache ? rows[r].line_cache : seq_buf;
+            const char *line;
+            if (rows[r].line_cache) {
+                line = rows[r].line_cache;
+            } else {
+                /* Use fseek to the exact row offset — sequential fgets
+                   breaks when comment lines were skipped during indexing */
+                fseek(f_arg, rows[r].offset, SEEK_SET);
+                if (!fgets(seq_buf, sizeof(seq_buf), f_arg)) continue;
+                seq_buf[strcspn(seq_buf, "\r\n")] = '\0';
+                line = seq_buf;
+            }
             if (!*line) continue;
 
             int match = 0;
