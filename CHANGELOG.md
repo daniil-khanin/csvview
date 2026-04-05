@@ -1,5 +1,17 @@
 # Changelog
 
+## v21 — 2026-04-06
+
+### New features
+
+- **Row detail view** (`v`): popup window showing every field of the current row
+  as a two-column table (column name | value). Long text is word-wrapped to fit
+  the window — no more `(very long text)` truncation. Scroll with ↑↓/jk,
+  PgUp/PgDn, Home/End; close with Esc/q/v.
+
+- **Jump to row on open** (`+N`): open a file and immediately scroll to a
+  specific row number, vim-style. Example: `csvview +42 file.csv`.
+
 ## v20 — 2026-04-01
 
 ### New features

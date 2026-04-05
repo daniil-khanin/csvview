@@ -34,6 +34,7 @@
 #include "splash.h"
 #include "file_format.h"
 #include "json_parse.h"
+#include "row_detail.h"
 
 // ────────────────────────────────────────────────
 // Global variables — definitions (initialization)
@@ -1589,6 +1590,7 @@ int main(int argc, char *argv[]) {
     char *split_by      = NULL;
     char *output_dir    = NULL;
     char *user_output   = NULL;
+    int goto_row        = -1;
     char **input_files  = malloc(argc * sizeof(char*));
     int input_count = 0;
 
@@ -1628,6 +1630,8 @@ int main(int argc, char *argv[]) {
         } else if (strncmp(argv[i], "--theme=", 8) == 0) {
             const Theme *t = theme_by_name(argv[i] + 8);
             if (t) current_theme = t;
+        } else if (argv[i][0] == '+' && argv[i][1] >= '0' && argv[i][1] <= '9') {
+            goto_row = atoi(argv[i] + 1);
         } else if (argv[i][0] != '-') {
             input_files[input_count++] = argv[i];
         }
@@ -1889,6 +1893,15 @@ int main(int argc, char *argv[]) {
     // Move cursor to the first visible column
     while (cur_col < col_count - 1 && col_hidden[cur_col]) cur_col++;
     while (left_col < col_count && col_hidden[left_col]) left_col++;
+
+    // Jump to row specified by +N CLI argument
+    if (goto_row > 0) {
+        int total_visible = filter_active ? filtered_count
+                          : (row_count - (use_headers ? 1 : 0));
+        if (goto_row > total_visible) goto_row = total_visible;
+        cur_display_row = goto_row - 1;  // +N is 1-based
+        top_display_row = cur_display_row;
+    }
 
     char current_cell_content[256] = "(empty)";
     char col_name[256];
@@ -4023,6 +4036,9 @@ int main(int argc, char *argv[]) {
                 cur_display_row = new_display_count > 0 ? new_display_count - 1 : 0;
             if (top_display_row > cur_display_row)
                 top_display_row = cur_display_row;
+        }
+        else if (ch == 'v') {
+            show_row_detail(cur_real_row);
         }
         else if (ch == 'D' || ch == 'd') {
             // column statistics
