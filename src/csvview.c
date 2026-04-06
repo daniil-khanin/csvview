@@ -1920,14 +1920,21 @@ int main(int argc, char *argv[]) {
             if (!col_hidden[fc]) frozen_px += col_widths[fc] + 2;
         if (freeze_cols > 0 && freeze_cols < col_count) frozen_px += 1; // separator
 
-        // visible_cols = number of scrollable (non-frozen) columns
+        // visible_cols = number of scrollable (non-frozen) columns that actually
+        // fit on screen, computed from real col_widths[] starting at left_col.
         int spark_px = show_row_sparklines ? SPARK_COL_WIDTH + 1 : 0;
         int scrollable_area = table_width - ROW_NUMBER_WIDTH - 2 - frozen_px - spark_px;
-        int visible_cols = (scrollable_area > 0) ? (scrollable_area / CELL_WIDTH) : 0;
-        int max_sc = col_count - freeze_cols;
-        if (max_sc < 0) max_sc = 0;
-        if (visible_cols > max_sc) visible_cols = max_sc;
-        if (visible_cols < 0) visible_cols = 0;
+        int visible_cols = 0;
+        if (scrollable_area > 0) {
+            int used_px = 0;
+            for (int ci = left_col; ci < col_count; ci++) {
+                if (col_hidden[ci]) continue;
+                int cw = col_widths[ci] + 2; /* cell width + padding */
+                if (used_px + cw > scrollable_area) break;
+                used_px += cw;
+                visible_cols++;
+            }
+        }
 
         int display_count = filter_active ? filtered_count : (row_count - (use_headers ? 1 : 0));
 
