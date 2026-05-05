@@ -10,6 +10,7 @@
 #include <search.h>
 #include <wchar.h>
 #include <unistd.h>
+#include <fnmatch.h>
 
 #include "csvview_defs.h"
 #include "utils.h"
@@ -1275,6 +1276,7 @@ static const char *cmd_hist_get(int idx) {
 static const char *s_cmds[] = {
     "sort","fq","fqn","fqo","fqno","fqu","fs","fl",
     "dr","cr","cd","cal","car","cf","cs","freeze","freezer",
+    "hide","show","type","fmt",
     "e","theme","corr","outliers","profile",
     "gx","gc","gt","gy","ga","gp","gsvg","gsc","g2y","grid","gpie","gbox","gheat","gr",
     "spark",
@@ -4590,6 +4592,80 @@ int main(int argc, char *argv[]) {
                     printw(" | Columns unfrozen");
                 attroff(COLOR_PAIR(3));
                 refresh();
+            } else if ((strcmp(cmd, "hide") == 0 || strcmp(cmd, "show") == 0
+                       || strcmp(cmd, "type") == 0 || strcmp(cmd, "fmt") == 0)
+                       && arg && *arg) {
+                // Glob over column names. fnmatch() — case-insensitive.
+                char glob_buf[256];
+                strncpy(glob_buf, arg, sizeof(glob_buf) - 1);
+                glob_buf[sizeof(glob_buf) - 1] = '\0';
+                char *type_or_fmt = NULL;
+                if (strcmp(cmd, "type") == 0 || strcmp(cmd, "fmt") == 0) {
+                    char *sp = strchr(glob_buf, ' ');
+                    if (!sp) {
+                        attron(COLOR_PAIR(1));
+                        mvprintw(height - 1, 0, "Usage: :%s <pattern> <%s>",
+                                 cmd, strcmp(cmd, "type") == 0 ? "num|str|date" : "auto|N|date-fmt");
+                        attroff(COLOR_PAIR(1));
+                        refresh(); getch(); clrtoeol(); refresh();
+                        goto cmd_done;
+                    }
+                    *sp = '\0';
+                    type_or_fmt = sp + 1;
+                    while (*type_or_fmt == ' ') type_or_fmt++;
+                }
+
+                int matched = 0;
+                for (int c = 0; c < col_count; c++) {
+                    const char *cname = (use_headers && column_names[c]) ? column_names[c] : "";
+                    char letter[8]; col_letter(c, letter);
+                    int hit = (fnmatch(glob_buf, cname, FNM_CASEFOLD) == 0)
+                              || (fnmatch(glob_buf, letter, FNM_CASEFOLD) == 0);
+                    if (!hit) continue;
+                    matched++;
+                    if (strcmp(cmd, "hide") == 0) {
+                        col_hidden[c] = 1;
+                    } else if (strcmp(cmd, "show") == 0) {
+                        col_hidden[c] = 0;
+                    } else if (strcmp(cmd, "type") == 0) {
+                        if (strcasecmp(type_or_fmt, "num") == 0
+                            || strcasecmp(type_or_fmt, "number") == 0)        col_types[c] = COL_NUM;
+                        else if (strcasecmp(type_or_fmt, "str") == 0
+                            || strcasecmp(type_or_fmt, "string") == 0)        col_types[c] = COL_STR;
+                        else if (strcasecmp(type_or_fmt, "date") == 0)        col_types[c] = COL_DATE;
+                    } else if (strcmp(cmd, "fmt") == 0) {
+                        if (strcasecmp(type_or_fmt, "auto") == 0) {
+                            col_formats[c].decimal_places = -1;
+                            col_formats[c].date_format[0] = '\0';
+                        } else {
+                            int all_digits = 1;
+                            for (const char *p = type_or_fmt; *p; p++) {
+                                if (*p < '0' || *p > '9') { all_digits = 0; break; }
+                            }
+                            if (all_digits && *type_or_fmt) {
+                                int n = atoi(type_or_fmt);
+                                if (n < 0) n = 0; if (n > 8) n = 8;
+                                col_formats[c].decimal_places = n;
+                            } else {
+                                strncpy(col_formats[c].date_format, type_or_fmt,
+                                        sizeof(col_formats[c].date_format) - 1);
+                                col_formats[c].date_format[sizeof(col_formats[c].date_format) - 1] = '\0';
+                            }
+                        }
+                    }
+                }
+
+                if (cur_col < left_col) left_col = cur_col;
+                if (left_col < freeze_cols) left_col = freeze_cols;
+                save_column_settings(file_to_open);
+
+                draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
+                attron(COLOR_PAIR(3));
+                printw(" | :%s '%s' → %d column%s",
+                       cmd, arg, matched, matched == 1 ? "" : "s");
+                attroff(COLOR_PAIR(3));
+                refresh();
+                cmd_done: ;
             } else if (strcmp(cmd, "freezer") == 0 || strcmp(cmd, "fzr") == 0) {
                 // :freezer N — freeze first N rows (:freezer 0 — unfreeze)
                 int n = arg ? atoi(arg) : 0;
