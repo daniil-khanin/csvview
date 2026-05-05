@@ -481,7 +481,9 @@ int load_column_settings(const char *csv_filename)
     // Reset hidden columns before loading
     memset(col_hidden, 0, sizeof(col_hidden));
 
-    char line[256];
+    // Buffer must fit longest line. With MAX_COLS=702, the "hidden:" and
+    // "widths:" lines can reach ~5 KB (702 × ~7 chars). Use MAX_LINE_LEN.
+    char line[MAX_LINE_LEN];
     int loaded_count = 0;
     int temp_use_headers = 0;
 
