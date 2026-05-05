@@ -435,9 +435,23 @@ void draw_table_body(int top, int offset __attribute__((unused)), int visible_ro
     for (int bi = 0; bi < 26; bi++) if (bookmarks[bi] >= 0) { any_bm = 1; break; }
     int any_gutter = any_bm || (search_count > 0);
 
-    for (int i = 0; i < visible_rows && top_display_row + i < display_count; i++)
+    int fr_clamp = (freeze_rows < visible_rows) ? freeze_rows : 0;
+    int row_sep = (fr_clamp > 0) ? 1 : 0;
+    int scroll_top = (top_display_row < fr_clamp) ? fr_clamp : top_display_row;
+
+    for (int i = 0; i < visible_rows - row_sep; i++)
     {
-        int display_pos = top_display_row + i;
+        int row_y, display_pos;
+        if (i < fr_clamp) {
+            if (i >= display_count) break;
+            display_pos = i;
+            row_y = top + 2 + i;
+        } else {
+            int scroll_i = i - fr_clamp;
+            display_pos = scroll_top + scroll_i;
+            if (display_pos >= display_count) break;
+            row_y = top + 2 + fr_clamp + row_sep + scroll_i;
+        }
         int real_row = get_real_row(display_pos);
 
         // Highlight the row number
@@ -460,7 +474,7 @@ void draw_table_body(int top, int offset __attribute__((unused)), int visible_ro
                 attron(COLOR_PAIR(3));             /* search match: yellow */
             else
                 attron(COLOR_PAIR(6));
-            mvprintw(top + 2 + i, 1, "%c", gutter_ch);
+            mvprintw(row_y, 1, "%c", gutter_ch);
             attroff(COLOR_PAIR(3) | COLOR_PAIR(6) | A_BOLD);
             /* row number shifted right by 1, one char narrower */
             if (is_cur) attron(COLOR_PAIR(3) | A_BOLD);
@@ -468,9 +482,9 @@ void draw_table_body(int top, int offset __attribute__((unused)), int visible_ro
             if (relative_line_numbers && !is_cur) {
                 int rel = display_pos - cur_display_row;
                 if (rel < 0) rel = -rel;
-                mvprintw(top + 2 + i, 2, "%*d", ROW_NUMBER_WIDTH - 3, rel);
+                mvprintw(row_y, 2, "%*d", ROW_NUMBER_WIDTH - 3, rel);
             } else {
-                mvprintw(top + 2 + i, 2, "%*d", ROW_NUMBER_WIDTH - 3, display_pos + 1);
+                mvprintw(row_y, 2, "%*d", ROW_NUMBER_WIDTH - 3, display_pos + 1);
             }
             attroff(COLOR_PAIR(3) | COLOR_PAIR(6) | A_BOLD);
         } else {
@@ -479,9 +493,9 @@ void draw_table_body(int top, int offset __attribute__((unused)), int visible_ro
             if (relative_line_numbers && !is_cur) {
                 int rel = display_pos - cur_display_row;
                 if (rel < 0) rel = -rel;
-                mvprintw(top + 2 + i, 1, "%*d", ROW_NUMBER_WIDTH - 2, rel);
+                mvprintw(row_y, 1, "%*d", ROW_NUMBER_WIDTH - 2, rel);
             } else {
-                mvprintw(top + 2 + i, 1, "%*d", ROW_NUMBER_WIDTH - 2, display_pos + 1);
+                mvprintw(row_y, 1, "%*d", ROW_NUMBER_WIDTH - 2, display_pos + 1);
             }
             attroff(COLOR_PAIR(3) | COLOR_PAIR(6) | A_BOLD);
         }
@@ -515,7 +529,6 @@ void draw_table_body(int top, int offset __attribute__((unused)), int visible_ro
 
         int spark_offset = show_row_sparklines ? SPARK_COL_WIDTH + 1 : 0;
         int current_x = ROW_NUMBER_WIDTH + 2 + spark_offset;
-        int row_y = top + 2 + i;
 
         /* Draw sparkline for this row */
         if (show_row_sparklines) {
@@ -652,6 +665,25 @@ void draw_table_body(int top, int offset __attribute__((unused)), int visible_ro
             free(fields[k]);
         }
         free(fields);
+    }
+
+    // === Frozen-rows horizontal separator ===
+    if (row_sep) {
+        int sep_y = top + 2 + fr_clamp;
+        int scr_w = getmaxx(stdscr);
+        attron(COLOR_PAIR(6));
+        mvhline(sep_y, 1, ACS_HLINE, scr_w - 2);
+        // Cross at intersection with column-freeze separator
+        if (freeze_cols > 0 && freeze_cols < col_count) {
+            int spark_offset = show_row_sparklines ? SPARK_COL_WIDTH + 1 : 0;
+            int xx = ROW_NUMBER_WIDTH + 2 + spark_offset;
+            for (int fc = 0; fc < freeze_cols && fc < col_count; fc++) {
+                if (col_hidden[fc]) continue;
+                xx += col_widths[fc] + 2;
+            }
+            mvaddch(sep_y, xx - 1, ACS_PLUS);
+        }
+        attroff(COLOR_PAIR(6));
     }
 }
 

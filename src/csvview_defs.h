@@ -275,6 +275,9 @@ extern char csv_delimiter;
 // Column freeze: first N columns are always visible (not scrolled)
 extern int freeze_cols;
 
+// Row freeze: first N data rows are always visible (not scrolled)
+extern int freeze_rows;
+
 // Column hiding: 1 = column is hidden (not displayed)
 extern int col_hidden[MAX_COLS];
 

@@ -369,6 +369,8 @@ void save_column_settings(const char *csv_filename)
     fprintf(fp, "use_headers:%d\n", use_headers);
     fprintf(fp, "col_count:%d\n", col_count);
     fprintf(fp, "freeze:%d\n", freeze_cols);
+    if (freeze_rows > 0)
+        fprintf(fp, "freeze_rows:%d\n", freeze_rows);
     fprintf(fp, "delimiter:%d\n", (int)(unsigned char)csv_delimiter);
     fprintf(fp, "skip_comments:%d\n", skip_comments);
 
@@ -540,6 +542,11 @@ int load_column_settings(const char *csv_filename)
         {
             int n = atoi(line + 7);
             if (n >= 0) freeze_cols = n;
+        }
+        else if (strncmp(line, "freeze_rows:", 12) == 0)
+        {
+            int n = atoi(line + 12);
+            if (n >= 0) freeze_rows = n;
         }
         else if (strncmp(line, "skip_comments:", 14) == 0)
         {

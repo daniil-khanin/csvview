@@ -146,8 +146,9 @@ char csv_delimiter = ',';
 // Prevents .csvf from overriding it in preload_delimiter().
 static int sep_explicit = 0;
 
-// 11. Column freeze (first N always visible)
+// 11. Column / row freeze (first N always visible)
 int freeze_cols = 0;
+int freeze_rows = 0;
 int col_hidden[MAX_COLS] = {0};
 int relative_line_numbers = 0;
 
@@ -1273,7 +1274,7 @@ static const char *cmd_hist_get(int idx) {
 
 static const char *s_cmds[] = {
     "sort","fq","fqn","fqo","fqno","fqu","fs","fl",
-    "dr","cr","cd","cal","car","cf","cs","freeze",
+    "dr","cr","cd","cal","car","cf","cs","freeze","freezer",
     "e","theme","corr","outliers","profile",
     "gx","gc","gt","gy","ga","gp","gsvg","gsc","g2y","grid","gpie","gbox","gheat","gr",
     "spark",
@@ -1885,7 +1886,7 @@ int main(int argc, char *argv[]) {
     getmaxyx(stdscr, height, width);
 
     int cur_display_row = 0;
-    int top_display_row = 0;
+    int top_display_row = freeze_rows;
     int cur_real_row = use_headers ? 1 : 0;
     int cur_col = 0;
     int left_col = freeze_cols;
@@ -3586,18 +3587,24 @@ int main(int argc, char *argv[]) {
         vim_count = 0;
 
         // Navigation through visible rows
+        // scroll viewport excludes frozen-rows zone + separator
+        int scroll_vis = visible_rows - (freeze_rows > 0 ? freeze_rows + 1 : 0);
+        if (scroll_vis < 1) scroll_vis = 1;
         if (ch == KEY_DOWN || ch == 'j') {
             cur_display_row += nav_steps;
             if (cur_display_row >= display_count) cur_display_row = display_count - 1;
             if (cur_display_row < 0) cur_display_row = 0;
-            if (cur_display_row >= top_display_row + visible_rows - 1)
-                top_display_row = cur_display_row - visible_rows + 2;
-            if (top_display_row < 0) top_display_row = 0;
+            if (cur_display_row >= freeze_rows &&
+                cur_display_row >= top_display_row + scroll_vis - 1)
+                top_display_row = cur_display_row - scroll_vis + 2;
+            if (top_display_row < freeze_rows) top_display_row = freeze_rows;
         }
         else if (ch == KEY_UP || ch == 'k') {
             cur_display_row -= nav_steps;
             if (cur_display_row < 0) cur_display_row = 0;
-            if (cur_display_row < top_display_row) top_display_row = cur_display_row;
+            if (cur_display_row >= freeze_rows && cur_display_row < top_display_row)
+                top_display_row = cur_display_row;
+            if (top_display_row < freeze_rows) top_display_row = freeze_rows;
         }
         else if (ch == KEY_LEFT || ch == 'h') {
             int nc = cur_col - 1;
@@ -3622,30 +3629,30 @@ int main(int argc, char *argv[]) {
             }
         }       
         else if (ch == KEY_PPAGE) {
-            int scroll = visible_rows - 2;
+            int scroll = scroll_vis - 2;
             if (scroll < 1) scroll = 1;
             cur_display_row -= scroll;
             top_display_row -= scroll;
             if (cur_display_row < 0) cur_display_row = 0;
-            if (top_display_row < 0) top_display_row = 0;
+            if (top_display_row < freeze_rows) top_display_row = freeze_rows;
         }
         else if (ch == KEY_NPAGE) {
-            int scroll = visible_rows - 2;
+            int scroll = scroll_vis - 2;
             if (scroll < 1) scroll = 1;
             cur_display_row += scroll;
             top_display_row += scroll;
             if (cur_display_row >= display_count) cur_display_row = display_count - 1;
-            if (top_display_row > display_count - visible_rows) top_display_row = display_count - visible_rows;
-            if (top_display_row < 0) top_display_row = 0;
+            if (top_display_row > display_count - scroll_vis) top_display_row = display_count - scroll_vis;
+            if (top_display_row < freeze_rows) top_display_row = freeze_rows;
         }
         else if (ch == KEY_HOME || ch == 'K') {
             cur_display_row = 0;
-            top_display_row = 0;
+            top_display_row = freeze_rows;
         }
         else if (ch == KEY_END || ch == 'J') {
             cur_display_row = display_count - 1;
-            top_display_row = cur_display_row - visible_rows + 1;
-            if (top_display_row < 0) top_display_row = 0;
+            top_display_row = cur_display_row - scroll_vis + 1;
+            if (top_display_row < freeze_rows) top_display_row = freeze_rows;
         }
         else if (ch == 'H') {
             cur_col = 0;
@@ -3660,8 +3667,8 @@ int main(int argc, char *argv[]) {
             if (left_col < freeze_cols) left_col = freeze_cols;
             if (left_col < 0) left_col = 0;
         }
-        else if (ch == 'z' || ch == 'Z') {
-            // z — freeze/unfreeze at current column
+        else if (ch == 'z') {
+            // z — freeze/unfreeze columns up to current
             if (freeze_cols == cur_col + 1) {
                 freeze_cols = 0;  // unfreeze
             } else {
@@ -3669,6 +3676,18 @@ int main(int argc, char *argv[]) {
             }
             if (freeze_cols > col_count) freeze_cols = col_count;
             if (left_col < freeze_cols) left_col = freeze_cols;
+            save_column_settings(file_to_open);
+        }
+        else if (ch == 'Z') {
+            // Shift+Z — freeze/unfreeze rows up to current cursor position
+            int target = cur_display_row + 1;
+            if (freeze_rows == target) {
+                freeze_rows = 0;
+            } else {
+                freeze_rows = target;
+            }
+            if (freeze_rows > display_count) freeze_rows = display_count;
+            if (top_display_row < freeze_rows) top_display_row = freeze_rows;
             save_column_settings(file_to_open);
         }
         else if (ch == 't' || ch == 'T') {
@@ -4569,6 +4588,23 @@ int main(int argc, char *argv[]) {
                     printw(" | Frozen: %d column%s", freeze_cols, freeze_cols > 1 ? "s" : "");
                 else
                     printw(" | Columns unfrozen");
+                attroff(COLOR_PAIR(3));
+                refresh();
+            } else if (strcmp(cmd, "freezer") == 0 || strcmp(cmd, "fzr") == 0) {
+                // :freezer N — freeze first N rows (:freezer 0 — unfreeze)
+                int n = arg ? atoi(arg) : 0;
+                if (n < 0) n = 0;
+                if (n > display_count) n = display_count;
+                freeze_rows = n;
+                if (top_display_row < freeze_rows) top_display_row = freeze_rows;
+                save_column_settings(file_to_open);
+
+                draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
+                attron(COLOR_PAIR(3));
+                if (freeze_rows > 0)
+                    printw(" | Frozen: %d row%s", freeze_rows, freeze_rows > 1 ? "s" : "");
+                else
+                    printw(" | Rows unfrozen");
                 attroff(COLOR_PAIR(3));
                 refresh();
             } else if (strcmp(cmd, "sort") == 0 && arg && *arg) {
