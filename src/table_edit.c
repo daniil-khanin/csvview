@@ -435,11 +435,15 @@ void delete_column(int col_idx, const char *arg, const char *csv_filename)
     // Check that the cursor is on the expected column (if arg is provided)
     if (arg && *arg)
     {
-        const char *current_name = (use_headers && column_names[col_idx]) ? column_names[col_idx] : "";
-        if (strcmp(current_name, arg) != 0)
+        char letter[8];
+        col_letter(col_idx, letter);
+        const char *current_name = (use_headers && column_names[col_idx]) ? column_names[col_idx] : letter;
+        int match = (strcmp(current_name, arg) == 0);
+        if (!match && !use_headers) match = (strcasecmp(letter, arg) == 0);
+        if (!match)
         {
             attron(COLOR_PAIR(1));
-            mvprintw(LINES - 1, 0, "Cursor not on column '%s' — cannot delete %d", arg, col_idx);
+            mvprintw(LINES - 1, 0, "Cursor not on column '%s' — cannot delete %s", arg, current_name);
             attroff(COLOR_PAIR(1));
             refresh();
             getch();
