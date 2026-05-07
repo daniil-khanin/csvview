@@ -7,6 +7,7 @@
 #endif
 
 #include "csv_mmap.h"
+#include "file_format.h"
 
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -56,6 +57,26 @@ void csv_mmap_close(void)
     }
 }
 
+const char *csv_find_row_end(const char *start, size_t remaining)
+{
+    int in_quotes = 0;
+    const char *p = start;
+    const char *end = start + remaining;
+    while (p < end) {
+        char c = *p;
+        if (c == '"') {
+            /* RFC 4180: "" inside quotes is an escaped quote, not a close. */
+            if (in_quotes && p + 1 < end && p[1] == '"') { p += 2; continue; }
+            in_quotes = !in_quotes;
+            p++;
+            continue;
+        }
+        if (c == '\n' && !in_quotes) return p;
+        p++;
+    }
+    return end;
+}
+
 char *csv_mmap_get_line(long offset, char *buf, int buf_size)
 {
     if (!g_mmap_base || offset < 0 || (size_t)offset >= g_mmap_size)
@@ -63,8 +84,16 @@ char *csv_mmap_get_line(long offset, char *buf, int buf_size)
 
     const char *start    = g_mmap_base + offset;
     size_t      remaining = g_mmap_size - (size_t)offset;
-    const char *nl        = memchr(start, '\n', remaining);
-    size_t      len       = nl ? (size_t)(nl - start) : remaining;
+    const char *nl;
+    if (g_fmt && g_fmt->multiline_quoted)
+        nl = csv_find_row_end(start, remaining);
+    else
+        nl = memchr(start, '\n', remaining);
+    /* csv_find_row_end returns end-of-buffer (== start+remaining) when no
+     * terminator was found; treat that the same as memchr's NULL. */
+    size_t len;
+    if (!nl || nl == start + remaining) len = remaining;
+    else                                  len = (size_t)(nl - start);
 
     if (len >= (size_t)buf_size) len = (size_t)(buf_size - 1);
     memcpy(buf, start, len);

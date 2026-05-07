@@ -41,6 +41,7 @@ FileFormatDriver csv_driver = {
     .name           = "csv",
     .can_edit       = 1,
     .has_header_row = 1,
+    .multiline_quoted = 1,
     .parse_row      = csv_parse_row,
     .build_row      = csv_build_row,
     .rebuild_header = csv_rebuild_header,

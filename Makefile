@@ -5,9 +5,19 @@ CFLAGS   = -Wall -Wextra -g -O2
 
 # Use ncursesw for proper wide-character (UTF-8) support
 UNAME_S := $(shell uname -s)
+UNAME_M := $(shell uname -m)
 ifeq ($(UNAME_S),Darwin)
-    # Homebrew ncurses (wide-char build)
-    NCURSES_PREFIX ?= $(shell brew --prefix ncurses 2>/dev/null || echo /usr/local/opt/ncurses)
+    # Pick the brew prefix that matches the build arch — on systems with
+    # both Apple Silicon and Rosetta brew installs (`/opt/homebrew` vs
+    # `/usr/local`), `brew` from PATH may point at the wrong arch and link
+    # arm64 .o against x86_64 ncursesw. Prefer the arch-native brew.
+    ifeq ($(UNAME_M),arm64)
+        BREW ?= $(firstword $(wildcard /opt/homebrew/bin/brew) $(shell command -v brew 2>/dev/null))
+        NCURSES_PREFIX ?= $(shell $(BREW) --prefix ncurses 2>/dev/null || echo /opt/homebrew/opt/ncurses)
+    else
+        BREW ?= $(firstword $(wildcard /usr/local/bin/brew) $(shell command -v brew 2>/dev/null))
+        NCURSES_PREFIX ?= $(shell $(BREW) --prefix ncurses 2>/dev/null || echo /usr/local/opt/ncurses)
+    endif
     CFLAGS  += -I$(NCURSES_PREFIX)/include -D_XOPEN_SOURCE_EXTENDED
     LDFLAGS  = -L$(NCURSES_PREFIX)/lib -lncursesw -lm -lpthread
 else

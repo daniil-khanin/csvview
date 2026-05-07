@@ -79,6 +79,13 @@ void format_number_with_spaces(long long num, char *buf, size_t bufsize);
 char *truncate_for_display(const char *str, int max_width);
 
 /**
+ * Replace control bytes that would break ncurses table layout (\n, \r, \t,
+ * vertical-tab, form-feed) with spaces, in place. Safe to call on any
+ * NUL-terminated buffer; UTF-8 sequences are preserved.
+ */
+void sanitize_for_display(char *str);
+
+/**
  * Returns the number of terminal display columns needed for UTF-8 string s.
  * CJK/full-width characters count as 2; Arabic, Hebrew, Latin, etc. count as 1.
  */

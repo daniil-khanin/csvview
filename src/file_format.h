@@ -24,6 +24,7 @@ typedef struct {
     const char   *name;          /* "csv", "ndjson", … */
     int           can_edit;      /* 1 = full edit/save supported */
     int           has_header_row;/* 1 = row 0 is a column-name header (CSV) */
+    int           multiline_quoted;/* 1 = a row may span physical lines via "..." (CSV) */
 
     /* Parse a raw row string → malloc'd array of field strings.
        Same contract as parse_csv_line(): caller frees with free_csv_fields().

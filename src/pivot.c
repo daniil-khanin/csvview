@@ -2801,9 +2801,12 @@ void build_and_show_pivot(PivotSettings *settings, const char *csv_filename, int
                     int idx = ftop + i;
                     if (idx >= filter_unique_count) break;
                     if (idx == fcur) wattron(fw_win, COLOR_PAIR(2));
+                    char *fv_clean = strdup(filter_values[idx] ? filter_values[idx] : "");
+                    if (fv_clean) sanitize_for_display(fv_clean);
                     mvwprintw(fw_win, i + 1, 2, "%s %-*.*s",
                               filter_selected[idx] ? "*" : " ",
-                              fw - 6, fw - 6, filter_values[idx]);
+                              fw - 6, fw - 6, fv_clean ? fv_clean : "");
+                    free(fv_clean);
                     if (idx == fcur) wattroff(fw_win, COLOR_PAIR(2));
                 }
                 wattron(fw_win, COLOR_PAIR(6));

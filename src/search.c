@@ -8,6 +8,7 @@
 #include "utils.h"          // strcasestr_custom, get_column_value, etc.
 #include "ui_draw.h"        // spinner_tick / spinner_clear
 #include "file_format.h"    // g_fmt
+#include "csv_mmap.h"       // csv_mmap_get_line, g_mmap_base
 
 #include <stdio.h>          // fseek, fgets
 #include <stdlib.h>         // malloc, strdup
@@ -35,20 +36,22 @@ void perform_search(RowIndex *rows, FILE *f, int row_count)
     {
         if ((r - start_row) % 5000 == 0 && r > start_row) spinner_tick();
 
-        // Lazy-load the row into cache
+        // Lazy-load the row into cache. Prefer mmap (quote-aware for CSV
+        // multi-line cells); fall back to fgets only when mmap is not open.
         if (!rows[r].line_cache)
         {
-            fseek(f, rows[r].offset, SEEK_SET);
             char line_buf[MAX_LINE_LEN];
-            if (fgets(line_buf, sizeof(line_buf), f))
-            {
-                line_buf[strcspn(line_buf, "\n")] = '\0';
-                rows[r].line_cache = strdup(line_buf);
+            char *got = NULL;
+            if (g_mmap_base)
+                got = csv_mmap_get_line(rows[r].offset, line_buf, sizeof(line_buf));
+            if (!got && f) {
+                fseek(f, rows[r].offset, SEEK_SET);
+                if (fgets(line_buf, sizeof(line_buf), f)) {
+                    line_buf[strcspn(line_buf, "\n")] = '\0';
+                    got = line_buf;
+                }
             }
-            else
-            {
-                rows[r].line_cache = strdup("");
-            }
+            rows[r].line_cache = strdup(got ? got : "");
         }
 
         int field_count = 0;

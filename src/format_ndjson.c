@@ -53,6 +53,7 @@ FileFormatDriver ndjson_driver = {
     .name           = "ndjson",
     .can_edit       = 1,
     .has_header_row = 0,
+    .multiline_quoted = 0,
     .parse_row      = ndjson_parse_row,
     .build_row      = ndjson_build_row,
     .rebuild_header = ndjson_rebuild_header,

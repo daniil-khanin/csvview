@@ -50,7 +50,9 @@ static DetailLine *build_lines(char **fields, int fc, int val_width,
             continue;
         }
 
-        /* Walk through the value string, breaking at val_width display cols */
+        /* Walk through the value string, breaking at val_width display cols
+         * OR at embedded \n (multi-line quoted CSV cell — render as separate
+         * visual lines rather than collapsing). */
         const char *p = val;
         int first = 1;
         while (*p) {
@@ -58,12 +60,13 @@ static DetailLine *build_lines(char **fields, int fc, int val_width,
             lines[cnt].field_idx = first ? i : -1;
             first = 0;
 
-            /* Copy up to val_width display columns */
+            /* Copy up to val_width display columns or until \n. */
             int dcols = 0;
             int bytes = 0;
             const char *start = p;
             while (p[bytes] && dcols < val_width) {
                 unsigned char c = (unsigned char)p[bytes];
+                if (c == '\n') break;
                 int charlen = 1;
                 if (c >= 0xF0) charlen = 4;
                 else if (c >= 0xE0) charlen = 3;
@@ -88,7 +91,11 @@ static DetailLine *build_lines(char **fields, int fc, int val_width,
                 copy = (int)sizeof(lines[cnt].text) - 1;
             memcpy(lines[cnt].text, start, copy);
             lines[cnt].text[copy] = '\0';
+            /* Strip stray \r at end of slice (CRLF in cell). */
+            if (copy > 0 && lines[cnt].text[copy - 1] == '\r')
+                lines[cnt].text[copy - 1] = '\0';
             p += bytes;
+            if (*p == '\n') p++;   /* consume hard line break */
             cnt++;
         }
     }

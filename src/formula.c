@@ -1,6 +1,7 @@
 #include "formula.h"
 #include "csvview_defs.h"   /* rows, f, row_count, use_headers, col_name_to_num, col_to_num */
 #include "utils.h"
+#include "csv_mmap.h"       /* csv_mmap_get_line, g_mmap_base */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -444,17 +445,22 @@ static void field_at(const char *line, int col_idx, char *buf, int bsz) {
     buf[i]='\0';
 }
 
-/* Lazy-load row and return line. */
+/* Lazy-load row and return line. Prefers mmap (quote-aware for multi-line
+ * CSV cells); fgets fallback only if mmap is unavailable. */
 static const char *row_line(int ri) {
     if (!rows[ri].line_cache) {
-        fseek(f, rows[ri].offset, SEEK_SET);
         char buf[MAX_LINE_LEN];
-        if (fgets(buf, sizeof(buf), f)) {
-            buf[strcspn(buf,"\r\n")]='\0';
-            rows[ri].line_cache = strdup(buf);
-        } else {
-            rows[ri].line_cache = strdup("");
+        char *got = NULL;
+        if (g_mmap_base)
+            got = csv_mmap_get_line(rows[ri].offset, buf, sizeof(buf));
+        if (!got && f) {
+            fseek(f, rows[ri].offset, SEEK_SET);
+            if (fgets(buf, sizeof(buf), f)) {
+                buf[strcspn(buf,"\r\n")] = '\0';
+                got = buf;
+            }
         }
+        rows[ri].line_cache = strdup(got ? got : "");
     }
     return rows[ri].line_cache;
 }

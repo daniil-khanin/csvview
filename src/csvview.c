@@ -213,39 +213,103 @@ static RowIndex *build_row_index(FILE *fp, int *out_count)
     if (!r) return NULL;
 
     int  cnt = 0;
-    long pos = 0;
-    char buf[MAX_LINE_LEN];
     int  in_preamble = 1;   // no data lines encountered yet
+    int  use_mmap = (g_mmap_base != NULL);
+    int  multiline = (g_fmt && g_fmt->multiline_quoted);
 
-    while (fgets(buf, sizeof(buf), fp)) {
-        long line_start = pos;
-        pos += (long)strlen(buf);
+    /* mmap path: scan g_mmap_base directly. Honors quoted-newline rule for
+     * CSV-family formats so that "...\n..." stays a single logical row. */
+    if (use_mmap) {
+        const char *base = g_mmap_base;
+        size_t      total = g_mmap_size;
+        size_t      pos = 0;
+        char        head[MAX_LINE_LEN];
 
-        // Collect comment lines (starting with '#')
-        if (skip_comments && buf[0] == '#') {
-            buf[strcspn(buf, "\r\n")] = '\0';
-            if (comment_count < MAX_COMMENT_LINES)
-                comment_lines[comment_count++] = strdup(buf);
-            continue;
+        while (pos < total) {
+            const char *line_start = base + pos;
+            size_t      remaining  = total - pos;
+            const char *nl;
+            if (multiline) nl = csv_find_row_end(line_start, remaining);
+            else {
+                const char *m = memchr(line_start, '\n', remaining);
+                nl = m ? m : line_start + remaining;
+            }
+            size_t line_len = (size_t)(nl - line_start);
+            size_t advance  = line_len + ((size_t)(nl - base) < total ? 1 : 0);
+
+            // Comment line (# at byte 0). Only physical first byte matters —
+            // a multi-line quoted field cannot start with # at offset 0.
+            if (skip_comments && line_len > 0 && line_start[0] == '#') {
+                size_t copy = line_len;
+                if (copy >= sizeof(head)) copy = sizeof(head) - 1;
+                memcpy(head, line_start, copy);
+                head[copy] = '\0';
+                head[strcspn(head, "\r\n")] = '\0';
+                if (comment_count < MAX_COMMENT_LINES)
+                    comment_lines[comment_count++] = strdup(head);
+                pos += advance;
+                continue;
+            }
+
+            // Blank-line preamble skip (only checks first physical line)
+            if (skip_comments && in_preamble) {
+                size_t copy = line_len;
+                if (copy >= sizeof(head)) copy = sizeof(head) - 1;
+                memcpy(head, line_start, copy);
+                head[copy] = '\0';
+                if (head[strspn(head, " \t\r\n")] == '\0') {
+                    pos += advance;
+                    continue;
+                }
+            }
+            in_preamble = 0;
+
+            if (cnt >= MAX_ROWS) break;
+            if ((size_t)cnt >= cap) {
+                cap *= 2;
+                if (cap > (size_t)(MAX_ROWS + 1)) cap = (size_t)(MAX_ROWS + 1);
+                RowIndex *tmp = realloc(r, cap * sizeof(RowIndex));
+                if (!tmp) { free(r); return NULL; }
+                r = tmp;
+            }
+            r[cnt].offset     = (long)(line_start - base);
+            r[cnt].line_cache = NULL;
+            cnt++;
+            pos += advance;
         }
+    } else {
+        // Fallback: stdio fgets (mmap unavailable). Not multi-line quote aware;
+        // mmap failure is rare in practice, and quoted \n would already have
+        // broken the prior code path here too.
+        long pos = 0;
+        char buf[MAX_LINE_LEN];
 
-        // Skip blank lines in the preamble (between comments and data)
-        if (skip_comments && in_preamble && buf[strspn(buf, " \t\r\n")] == '\0')
-            continue;
+        while (fgets(buf, sizeof(buf), fp)) {
+            long line_start = pos;
+            pos += (long)strlen(buf);
 
-        in_preamble = 0;
+            if (skip_comments && buf[0] == '#') {
+                buf[strcspn(buf, "\r\n")] = '\0';
+                if (comment_count < MAX_COMMENT_LINES)
+                    comment_lines[comment_count++] = strdup(buf);
+                continue;
+            }
+            if (skip_comments && in_preamble && buf[strspn(buf, " \t\r\n")] == '\0')
+                continue;
+            in_preamble = 0;
 
-        if (cnt >= MAX_ROWS) break;
-        if ((size_t)cnt >= cap) {
-            cap *= 2;
-            if (cap > (size_t)(MAX_ROWS + 1)) cap = (size_t)(MAX_ROWS + 1);
-            RowIndex *tmp = realloc(r, cap * sizeof(RowIndex));
-            if (!tmp) { free(r); return NULL; }
-            r = tmp;
+            if (cnt >= MAX_ROWS) break;
+            if ((size_t)cnt >= cap) {
+                cap *= 2;
+                if (cap > (size_t)(MAX_ROWS + 1)) cap = (size_t)(MAX_ROWS + 1);
+                RowIndex *tmp = realloc(r, cap * sizeof(RowIndex));
+                if (!tmp) { free(r); return NULL; }
+                r = tmp;
+            }
+            r[cnt].offset     = line_start;
+            r[cnt].line_cache = NULL;
+            cnt++;
         }
-        r[cnt].offset     = line_start;
-        r[cnt].line_cache = NULL;
-        cnt++;
     }
 
     // +1 spare: table_edit.c accesses rows[row_count] when adding rows

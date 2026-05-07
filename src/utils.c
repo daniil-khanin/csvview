@@ -1382,14 +1382,27 @@ char *truncate_for_display(const char *str, int max_width)
         (void)start;
     }
 
-    if (!*p) return strdup(str); /* fits entirely */
-
-    size_t keep = end - (const unsigned char *)str;
-    char *result = malloc(keep + 1);
-    if (!result) return strdup(str);
-    memcpy(result, str, keep);
-    result[keep] = '\0';
+    char *result;
+    if (!*p) {
+        result = strdup(str); /* fits entirely */
+    } else {
+        size_t keep = end - (const unsigned char *)str;
+        result = malloc(keep + 1);
+        if (!result) result = strdup(str);
+        else { memcpy(result, str, keep); result[keep] = '\0'; }
+    }
+    if (result) sanitize_for_display(result);
     return result;
+}
+
+void sanitize_for_display(char *str)
+{
+    if (!str) return;
+    for (unsigned char *p = (unsigned char *)str; *p; p++) {
+        if (*p == '\n' || *p == '\r' || *p == '\t' ||
+            *p == 0x0B || *p == 0x0C)
+            *p = ' ';
+    }
 }
 
 char *clean_column_name(const char *raw)

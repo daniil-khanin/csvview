@@ -279,46 +279,45 @@ int compare_rows_by_column(const void *pa, const void *pb)
         if (rb == 0) return 1;
     }
 
-    // Lazily load row A if cache is empty
+    // Lazily load row A if cache is empty. Prefer mmap (quote-aware for
+    // multi-line CSV cells); fall back to fgets if mmap is unavailable.
     char *line_a = rows[ra].line_cache;
     if (!line_a)
     {
-        fseek(f, rows[ra].offset, SEEK_SET);
         char buf[MAX_LINE_LEN];
-        if (fgets(buf, sizeof(buf), f))
-        {
-            size_t len = strlen(buf);
-            if (len > 0 && buf[len - 1] == '\n') {
-                buf[len - 1] = '\0';
+        char *got = NULL;
+        if (g_mmap_base)
+            got = csv_mmap_get_line(rows[ra].offset, buf, sizeof(buf));
+        if (!got && f) {
+            fseek(f, rows[ra].offset, SEEK_SET);
+            if (fgets(buf, sizeof(buf), f)) {
+                size_t len = strlen(buf);
+                if (len > 0 && buf[len - 1] == '\n') buf[len - 1] = '\0';
+                got = buf;
             }
-            rows[ra].line_cache = strdup(buf);
-            line_a = rows[ra].line_cache;
         }
-        else
-        {
-            line_a = "";  // read error -> empty string
-        }
+        rows[ra].line_cache = strdup(got ? got : "");
+        line_a = rows[ra].line_cache;
     }
 
     // Lazily load row B
     char *line_b = rows[rb].line_cache;
     if (!line_b)
     {
-        fseek(f, rows[rb].offset, SEEK_SET);
         char buf[MAX_LINE_LEN];
-        if (fgets(buf, sizeof(buf), f))
-        {
-            size_t len = strlen(buf);
-            if (len > 0 && buf[len - 1] == '\n') {
-                buf[len - 1] = '\0';
+        char *got = NULL;
+        if (g_mmap_base)
+            got = csv_mmap_get_line(rows[rb].offset, buf, sizeof(buf));
+        if (!got && f) {
+            fseek(f, rows[rb].offset, SEEK_SET);
+            if (fgets(buf, sizeof(buf), f)) {
+                size_t len = strlen(buf);
+                if (len > 0 && buf[len - 1] == '\n') buf[len - 1] = '\0';
+                got = buf;
             }
-            rows[rb].line_cache = strdup(buf);
-            line_b = rows[rb].line_cache;
         }
-        else
-        {
-            line_b = "";
-        }
+        rows[rb].line_cache = strdup(got ? got : "");
+        line_b = rows[rb].line_cache;
     }
 
     // Determine the column name for comparison
