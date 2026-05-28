@@ -1,5 +1,42 @@
 # Changelog
 
+## v22 — 2026-05-28
+
+### New features
+
+- **Edit active filter** (`Shift+F`): when a filter is active, `Shift+F`
+  pre-fills its current text in the input bar for editing instead of
+  starting from scratch. `f` still opens a new empty filter. Useful for
+  tweaking long expressions like
+  `rank = "1" AND metric = "LEADS FREE ADS"`.
+
+- **Row freeze** (`Shift+Z`, `:freezer N`): pin the top N rows during
+  vertical scroll — similar to column freeze (`z`), but for rows.
+
+- **Bulk column commands**: `:hide`, `:show`, `:type`, `:fmt` now accept
+  glob patterns (e.g. `:hide tmp_*`, `:type *_amount number`) to operate
+  on many columns at once.
+
+### Bug fixes
+
+- **Filter parser respects quotes**: expressions with parentheses or
+  AND/OR inside quoted values are now parsed correctly.
+  `metric = "PAID SHARE (LEADS)"` and `col = "FOO AND BAR"` no longer
+  get mangled. The previous behavior replaced any `(` / `)` with spaces
+  and split values at unquoted AND/OR keywords.
+
+- **Multi-line quoted CSV cells**: cells with embedded newlines inside
+  `"..."` are now parsed and rendered as one logical row (RFC 4180).
+
+- **`.csvf` load buffer**: long `hidden:` / `widths:` lines no longer
+  get truncated when loading saved view settings.
+
+- **`:cd` headerless files**: accepts letter labels (A, B, C, …) when
+  the file has no header row.
+
+- **Horizontal scroll**: fixed misalignment when columns have non-default
+  widths.
+
 ## v21 — 2026-04-06
 
 ### New features
