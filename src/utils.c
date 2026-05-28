@@ -537,8 +537,18 @@ int parse_filter_expression(const char *query, FilterExpr *expr)
     // Bracket support: replace ( and ) with spaces before parsing.
     // With left-to-right evaluation, (A OR B) AND C correctly reduces
     // to A OR B AND C → same result.
-    for (char *pp = p; *pp; pp++) {
-        if (*pp == '(' || *pp == ')') *pp = ' ';
+    // Quote-aware: don't touch parens inside "..." or '...' values.
+    {
+        char quote = 0;
+        for (char *pp = p; *pp; pp++) {
+            if (quote) {
+                if (*pp == quote) quote = 0;
+            } else if (*pp == '"' || *pp == '\'') {
+                quote = *pp;
+            } else if (*pp == '(' || *pp == ')') {
+                *pp = ' ';
+            }
+        }
     }
     p = trim(p);
 
@@ -617,9 +627,16 @@ int parse_filter_expression(const char *query, FilterExpr *expr)
         // Skip whitespace before the value
         while (isspace(*p)) p++;
 
-        // Read the value until the next AND/OR or end of string
+        // Read the value until the next AND/OR or end of string.
+        // Quote-aware: if value starts with " or ', consume the entire quoted
+        // span (including spaces / AND / OR inside) up to the matching quote.
         char val_buf[256] = {0};
         char *val_start = p;
+        if (*p == '"' || *p == '\'') {
+            char vq = *p++;
+            while (*p && *p != vq) p++;
+            if (*p == vq) p++;  // include closing quote in val_buf
+        }
         while (*p) {
             if (strncasecmp(p, " AND ", 5) == 0 || strncasecmp(p, " OR ", 4) == 0) break;
             p++;

@@ -1458,10 +1458,15 @@ static const char *ac_match(const char *word, int wlen)
  * Returns 1 on Enter (buf filled), 0 on Esc (buf cleared). */
 /* border_x > 0: redraw ACS_VLINE at that column after clearing (preserves box frame) */
 /* use_hist=1: enable UP/DOWN history + command Tab; 0: column-only Tab, no history */
-static int ac_readline(char *buf, int maxlen, int y, int x, int border_x, int use_hist)
+static int ac_readline_ex(char *buf, int maxlen, int y, int x, int border_x, int use_hist, int preserve_initial)
 {
     int pos = 0;
-    buf[0] = '\0';
+    if (preserve_initial && buf[0]) {
+        buf[maxlen - 1] = '\0';
+        pos = (int)strlen(buf);
+    } else {
+        buf[0] = '\0';
+    }
     curs_set(1);
     noecho();
 
@@ -1578,6 +1583,11 @@ static int ac_readline(char *buf, int maxlen, int y, int x, int border_x, int us
 
     curs_set(0);
     return 1;
+}
+
+static int ac_readline(char *buf, int maxlen, int y, int x, int border_x, int use_hist)
+{
+    return ac_readline_ex(buf, maxlen, y, x, border_x, use_hist, 0);
 }
 
 // ────────────────────────────────────────────────
@@ -3554,11 +3564,13 @@ int main(int argc, char *argv[]) {
 
         if (ch == 'f' || ch == 'F') {
             in_filter_mode = 1;
-            filter_query[0] = '\0';
+            int edit_existing = (ch == 'F' && filter_active && filter_query[0]);
+            if (!edit_existing) filter_query[0] = '\0';
 
             draw_status_bar(height - 1, 1, file_to_open, row_count, file_size_str);
             attron(COLOR_PAIR(3));
-            printw(" | Filtering...               ");
+            printw(edit_existing ? " | Editing filter...          "
+                                 : " | Filtering...               ");
             attroff(COLOR_PAIR(3));
             refresh();
 
@@ -3566,7 +3578,7 @@ int main(int argc, char *argv[]) {
             clrtoeol();
             refresh();
 
-            if (!ac_readline(filter_query, sizeof(filter_query), 2, 4, width - 1, 0))
+            if (!ac_readline_ex(filter_query, sizeof(filter_query), 2, 4, width - 1, 0, edit_existing))
                 in_filter_mode = 0;
 
             if (in_filter_mode && strlen(filter_query) > 0) {
